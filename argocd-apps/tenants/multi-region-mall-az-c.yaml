@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: workloads-apne2-az-c
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io/cleanup
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Atom-oh/multi-region-architecture
+    targetRevision: main
+    path: k8s/overlays/ap-northeast-2-az-c
+  destination:
+    name: mall-apne2-az-c
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

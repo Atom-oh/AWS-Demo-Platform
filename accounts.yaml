@@ -1,0 +1,27 @@
+# AWS Demo Platform — target accounts registry
+# See docs/superpowers/specs/2026-05-26-aws-demo-platform-design.md §3.1
+
+accounts:
+  - name: atomoh-main
+    account_id: "180294183052"
+    region: ap-northeast-2
+    roles:
+      operator:
+        # NOTE: DemoPlatformOperator role created in Phase H / by dashboard backend (Stage 3)
+        arn: "arn:aws:iam::180294183052:role/DemoPlatformOperator"
+        external_id_secret: /demo-platform/external-ids/atomoh-main/operator
+      terraformer:
+        arn: "arn:aws:iam::180294183052:role/DemoPlatformTerraformer"
+        external_id_secret: /demo-platform/external-ids/atomoh-main/terraformer
+
+  # Friend accounts — onboarded per docs/onboarding/friend-account-setup.md
+  # - name: friend-A
+  #   account_id: "111122223333"
+  #   region: ap-northeast-2
+  #   roles:
+  #     operator:
+  #       arn: "arn:aws:iam::111122223333:role/DemoPlatformOperator"
+  #       external_id_secret: /demo-platform/external-ids/friend-A/operator
+  #     terraformer:
+  #       arn: "arn:aws:iam::111122223333:role/DemoPlatformTerraformer"
+  #       external_id_secret: /demo-platform/external-ids/friend-A/terraformer

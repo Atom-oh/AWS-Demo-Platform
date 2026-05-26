@@ -1,0 +1,41 @@
+name: multi-region-mall
+github:
+  repo: Atom-oh/multi-region-architecture
+  branch: main
+description: Multi-region MSA showcase (shopping mall) — ap-northeast-2 only
+account: atomoh-main
+display:
+  category: showcase
+
+resources:
+  # Workload clusters (Korea spokes)
+  - type: argocd-app
+    application: workloads-apne2-az-a
+    cluster: mall-apne2-az-a
+    workload_selector:
+      namespace: default
+    hpa_handling: scale_to_one
+
+  - type: argocd-app
+    application: workloads-apne2-az-c
+    cluster: mall-apne2-az-c
+    workload_selector:
+      namespace: default
+    hpa_handling: scale_to_one
+
+  # Korea data layer — always-on (cannot fully stop without data loss / 7-day RDS limit)
+  - type: rds
+    db_identifier: mall-apne2-aurora
+    always_on: true
+  - type: dynamodb
+    table_names: []
+    always_on: true
+  - type: elasticache
+    cluster_id: mall-apne2-valkey
+    always_on: true
+  - type: msk
+    cluster_name: mall-apne2-msk
+    always_on: true
+
+urls:
+  demo: https://mall.atomai.click
