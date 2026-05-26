@@ -1,0 +1,21 @@
+installCRDs: true
+
+tolerations:
+  - key: workload-type
+    operator: Equal
+    value: platform
+    effect: NoSchedule
+
+certController:
+  tolerations:
+    - key: workload-type
+      operator: Equal
+      value: platform
+      effect: NoSchedule
+
+webhook:
+  tolerations:
+    - key: workload-type
+      operator: Equal
+      value: platform
+      effect: NoSchedule
