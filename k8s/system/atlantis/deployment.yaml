@@ -32,6 +32,7 @@ spec:
             - --port=4141
             - --automerge=false
             - --hide-prev-plan-comments=true
+            - --write-git-creds
           env:
             - name: GH_APP_ID
               valueFrom:
