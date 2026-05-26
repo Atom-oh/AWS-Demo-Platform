@@ -17,17 +17,35 @@ locals {
   private_subnet_ids = data.terraform_remote_state.shared.outputs.private_subnet_ids
 }
 
+# CF VPC Origin's auto-managed SG. ID is dynamic — terraform can't reference directly
+# (no attribute on aws_cloudfront_vpc_origin resource). Hardcoded after manual lookup.
+# If VPC Origin recreated, update this value.
+# Lookup command: aws ec2 describe-network-interfaces \
+#   --filters "Name=vpc-id,Values=<VPC_ID>" "Name=description,Values=*CloudFront*" \
+#   --query 'NetworkInterfaces[0].Groups[0].GroupId'
+locals {
+  cf_vpc_origin_sg_id = "sg-0a67fc7bfa9c2f0c6"
+}
+
 resource "aws_security_group" "alb_internal" {
   name        = "demo-platform-alb-internal"
   description = "Internal ALB for AWS Demo Platform (CF VPC Origin + RFC1918)"
   vpc_id      = local.vpc_id
 
   ingress {
-    description = "Internal VPC + peered networks (RFC1918 subset)"
+    description = "Internal VPC + peered networks (RFC1918 subset, port 443)"
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["10.0.0.0/8"]
+  }
+
+  ingress {
+    description     = "CloudFront VPC Origin (HTTPS)"
+    from_port       = 443
+    to_port         = 443
+    protocol        = "tcp"
+    security_groups = [local.cf_vpc_origin_sg_id]
   }
 
   egress {
@@ -47,32 +65,10 @@ resource "aws_lb" "internal" {
   enable_deletion_protection = false
 }
 
-resource "aws_acm_certificate" "alb" {
-  domain_name               = "atomai.click"
-  subject_alternative_names = ["*.atomai.click"]
-  validation_method         = "DNS"
-  lifecycle { create_before_destroy = true }
-}
-
-resource "aws_route53_record" "alb_cert_validation" {
-  for_each = {
-    for dvo in aws_acm_certificate.alb.domain_validation_options : dvo.domain_name => {
-      name   = dvo.resource_record_name
-      record = dvo.resource_record_value
-      type   = dvo.resource_record_type
-    }
-  }
-  allow_overwrite = true
-  name            = each.value.name
-  records         = [each.value.record]
-  ttl             = 60
-  type            = each.value.type
-  zone_id         = data.aws_route53_zone.public.zone_id
-}
-
-resource "aws_acm_certificate_validation" "alb" {
-  certificate_arn         = aws_acm_certificate.alb.arn
-  validation_record_fqdns = [for r in aws_route53_record.alb_cert_validation : r.fqdn]
+data "aws_acm_certificate" "alb_wildcard" {
+  domain      = "*.atomai.click"
+  statuses    = ["ISSUED"]
+  most_recent = true
 }
 
 resource "aws_lb_listener" "https" {
@@ -80,25 +76,7 @@ resource "aws_lb_listener" "https" {
   port              = 443
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
-  certificate_arn   = aws_acm_certificate_validation.alb.certificate_arn
-
-  default_action {
-    type = "fixed-response"
-    fixed_response {
-      content_type = "text/plain"
-      message_body = "No matching listener rule"
-      status_code  = "503"
-    }
-  }
-}
-
-# HTTP listener for CloudFront VPC Origin traffic
-# (CF→ALB stays inside AWS network; HTTPS would require SNI for ALB AWS DNS name
-#  which isn't in the wildcard cert. HTTP is acceptable for VPC-internal CF→ALB.)
-resource "aws_lb_listener" "http" {
-  load_balancer_arn = aws_lb.internal.arn
-  port              = 80
-  protocol          = "HTTP"
+  certificate_arn   = data.aws_acm_certificate.alb_wildcard.arn
 
   default_action {
     type = "fixed-response"
@@ -129,20 +107,8 @@ resource "aws_lb_target_group" "atlantis" {
   }
 }
 
-resource "aws_lb_listener_rule" "atlantis_https" {
+resource "aws_lb_listener_rule" "atlantis" {
   listener_arn = aws_lb_listener.https.arn
-  priority     = 100
-  action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.atlantis.arn
-  }
-  condition {
-    host_header { values = ["atlantis.atomai.click"] }
-  }
-}
-
-resource "aws_lb_listener_rule" "atlantis_http" {
-  listener_arn = aws_lb_listener.http.arn
   priority     = 100
   action {
     type             = "forward"

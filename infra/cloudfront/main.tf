@@ -20,46 +20,23 @@ provider "aws" {
   }
 }
 
-# Cert for CF (must be in us-east-1)
-resource "aws_acm_certificate" "cf" {
-  provider                  = aws.us_east_1
-  domain_name               = "atomai.click"
-  subject_alternative_names = ["*.atomai.click"]
-  validation_method         = "DNS"
-  lifecycle { create_before_destroy = true }
+# Use existing *.atomai.click wildcard cert in us-east-1
+data "aws_acm_certificate" "cf_wildcard" {
+  provider    = aws.us_east_1
+  domain      = "*.atomai.click"
+  statuses    = ["ISSUED"]
+  most_recent = true
 }
 
-resource "aws_route53_record" "cf_cert_validation" {
-  for_each = {
-    for dvo in aws_acm_certificate.cf.domain_validation_options : dvo.domain_name => {
-      name   = dvo.resource_record_name
-      record = dvo.resource_record_value
-      type   = dvo.resource_record_type
-    }
-  }
-  allow_overwrite = true
-  name            = each.value.name
-  records         = [each.value.record]
-  ttl             = 60
-  type            = each.value.type
-  zone_id         = data.aws_route53_zone.public.zone_id
-}
-
-resource "aws_acm_certificate_validation" "cf" {
-  provider                = aws.us_east_1
-  certificate_arn         = aws_acm_certificate.cf.arn
-  validation_record_fqdns = [for r in aws_route53_record.cf_cert_validation : r.fqdn]
-}
-
-# VPC Origin — HTTP-only variant (avoids TLS SNI mismatch with ALB AWS DNS).
-# Traffic CF→ALB stays inside AWS network via VPC Origin ENIs; HTTP acceptable.
-resource "aws_cloudfront_vpc_origin" "alb_http" {
+# VPC Origin (HTTPS-only). DomainName on the distribution drives TLS SNI;
+# atlantis.atomai.click matches the *.atomai.click wildcard cert on the ALB.
+resource "aws_cloudfront_vpc_origin" "alb" {
   vpc_origin_endpoint_config {
-    name                   = "demo-platform-alb-internal-http"
+    name                   = "demo-platform-alb-internal"
     arn                    = data.terraform_remote_state.alb_internal.outputs.alb_arn
     http_port              = 80
     https_port             = 443
-    origin_protocol_policy = "http-only"
+    origin_protocol_policy = "https-only"
     origin_ssl_protocols {
       quantity = 1
       items    = ["TLSv1.2"]
@@ -76,10 +53,12 @@ resource "aws_cloudfront_distribution" "atlantis" {
   price_class     = "PriceClass_200"
 
   origin {
-    domain_name = data.terraform_remote_state.alb_internal.outputs.alb_dns_name
+    # DomainName drives Host header CF sends to ALB. atlantis.atomai.click
+    # matches the ALB listener rule. Routing still via VPC Origin ENI (HTTP).
+    domain_name = "atlantis.atomai.click"
     origin_id   = "alb-internal"
     vpc_origin_config {
-      vpc_origin_id            = aws_cloudfront_vpc_origin.alb_http.id
+      vpc_origin_id            = aws_cloudfront_vpc_origin.alb.id
       origin_read_timeout      = 60
       origin_keepalive_timeout = 5
     }
@@ -95,7 +74,7 @@ resource "aws_cloudfront_distribution" "atlantis" {
   }
 
   viewer_certificate {
-    acm_certificate_arn      = aws_acm_certificate_validation.cf.certificate_arn
+    acm_certificate_arn      = data.aws_acm_certificate.cf_wildcard.arn
     minimum_protocol_version = "TLSv1.2_2021"
     ssl_support_method       = "sni-only"
   }
