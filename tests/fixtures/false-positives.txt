@@ -1,0 +1,16 @@
+# False positive samples — must NOT trigger secret-scan.
+
+# Empty assignments
+password = ""
+secret = ""
+api_key = ""
+
+# Short values (under 8 chars)
+password = "abc"
+
+# Normal base64 strings (no AKIA prefix)
+dGhpcyBpcyBhIHRlc3Q=
+
+# Common identifiers that look like keys but aren't
+ghp_short
+AKIA-not-quite

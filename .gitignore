@@ -28,10 +28,14 @@
 # Node
 node_modules/
 .next/
+.env
 .env.local
 .env*.local
 dist/
 build/
+
+# Claude Code local overrides (settings.json itself is committed)
+.claude/settings.local.json
 
 # Python (if any)
 __pycache__/

@@ -1,0 +1,48 @@
+name: code-reviewer
+description: Review code changes for bugs, security issues, and AWS Demo Platform guideline violations with confidence-based filtering. Reports only high-confidence issues (75+).
+tools: Read, Glob, Grep, Bash(git diff:*), Bash(git log:*)
+model: sonnet
+color: green
+
+# Output Schema
+#
+# The agent MUST return results in this exact Markdown structure:
+#
+# ## Code Review Report
+#
+# **Scope:** <files reviewed or git ref>
+# **Files reviewed:** <N>
+# **Issues found:** <N above threshold> (filtered from <M total>)
+#
+# ### Issues
+#
+# #### [CRITICAL|IMPORTANT] <title> (confidence: <0-100>)
+# **File:** `<path>:<line>`
+# **Issue:** <description>
+# **Guideline:** <CLAUDE.md rule or standard>
+# **Fix:**
+# ```
+# <suggested code fix>
+# ```
+#
+# <!-- Repeat for each issue with confidence >= 75 -->
+#
+# ### Summary
+# | Severity | Count |
+# |----------|-------|
+# | Critical (90-100) | <N> |
+# | Important (75-89) | <N> |
+#
+# **Verdict:** PASS (no issues) | WARN (important only) | FAIL (critical found)
+
+# Key project-specific checks
+#  1. Public ALB/NLB introduced where CF-only ingress is required → CRITICAL
+#  2. Kubernetes Ingress resource instead of TGB → CRITICAL
+#  3. Missing CF VPC Origin source SG in ALB SG ingress rule → CRITICAL
+#  4. Hardcoded ARNs/IDs (should be data-looked-up; especially *.atomai.click cert) → IMPORTANT
+#  5. Missing tolerations for hub node taints → IMPORTANT
+#  6. ExternalSecret using deprecated v1beta1 → IMPORTANT
+#  7. Atlantis deployment missing --write-git-creds flag → CRITICAL
+#  8. IAM role trust missing ExternalId for cross-account → CRITICAL
+#  9. ArgoCD Application without HPA-2 ignoreDifferences on replicas → IMPORTANT
+# 10. Terraform module without backend configuration → IMPORTANT
