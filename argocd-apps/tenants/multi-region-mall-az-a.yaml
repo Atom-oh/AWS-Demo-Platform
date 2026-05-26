@@ -21,3 +21,7 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      - Replace=true   # bypass structured-merge diff for legacy live state
+                       # with duplicate env (old ArgoCD residue). After live
+                       # state is clean (and upstream PR #12 merged), this
+                       # can be removed.
