@@ -1,1 +1,42 @@
+# Skill-managed
 .superpowers/
+
+# Editor & local tools
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+*.tfplan.binary
+.terraform.lock.hcl
+
+# Secrets — defense in depth
+**/*.pem
+**/*.key
+**/secrets.yaml
+**/secrets.local.*
+
+# Local screenshots / scratch
+*.png
+*.jpg
+
+# Node
+node_modules/
+.next/
+.env.local
+.env*.local
+dist/
+build/
+
+# Python (if any)
+__pycache__/
+*.pyc
+.venv/
+
+# IDE & misc
+*.log
