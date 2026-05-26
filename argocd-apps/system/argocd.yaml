@@ -1,0 +1,48 @@
+# ArgoCD self-managed via Helm chart.
+# Note: ArgoCD will only sync this if it doesn't conflict with the
+# currently-running install. Helm release ownership labels were set
+# at install time so ArgoCD should adopt cleanly.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io/cleanup
+spec:
+  project: default
+  source:
+    chart: argo-cd
+    repoURL: https://argoproj.github.io/argo-helm
+    targetRevision: 9.5.15
+    helm:
+      releaseName: argocd
+      valueFiles:
+        - $values/k8s/system/argocd/values.yaml
+  sources:
+    - chart: argo-cd
+      repoURL: https://argoproj.github.io/argo-helm
+      targetRevision: 9.5.15
+      helm:
+        releaseName: argocd
+        valueFiles:
+          - $values/k8s/system/argocd/values.yaml
+    - repoURL: https://github.com/Atom-oh/AWS-Demo-Platform
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: false   # safer for self-managed argocd
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    # ArgoCD's own CRDs and webhook configs are managed externally
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+      jsonPointers:
+        - /spec/conversion
