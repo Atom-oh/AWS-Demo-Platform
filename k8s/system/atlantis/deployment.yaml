@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: atlantis
+  namespace: atlantis
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: atlantis }
+  template:
+    metadata:
+      labels: { app: atlantis }
+    spec:
+      serviceAccountName: atlantis
+      tolerations:
+        - key: workload-type
+          operator: Equal
+          value: platform
+          effect: NoSchedule
+      containers:
+        - name: atlantis
+          image: ghcr.io/runatlantis/atlantis:v0.30.0
+          args:
+            - server
+            - --repo-config=/etc/atlantis/repos.yaml
+            - --atlantis-url=https://atlantis.atomai.click
+            - --gh-app-id=$(GH_APP_ID)
+            - --gh-app-installation-id=$(GH_APP_INSTALLATION_ID)
+            - --gh-app-key-file=/secrets/private-key
+            - --gh-webhook-secret=$(GH_WEBHOOK_SECRET)
+            - --repo-allowlist=github.com/Atom-oh/*
+            - --port=4141
+            - --automerge=false
+            - --hide-prev-plan-comments=true
+          env:
+            - name: GH_APP_ID
+              valueFrom:
+                secretKeyRef: { name: atlantis-github-app, key: app-id }
+            - name: GH_APP_INSTALLATION_ID
+              valueFrom:
+                secretKeyRef: { name: atlantis-github-app, key: installation-id }
+            - name: GH_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef: { name: atlantis-github-app, key: webhook-secret }
+          ports:
+            - { name: atlantis, containerPort: 4141 }
+          volumeMounts:
+            - { name: repos, mountPath: /etc/atlantis }
+            - { name: secrets, mountPath: /secrets, readOnly: true }
+            - { name: data, mountPath: /atlantis-data }
+          resources:
+            requests: { cpu: 200m, memory: 512Mi }
+            limits:   { cpu: 1000m, memory: 2Gi }
+      volumes:
+        - name: repos
+          configMap: { name: atlantis-config }
+        - name: secrets
+          secret:
+            secretName: atlantis-github-app
+            items:
+              - { key: private-key, path: private-key }
+        - name: data
+          emptyDir: {}
