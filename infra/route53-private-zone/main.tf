@@ -39,7 +39,7 @@ resource "aws_route53_zone" "private" {
   comment = "Split-horizon DNS — resolves internal services to Internal ALB"
 }
 
-# Public record → CloudFront (atlantis)
+# Public records → CloudFront
 resource "aws_route53_record" "atlantis_public" {
   zone_id = data.aws_route53_zone.public.zone_id
   name    = "atlantis.atomai.click"
@@ -47,6 +47,17 @@ resource "aws_route53_record" "atlantis_public" {
   alias {
     name                   = data.terraform_remote_state.cloudfront.outputs.atlantis_cf_domain
     zone_id                = "Z2FDTNDATAQYW2" # CloudFront global HZ
+    evaluate_target_health = false
+  }
+}
+
+resource "aws_route53_record" "argocd_public" {
+  zone_id = data.aws_route53_zone.public.zone_id
+  name    = "argocd.atomai.click"
+  type    = "A"
+  alias {
+    name                   = data.terraform_remote_state.cloudfront.outputs.argocd_cf_domain
+    zone_id                = "Z2FDTNDATAQYW2"
     evaluate_target_health = false
   }
 }

@@ -85,3 +85,43 @@ resource "aws_cloudfront_distribution" "atlantis" {
     }
   }
 }
+
+# ArgoCD UI CF distribution
+resource "aws_cloudfront_distribution" "argocd" {
+  enabled         = true
+  is_ipv6_enabled = true
+  comment         = "ArgoCD UI (hub cluster)"
+  aliases         = ["argocd.atomai.click"]
+  price_class     = "PriceClass_200"
+
+  origin {
+    domain_name = "argocd.atomai.click"
+    origin_id   = "alb-internal"
+    vpc_origin_config {
+      vpc_origin_id            = aws_cloudfront_vpc_origin.alb.id
+      origin_read_timeout      = 60
+      origin_keepalive_timeout = 5
+    }
+  }
+
+  default_cache_behavior {
+    target_origin_id         = "alb-internal"
+    viewer_protocol_policy   = "redirect-to-https"
+    allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods           = ["GET", "HEAD"]
+    cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+    origin_request_policy_id = "216adef6-5c7f-47e4-b989-5492eafa07d3"
+  }
+
+  viewer_certificate {
+    acm_certificate_arn      = data.aws_acm_certificate.cf_wildcard.arn
+    minimum_protocol_version = "TLSv1.2_2021"
+    ssl_support_method       = "sni-only"
+  }
+
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
+}

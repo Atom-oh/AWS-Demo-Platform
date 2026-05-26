@@ -1,0 +1,76 @@
+global:
+  domain: argocd.atomai.click
+  tolerations:
+    - key: node-role
+      value: system-critical
+      effect: NoSchedule
+  nodeSelector:
+    role: system
+
+server:
+  replicas: 1
+  extraArgs:
+    - --insecure
+  service:
+    type: ClusterIP
+
+controller:
+  replicas: 1
+  resources:
+    requests: { cpu: 500m, memory: 512Mi }
+    limits:   { cpu: "3", memory: 2Gi }
+  args:
+    - --status-processors
+    - "10"
+    - --operation-processors
+    - "5"
+    - --repo-server-timeout-seconds
+    - "90"
+
+repoServer:
+  replicas: 1
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits:   { cpu: "1", memory: 1Gi }
+
+applicationSet:
+  replicas: 1
+
+redis-ha:
+  enabled: false   # non-prod, single-replica redis ok
+
+redis:
+  enabled: true
+  tolerations:
+    - key: node-role
+      value: system-critical
+      effect: NoSchedule
+  nodeSelector:
+    role: system
+
+configs:
+  cm:
+    kustomize.buildOptions: "--enable-helm"
+    resource.exclusions: |
+      - apiGroups:
+          - cilium.io
+        kinds:
+          - CiliumIdentity
+        clusters:
+          - "*"
+    # Cluster-wide ignoreDifferences for HPA-2 on/off pattern (Section 4.2 of spec).
+    # Allows backend lifecycle-controller to scale Deployments/StatefulSets/HPAs
+    # without ArgoCD reverting them.
+    resource.customizations.ignoreDifferences.apps_Deployment: |
+      jsonPointers:
+        - /spec/replicas
+    resource.customizations.ignoreDifferences.apps_StatefulSet: |
+      jsonPointers:
+        - /spec/replicas
+    resource.customizations.ignoreDifferences.autoscaling_HorizontalPodAutoscaler: |
+      jsonPointers:
+        - /spec/minReplicas
+        - /spec/maxReplicas
+  params:
+    server.insecure: true
+    controller.self.heal.timeout.seconds: "10"

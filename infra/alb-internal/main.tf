@@ -118,3 +118,34 @@ resource "aws_lb_listener_rule" "atlantis" {
     host_header { values = ["atlantis.atomai.click"] }
   }
 }
+
+# ArgoCD UI target group + listener rule
+resource "aws_lb_target_group" "argocd_server" {
+  name        = "demo-platform-argocd"
+  port        = 8080
+  protocol    = "HTTP"
+  vpc_id      = local.vpc_id
+  target_type = "ip"
+
+  health_check {
+    path                = "/healthz"
+    protocol            = "HTTP"
+    matcher             = "200"
+    interval            = 15
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+  }
+}
+
+resource "aws_lb_listener_rule" "argocd" {
+  listener_arn = aws_lb_listener.https.arn
+  priority     = 110
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.argocd_server.arn
+  }
+  condition {
+    host_header { values = ["argocd.atomai.click"] }
+  }
+}
