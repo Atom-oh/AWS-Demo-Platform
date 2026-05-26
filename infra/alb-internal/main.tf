@@ -92,6 +92,24 @@ resource "aws_lb_listener" "https" {
   }
 }
 
+# HTTP listener for CloudFront VPC Origin traffic
+# (CF→ALB stays inside AWS network; HTTPS would require SNI for ALB AWS DNS name
+#  which isn't in the wildcard cert. HTTP is acceptable for VPC-internal CF→ALB.)
+resource "aws_lb_listener" "http" {
+  load_balancer_arn = aws_lb.internal.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type = "fixed-response"
+    fixed_response {
+      content_type = "text/plain"
+      message_body = "No matching listener rule"
+      status_code  = "503"
+    }
+  }
+}
+
 # Atlantis target group + listener rule
 resource "aws_lb_target_group" "atlantis" {
   name        = "demo-platform-atlantis"
@@ -111,8 +129,20 @@ resource "aws_lb_target_group" "atlantis" {
   }
 }
 
-resource "aws_lb_listener_rule" "atlantis" {
+resource "aws_lb_listener_rule" "atlantis_https" {
   listener_arn = aws_lb_listener.https.arn
+  priority     = 100
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.atlantis.arn
+  }
+  condition {
+    host_header { values = ["atlantis.atomai.click"] }
+  }
+}
+
+resource "aws_lb_listener_rule" "atlantis_http" {
+  listener_arn = aws_lb_listener.http.arn
   priority     = 100
   action {
     type             = "forward"

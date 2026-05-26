@@ -1,0 +1,11 @@
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: atlantis
+  namespace: atlantis
+spec:
+  serviceRef:
+    name: atlantis
+    port: 80
+  targetGroupARN: arn:aws:elasticloadbalancing:ap-northeast-2:180294183052:targetgroup/demo-platform-atlantis/40f60fe8222b8f91
+  targetType: ip

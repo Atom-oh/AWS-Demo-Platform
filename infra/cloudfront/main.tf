@@ -51,14 +51,15 @@ resource "aws_acm_certificate_validation" "cf" {
   validation_record_fqdns = [for r in aws_route53_record.cf_cert_validation : r.fqdn]
 }
 
-# VPC Origin
-resource "aws_cloudfront_vpc_origin" "alb" {
+# VPC Origin — HTTP-only variant (avoids TLS SNI mismatch with ALB AWS DNS).
+# Traffic CF→ALB stays inside AWS network via VPC Origin ENIs; HTTP acceptable.
+resource "aws_cloudfront_vpc_origin" "alb_http" {
   vpc_origin_endpoint_config {
-    name                   = "demo-platform-alb-internal"
+    name                   = "demo-platform-alb-internal-http"
     arn                    = data.terraform_remote_state.alb_internal.outputs.alb_arn
     http_port              = 80
     https_port             = 443
-    origin_protocol_policy = "https-only"
+    origin_protocol_policy = "http-only"
     origin_ssl_protocols {
       quantity = 1
       items    = ["TLSv1.2"]
@@ -78,7 +79,7 @@ resource "aws_cloudfront_distribution" "atlantis" {
     domain_name = data.terraform_remote_state.alb_internal.outputs.alb_dns_name
     origin_id   = "alb-internal"
     vpc_origin_config {
-      vpc_origin_id            = aws_cloudfront_vpc_origin.alb.id
+      vpc_origin_id            = aws_cloudfront_vpc_origin.alb_http.id
       origin_read_timeout      = 60
       origin_keepalive_timeout = 5
     }
