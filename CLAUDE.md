@@ -67,7 +67,7 @@ tests/                    - Harness validation suite
 - **HPA-2 pattern**: instead of patching replicas to 0 for demo-off, patch HPA `min=max=1`. ArgoCD `ignoreDifferences` covers Deployment/StatefulSet `/spec/replicas` and HPA `/spec/minReplicas`+`/spec/maxReplicas` cluster-wide.
 - **Atlantis flag**: `--write-git-creds` is required for GitHub App auth — don't strip it from the deployment.
 - **ACM cert**: always use the pre-existing `*.atomai.click` wildcard via `data "aws_acm_certificate"` lookup. Don't issue new certs.
-- **kube context safety**: always verify `kubectl config current-context` before running cluster-scoped operations. The hub is `mall-apne2-mgmt`; spokes are `mall-apne2-az-{a,c}`.
+- **kube context safety**: always verify `kubectl config current-context` before running cluster-scoped operations. Available contexts are full EKS ARNs (e.g., `arn:aws:eks:ap-northeast-2:180294183052:cluster/mall-apne2-mgmt`) and the short aliases `az-a` / `az-c` for spokes.
 - **Naming**: Terraform resources prefixed with `demo-platform-`. AWS Secrets Manager paths under `/demo-platform/...`.
 
 ## Key Commands

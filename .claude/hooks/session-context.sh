@@ -24,8 +24,8 @@ KUBE_CTX=$(kubectl config current-context 2>/dev/null)
 if [ -n "$KUBE_CTX" ]; then
     echo "kube context: $KUBE_CTX"
     case "$KUBE_CTX" in
-        *mgmt*) ;;
-        *) echo "  WARN: context is not the hub (expected *-mgmt). Verify before cluster-scoped ops." ;;
+        *mall-apne2-mgmt*) ;;  # hub (full ARN or short alias)
+        *) echo "  WARN: context is not the hub (expected *mall-apne2-mgmt). Verify before cluster-scoped ops." ;;
     esac
 fi
 
