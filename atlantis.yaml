@@ -55,13 +55,7 @@ projects:
     apply_requirements:
       - mergeable
 
-  - name: eks-mgmt
-    dir: infra/eks-mgmt
-    terraform_version: v1.9.6
-    autoplan:
-      enabled: true
-      when_modified:
-        - "*.tf"
-        - "../../atlantis.yaml"
-    apply_requirements:
-      - mergeable
+# eks-mgmt is intentionally NOT registered. It's a cross-repo state
+# reference (the actual EKS cluster is owned by multi-region-architecture
+# repo). Atlantis would attempt to refresh tempo-storage S3 + EKS OIDC
+# data sources owned by the other repo, which would fail and add no value.

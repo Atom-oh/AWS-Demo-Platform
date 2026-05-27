@@ -51,22 +51,14 @@ data "aws_iam_policy_document" "atlantis_perms" {
     resources = ["arn:aws:iam::*:role/DemoPlatformTerraformer"]
   }
   statement {
-    effect = "Allow"
-    actions = [
-      "s3:GetObject", "s3:PutObject", "s3:DeleteObject",
-      "s3:ListBucket"
-    ]
-    resources = [
-      # Legacy us-east-1 bucket — still used by AWS-Demo-Platform and
-      # multi-region-architecture.
-      "arn:aws:s3:::multi-region-mall-terraform-state",
-      "arn:aws:s3:::multi-region-mall-terraform-state/*",
-      # New ap-northeast-2 shared bucket — CLI-bootstrapped. Used by
-      # new projects (call-center-admin) and any future Atlantis-managed
-      # repos under this account.
-      "arn:aws:s3:::atom-oh-atlantis-tfstate-apne2",
-      "arn:aws:s3:::atom-oh-atlantis-tfstate-apne2/*"
-    ]
+    # Non-prod platform: broad S3 access. Atlantis needs to manage S3
+    # resources across all projects (tfstate buckets + project-owned
+    # buckets like tempo-traces, callcenter raw/masked, etc.). Scoping
+    # to individual ARNs gets unwieldy fast — single operator, non-prod
+    # tolerance applies.
+    effect    = "Allow"
+    actions   = ["s3:*"]
+    resources = ["*"]
   }
   statement {
     effect    = "Allow"
