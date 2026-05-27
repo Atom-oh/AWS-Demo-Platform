@@ -1,0 +1,46 @@
+name: call-center-admin
+github:
+  repo: Atom-oh/call-center-admin
+  branch: main
+description: 카카오페이 콜센터 STT 자동 분류 시스템 (Bedrock Opus 4.7 + Sonnet 4.6 cross-verify, SFN Express, DynamoDB, S3 Parquet, Streamlit HITL)
+account: atomoh-main
+display:
+  category: showcase
+
+# Atlantis 흐름 — repo 의 atlantis.yaml 이 project list/디렉토리 매핑을 담는다.
+# dev 환경만 Phase 1 에 적용. stg/prd 는 PR10 이후 등록 예정.
+
+resources:
+  # PR7 (analytics) 머지 후 활성화 — Glue + Athena + Firehose 가 분석 데이터 흐름을 만든다.
+  # Phase 1 의 핵심 처리 흐름은 SFN Express + Lambda 4종 (pii_guard/classify/verify/persist).
+  # always_on 표시는 단순 dashboard 표기용 — 실제 토글은 Phase 3 (HITL UI / Streamlit) 까지 미정.
+
+  # Step Functions Express state machine — 항상 활성 (idle 시 비용 거의 0)
+  - type: stepfunctions
+    state_machine_name: callcenter-dev-classify
+    always_on: true
+
+  # Lambda 4종 — 호출당 과금
+  - type: lambda
+    function_names:
+      - callcenter-dev-pii-guard
+      - callcenter-dev-classify
+      - callcenter-dev-verify
+      - callcenter-dev-persist
+    always_on: true
+
+  # DynamoDB consult-results — 운영 데이터, on-demand billing
+  - type: dynamodb
+    table_names:
+      - callcenter-dev-consult-results
+    always_on: true
+
+  # Firehose Parquet (PR7) — 분석 데이터
+  - type: firehose
+    delivery_stream_names:
+      - callcenter-dev-consult-fh
+    always_on: true
+
+urls:
+  spec: https://github.com/Atom-oh/call-center-admin/blob/main/docs/superpowers/specs/2026-05-22-callcenter-stt-classification-design.md
+  architecture: https://github.com/Atom-oh/call-center-admin/blob/main/docs/architecture.md
