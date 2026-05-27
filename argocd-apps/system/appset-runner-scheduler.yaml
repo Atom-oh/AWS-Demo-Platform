@@ -1,0 +1,35 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: runner-scheduler
+  namespace: argocd
+spec:
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            cluster-name: mall-apne2-mgmt
+  template:
+    metadata:
+      name: 'runner-scheduler-{{name}}'
+    spec:
+      project: default
+      source:
+        repoURL: git@github.com:Atom-oh/multi-region-architecture.git
+        targetRevision: main
+        path: k8s/infra/runner-scheduler
+      destination:
+        server: '{{server}}'
+        namespace: actions-runner-system
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m

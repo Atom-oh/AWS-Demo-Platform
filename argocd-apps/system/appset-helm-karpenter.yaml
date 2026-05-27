@@ -1,0 +1,79 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: helm-karpenter
+  namespace: argocd
+spec:
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            cluster-name: mall-apne2-az-a
+        values:
+          roleArn: "arn:aws:iam::180294183052:role/mall-apne2-az-a-karpenter-controller-apne2-az-a"
+          clusterName: mall-apne2-az-a
+    - clusters:
+        selector:
+          matchLabels:
+            cluster-name: mall-apne2-az-c
+        values:
+          roleArn: "arn:aws:iam::180294183052:role/mall-apne2-az-c-karpenter-controller-apne2-az-c"
+          clusterName: mall-apne2-az-c
+    - clusters:
+        selector:
+          matchLabels:
+            cluster-name: mall-apne2-mgmt
+        values:
+          roleArn: "arn:aws:iam::180294183052:role/mall-apne2-mgmt-karpenter-controller-apne2-mgmt"
+          clusterName: mall-apne2-mgmt
+  template:
+    metadata:
+      name: 'karpenter-{{name}}'
+    spec:
+      project: default
+      source:
+        chart: karpenter
+        repoURL: public.ecr.aws/karpenter
+        targetRevision: 1.9.0
+        helm:
+          valuesObject:
+            settings:
+              clusterName: '{{values.clusterName}}'
+            serviceAccount:
+              name: karpenter
+              annotations:
+                eks.amazonaws.com/role-arn: '{{values.roleArn}}'
+            serviceMonitor:
+              enabled: true
+            replicas: 2
+            tolerations:
+              - key: node-role
+                value: system-critical
+                effect: NoSchedule
+            nodeSelector:
+              role: system
+            affinity:
+              podAntiAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  - labelSelector:
+                      matchExpressions:
+                        - key: app.kubernetes.io/name
+                          operator: In
+                          values:
+                            - karpenter
+                    topologyKey: kubernetes.io/hostname
+      destination:
+        server: '{{server}}'
+        namespace: karpenter
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
