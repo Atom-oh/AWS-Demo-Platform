@@ -1,0 +1,71 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: helm-runner-claude-arm-odt
+  namespace: argocd
+spec:
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            cluster-name: mall-apne2-mgmt
+  template:
+    metadata:
+      name: 'runner-claude-arm-odt-{{name}}'
+    spec:
+      project: default
+      source:
+        chart: gha-runner-scale-set
+        repoURL: ghcr.io/actions/actions-runner-controller-charts
+        targetRevision: 0.10.1
+        helm:
+          valuesObject:
+            githubConfigUrl: https://github.com/Atom-oh/ontology-driven-trading
+            githubConfigSecret: github-app-secret
+            controllerServiceAccount:
+              name: arc-controller-mall-apne2-mgmt-gha-rs-controller
+              namespace: actions-runner-system
+            runnerScaleSetName: odt-claude-arm
+            minRunners: 0
+            maxRunners: 50
+            listenerTemplate:
+              spec:
+                containers:
+                  - name: listener
+                tolerations:
+                  - key: workload-type
+                    value: platform
+                    effect: NoSchedule
+                nodeSelector:
+                  node-pool: platform
+            template:
+              spec:
+                nodeSelector:
+                  kubernetes.io/arch: arm64
+                containers:
+                  - name: runner
+                    image: 180294183052.dkr.ecr.ap-northeast-2.amazonaws.com/actions-runner-claude:latest
+                    command: ["/home/runner/run.sh"]
+                    resources:
+                      requests:
+                        cpu: "1800m"
+                        memory: "3500Mi"
+                tolerations:
+                  - key: workload-type
+                    value: ci-runner
+                    effect: NoSchedule
+      destination:
+        server: '{{server}}'
+        namespace: actions-runner-system
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m

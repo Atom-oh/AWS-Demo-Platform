@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
-  name: runner-scheduler
+  name: grafana-dashboards
   namespace: argocd
 spec:
   generators:
@@ -11,16 +11,16 @@ spec:
             cluster-name: mall-apne2-mgmt
   template:
     metadata:
-      name: 'runner-scheduler-{{name}}'
+      name: 'grafana-dashboards-{{name}}'
     spec:
       project: default
       source:
         repoURL: https://github.com/Atom-oh/multi-region-architecture
         targetRevision: main
-        path: k8s/infra/runner-scheduler
+        path: k8s/infra/grafana
       destination:
         server: '{{server}}'
-        namespace: actions-runner-system
+        namespace: monitoring
       syncPolicy:
         automated:
           prune: true

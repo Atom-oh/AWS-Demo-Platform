@@ -1,26 +1,40 @@
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
-  name: runner-scheduler
+  name: infra-karpenter-crds
   namespace: argocd
 spec:
   generators:
     - clusters:
         selector:
           matchLabels:
+            cluster-name: mall-apne2-az-a
+        values:
+          karpenterPath: k8s/infra/karpenter-apne2-az-a
+    - clusters:
+        selector:
+          matchLabels:
+            cluster-name: mall-apne2-az-c
+        values:
+          karpenterPath: k8s/infra/karpenter-apne2-az-c
+    - clusters:
+        selector:
+          matchLabels:
             cluster-name: mall-apne2-mgmt
+        values:
+          karpenterPath: k8s/infra/karpenter-apne2-mgmt
   template:
     metadata:
-      name: 'runner-scheduler-{{name}}'
+      name: 'infra-karpenter-crds-{{name}}'
     spec:
       project: default
       source:
         repoURL: https://github.com/Atom-oh/multi-region-architecture
         targetRevision: main
-        path: k8s/infra/runner-scheduler
+        path: '{{values.karpenterPath}}'
       destination:
         server: '{{server}}'
-        namespace: actions-runner-system
+        namespace: karpenter
       syncPolicy:
         automated:
           prune: true

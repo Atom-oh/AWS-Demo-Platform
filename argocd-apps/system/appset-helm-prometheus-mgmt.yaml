@@ -1,0 +1,193 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: helm-prometheus-stack-mgmt
+  namespace: argocd
+spec:
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            cluster-name: mall-apne2-mgmt
+  template:
+    metadata:
+      name: 'prometheus-{{name}}'
+    spec:
+      project: default
+      source:
+        chart: kube-prometheus-stack
+        repoURL: https://prometheus-community.github.io/helm-charts
+        targetRevision: 68.4.0
+        helm:
+          valuesObject:
+            global:
+              tolerations:
+                - key: workload-type
+                  value: platform
+                  effect: NoSchedule
+              nodeSelector:
+                node-pool: platform
+            grafana:
+              enabled: true
+              replicas: 1
+              deploymentStrategy:
+                type: Recreate
+              tolerations:
+                - key: workload-type
+                  value: platform
+                  effect: NoSchedule
+              nodeSelector:
+                node-pool: platform
+              persistence:
+                enabled: true
+                size: 10Gi
+                storageClassName: gp3
+              plugins:
+                - grafana-clickhouse-datasource
+              grafana.ini:
+                server:
+                  root_url: "https://grafana-kr.atomai.click"
+              sidecar:
+                dashboards:
+                  enabled: true
+                  searchNamespace: ALL
+                  label: grafana_dashboard
+                  folderAnnotation: grafana_folder
+                datasources:
+                  defaultDatasourceEnabled: false
+              datasources:
+                datasources.yaml:
+                  apiVersion: 1
+                  deleteDatasources:
+                    - name: Prometheus
+                      orgId: 1
+                  datasources:
+                    - name: Prometheus
+                      type: prometheus
+                      uid: prometheus
+                      url: http://prometheus-mall-apne2-mgmt-prometheus.monitoring:9090
+                      access: proxy
+                      isDefault: true
+                      jsonData:
+                        exemplarTraceIdDestinations:
+                          - name: traceID
+                            datasourceUid: clickhouse
+                    - name: ClickHouse
+                      type: grafana-clickhouse-datasource
+                      uid: clickhouse
+                      access: proxy
+                      jsonData:
+                        host: clickhouse-clickhouse.observability
+                        port: 8123
+                        protocol: http
+                        defaultDatabase: otel
+                    - name: Tempo
+                      type: tempo
+                      uid: tempo
+                      url: http://tempo.observability:3200
+                      access: proxy
+                      jsonData:
+                        tracesToLogsV2:
+                          datasourceUid: clickhouse
+                          filterByTraceID: true
+                          filterBySpanID: true
+                        tracesToMetrics:
+                          datasourceUid: prometheus
+                        serviceMap:
+                          datasourceUid: prometheus
+                        nodeGraph:
+                          enabled: true
+                    - name: CloudWatch (ap-northeast-2)
+                      type: cloudwatch
+                      uid: cloudwatch-korea
+                      jsonData:
+                        defaultRegion: ap-northeast-2
+            prometheusOperator:
+              tolerations:
+                - key: workload-type
+                  value: platform
+                  effect: NoSchedule
+              nodeSelector:
+                node-pool: platform
+              admissionWebhooks:
+                patch:
+                  tolerations:
+                    - key: workload-type
+                      value: platform
+                      effect: NoSchedule
+                  nodeSelector:
+                    node-pool: platform
+            prometheus:
+              prometheusSpec:
+                replicas: 2
+                retention: 15d
+                enableRemoteWriteReceiver: true
+                enableFeatures:
+                  - exemplar-storage
+                tolerations:
+                  - key: workload-type
+                    value: platform
+                    effect: NoSchedule
+                nodeSelector:
+                  node-pool: platform
+                storageSpec:
+                  volumeClaimTemplate:
+                    spec:
+                      storageClassName: gp3
+                      accessModes: ["ReadWriteOnce"]
+                      resources:
+                        requests:
+                          storage: 100Gi
+                serviceMonitorSelectorNilUsesHelmValues: false
+                podMonitorSelectorNilUsesHelmValues: false
+                exemplars:
+                  maxSize: 100000
+            alertmanager:
+              alertmanagerSpec:
+                replicas: 2
+                tolerations:
+                  - key: workload-type
+                    value: platform
+                    effect: NoSchedule
+                nodeSelector:
+                  node-pool: platform
+            kube-state-metrics:
+              tolerations:
+                - key: workload-type
+                  value: platform
+                  effect: NoSchedule
+              nodeSelector:
+                node-pool: platform
+            prometheus-node-exporter:
+              tolerations:
+                - key: workload-type
+                  value: platform
+                  effect: NoSchedule
+                - key: node-role
+                  value: system-critical
+                  effect: NoSchedule
+      destination:
+        server: '{{server}}'
+        namespace: monitoring
+      ignoreDifferences:
+        - group: monitoring.coreos.com
+          kind: Alertmanager
+          jsonPointers:
+            - /status
+        - group: monitoring.coreos.com
+          kind: Prometheus
+          jsonPointers:
+            - /status
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m

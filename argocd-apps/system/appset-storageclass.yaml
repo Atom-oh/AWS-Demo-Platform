@@ -23,7 +23,7 @@ spec:
     spec:
       project: default
       source:
-        repoURL: git@github.com:Atom-oh/multi-region-architecture.git
+        repoURL: https://github.com/Atom-oh/multi-region-architecture
         targetRevision: main
         path: k8s/infra/storageclass
       destination:

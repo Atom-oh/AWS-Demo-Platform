@@ -1,0 +1,113 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: helm-runner-arm-aws-fsi-demo
+  namespace: argocd
+spec:
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            cluster-name: mall-apne2-mgmt
+  template:
+    metadata:
+      name: 'runner-arm-aws-fsi-demo-{{name}}'
+    spec:
+      project: default
+      source:
+        chart: gha-runner-scale-set
+        repoURL: ghcr.io/actions/actions-runner-controller-charts
+        targetRevision: 0.10.1
+        helm:
+          valuesObject:
+            githubConfigUrl: https://github.com/Atom-oh/aws-fsi-demo
+            githubConfigSecret: github-app-secret
+            controllerServiceAccount:
+              name: arc-controller-mall-apne2-mgmt-gha-rs-controller
+              namespace: actions-runner-system
+            runnerScaleSetName: aws-fsi-demo-arm
+            minRunners: 0
+            maxRunners: 50
+            listenerTemplate:
+              spec:
+                containers:
+                  - name: listener
+                tolerations:
+                  - key: workload-type
+                    value: platform
+                    effect: NoSchedule
+                nodeSelector:
+                  node-pool: platform
+            template:
+              spec:
+                nodeSelector:
+                  kubernetes.io/arch: arm64
+                initContainers:
+                  - name: init-dind-externals
+                    image: ghcr.io/actions/actions-runner:latest
+                    command: ["cp", "-r", "-v", "/home/runner/externals/.", "/home/runner/tmpDir/"]
+                    volumeMounts:
+                      - name: dind-externals
+                        mountPath: /home/runner/tmpDir
+                containers:
+                  - name: runner
+                    image: ghcr.io/actions/actions-runner:latest
+                    command: ["/home/runner/run.sh"]
+                    env:
+                      - name: DOCKER_HOST
+                        value: unix:///var/run/docker.sock
+                      - name: RUNNER_WAIT_FOR_DOCKER_IN_SECONDS
+                        value: "120"
+                    resources:
+                      requests:
+                        cpu: "1800m"
+                        memory: "3500Mi"
+                    volumeMounts:
+                      - name: work
+                        mountPath: /home/runner/_work
+                      - name: dind-sock
+                        mountPath: /var/run
+                  - name: dind
+                    image: 180294183052.dkr.ecr.ap-northeast-2.amazonaws.com/docker-dind:latest
+                    args:
+                      - dockerd
+                      - --host=unix:///var/run/docker.sock
+                      - --group=$(DOCKER_GROUP_GID)
+                    env:
+                      - name: DOCKER_GROUP_GID
+                        value: "123"
+                    securityContext:
+                      privileged: true
+                    volumeMounts:
+                      - name: work
+                        mountPath: /home/runner/_work
+                      - name: dind-sock
+                        mountPath: /var/run
+                      - name: dind-externals
+                        mountPath: /home/runner/externals
+                tolerations:
+                  - key: workload-type
+                    value: ci-runner
+                    effect: NoSchedule
+                volumes:
+                  - name: work
+                    emptyDir: {}
+                  - name: dind-sock
+                    emptyDir: {}
+                  - name: dind-externals
+                    emptyDir: {}
+      destination:
+        server: '{{server}}'
+        namespace: actions-runner-system
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
