@@ -51,30 +51,14 @@ data "aws_iam_policy_document" "atlantis_perms" {
     resources = ["arn:aws:iam::*:role/DemoPlatformTerraformer"]
   }
   statement {
-    effect = "Allow"
-    actions = [
-      "s3:GetObject", "s3:PutObject", "s3:DeleteObject",
-      "s3:ListBucket"
-    ]
-    resources = [
-      "arn:aws:s3:::multi-region-mall-terraform-state",
-      "arn:aws:s3:::multi-region-mall-terraform-state/*",
-      # call-center-admin uses its own per-repo state bucket (ap-northeast-2).
-      # Atlantis pod assumes DemoPlatformTerraformer for resource provisioning, but the
-      # backend read/write happens with Atlantis IRSA credentials (backend has no role_arn).
-      "arn:aws:s3:::kakaopay-callcenter-tfstate",
-      "arn:aws:s3:::kakaopay-callcenter-tfstate/*"
-    ]
-  }
-  statement {
-    # State lock table for call-center-admin (DDB GetItem/PutItem/DeleteItem during plan/apply)
-    effect = "Allow"
-    actions = [
-      "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"
-    ]
-    resources = [
-      "arn:aws:dynamodb:ap-northeast-2:${data.aws_caller_identity.current.account_id}:table/kakaopay-callcenter-tflock"
-    ]
+    # Non-prod platform: broad S3 access. Atlantis needs to manage S3
+    # resources across all projects (tfstate buckets + project-owned
+    # buckets like tempo-traces, callcenter raw/masked, etc.). Scoping
+    # to individual ARNs gets unwieldy fast — single operator, non-prod
+    # tolerance applies.
+    effect    = "Allow"
+    actions   = ["s3:*"]
+    resources = ["*"]
   }
   statement {
     effect    = "Allow"

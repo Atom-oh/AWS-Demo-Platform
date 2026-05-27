@@ -1,0 +1,61 @@
+# Atlantis configuration for AWS-Demo-Platform.
+# Pins terraform_version to one bundled in the Atlantis image (v0.30.0
+# ships 1.6.6 / 1.7.5 / 1.8.5 / 1.9.6). Newer versions fail to download
+# due to expired HashiCorp PGP signing key.
+
+version: 3
+automerge: false
+parallel_plan: false
+parallel_apply: false
+
+# Auto-discover projects from changed .tf files. Each statement below is
+# a global pin / override; specific dirs can override if needed later.
+projects:
+  - name: atlantis-bootstrap
+    dir: infra/atlantis-bootstrap
+    terraform_version: v1.9.6
+    autoplan:
+      enabled: true
+      when_modified:
+        - "*.tf"
+        - "../../atlantis.yaml"
+    apply_requirements:
+      - mergeable
+
+  - name: alb-internal
+    dir: infra/alb-internal
+    terraform_version: v1.9.6
+    autoplan:
+      enabled: true
+      when_modified:
+        - "*.tf"
+        - "../../atlantis.yaml"
+    apply_requirements:
+      - mergeable
+
+  - name: cloudfront
+    dir: infra/cloudfront
+    terraform_version: v1.9.6
+    autoplan:
+      enabled: true
+      when_modified:
+        - "*.tf"
+        - "../../atlantis.yaml"
+    apply_requirements:
+      - mergeable
+
+  - name: route53-private-zone
+    dir: infra/route53-private-zone
+    terraform_version: v1.9.6
+    autoplan:
+      enabled: true
+      when_modified:
+        - "*.tf"
+        - "../../atlantis.yaml"
+    apply_requirements:
+      - mergeable
+
+# eks-mgmt is intentionally NOT registered. It's a cross-repo state
+# reference (the actual EKS cluster is owned by multi-region-architecture
+# repo). Atlantis would attempt to refresh tempo-storage S3 + EKS OIDC
+# data sources owned by the other repo, which would fail and add no value.
