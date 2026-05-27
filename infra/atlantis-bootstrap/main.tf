@@ -57,23 +57,15 @@ data "aws_iam_policy_document" "atlantis_perms" {
       "s3:ListBucket"
     ]
     resources = [
+      # Legacy us-east-1 bucket — still used by AWS-Demo-Platform and
+      # multi-region-architecture.
       "arn:aws:s3:::multi-region-mall-terraform-state",
       "arn:aws:s3:::multi-region-mall-terraform-state/*",
-      # call-center-admin uses its own per-repo state bucket (ap-northeast-2).
-      # Atlantis pod assumes DemoPlatformTerraformer for resource provisioning, but the
-      # backend read/write happens with Atlantis IRSA credentials (backend has no role_arn).
-      "arn:aws:s3:::kakaopay-callcenter-tfstate",
-      "arn:aws:s3:::kakaopay-callcenter-tfstate/*"
-    ]
-  }
-  statement {
-    # State lock table for call-center-admin (DDB GetItem/PutItem/DeleteItem during plan/apply)
-    effect = "Allow"
-    actions = [
-      "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"
-    ]
-    resources = [
-      "arn:aws:dynamodb:ap-northeast-2:${data.aws_caller_identity.current.account_id}:table/kakaopay-callcenter-tflock"
+      # New ap-northeast-2 shared bucket — CLI-bootstrapped. Used by
+      # new projects (call-center-admin) and any future Atlantis-managed
+      # repos under this account.
+      "arn:aws:s3:::atom-oh-atlantis-tfstate-apne2",
+      "arn:aws:s3:::atom-oh-atlantis-tfstate-apne2/*"
     ]
   }
   statement {
