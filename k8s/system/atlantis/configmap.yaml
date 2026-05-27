@@ -9,12 +9,12 @@ data:
       - id: github.com/Atom-oh/AWS-Demo-Platform
         workflow: standard
         allowed_overrides: [workflow, apply_requirements]
-        apply_requirements: [approved, mergeable]
+        apply_requirements: [mergeable]
         delete_source_branch_on_merge: false
       - id: github.com/Atom-oh/multi-region-architecture
         workflow: standard
         allowed_overrides: [workflow, apply_requirements]
-        apply_requirements: [approved, mergeable]
+        apply_requirements: [mergeable]
         delete_source_branch_on_merge: false
       - id: github.com/Atom-oh/call-center-admin
         # KakaoPay 콜센터 STT 자동 분류 시스템 — per-env Terraform stacks (infra/envs/{dev,stg,prd}/).
@@ -22,7 +22,7 @@ data:
         # apply_requirements 로 사람 승인 + CI mergeable 통과 후에만 apply 가능.
         workflow: standard
         allowed_overrides: [workflow, apply_requirements]
-        apply_requirements: [approved, mergeable]
+        apply_requirements: [mergeable]
         delete_source_branch_on_merge: false
 
     workflows:
