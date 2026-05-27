@@ -71,6 +71,17 @@ configs:
       jsonPointers:
         - /spec/minReplicas
         - /spec/maxReplicas
+    # ESO v1 mutating webhook fills in defaults for these fields, causing
+    # ArgoCD to see a permanent diff against any ExternalSecret manifest
+    # that omits them. Ignore cluster-wide rather than forcing every
+    # ExternalSecret manifest to spell out the defaults.
+    resource.customizations.ignoreDifferences.external-secrets.io_ExternalSecret: |
+      jqPathExpressions:
+        - .spec.data[].remoteRef.conversionStrategy
+        - .spec.data[].remoteRef.decodingStrategy
+        - .spec.data[].remoteRef.metadataPolicy
+        - .spec.data[].remoteRef.nullBytePolicy
+        - .spec.target.deletionPolicy
   params:
     server.insecure: true
     controller.self.heal.timeout.seconds: "10"
