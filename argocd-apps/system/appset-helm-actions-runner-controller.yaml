@@ -1,0 +1,44 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: helm-actions-runner-controller
+  namespace: argocd
+spec:
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            cluster-name: mall-apne2-mgmt
+  template:
+    metadata:
+      name: 'arc-controller-{{name}}'
+    spec:
+      project: default
+      source:
+        chart: gha-runner-scale-set-controller
+        repoURL: ghcr.io/actions/actions-runner-controller-charts
+        targetRevision: 0.10.1
+        helm:
+          valuesObject:
+            tolerations:
+              - key: workload-type
+                value: platform
+                effect: NoSchedule
+            nodeSelector:
+              node-pool: platform
+      destination:
+        server: '{{server}}'
+        namespace: actions-runner-system
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - Replace=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m

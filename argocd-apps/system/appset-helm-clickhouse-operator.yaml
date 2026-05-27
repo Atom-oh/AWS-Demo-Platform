@@ -1,0 +1,48 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: helm-clickhouse-operator
+  namespace: argocd
+spec:
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            cluster-name: mall-apne2-mgmt
+  template:
+    metadata:
+      name: 'clickhouse-operator-{{name}}'
+    spec:
+      project: default
+      source:
+        chart: altinity-clickhouse-operator
+        repoURL: https://altinity.github.io/clickhouse-operator
+        targetRevision: 0.24.1
+        helm:
+          valuesObject:
+            fullnameOverride: clickhouse-operator
+            operator:
+              env:
+                - name: WATCH_NAMESPACES
+                  value: "observability,clickhouse-operator-system"
+            tolerations:
+              - key: workload-type
+                value: platform
+                effect: NoSchedule
+            nodeSelector:
+              node-pool: platform
+      destination:
+        server: '{{server}}'
+        namespace: clickhouse-operator-system
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
