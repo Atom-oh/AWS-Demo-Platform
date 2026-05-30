@@ -1,0 +1,11 @@
+accounts:
+  - name: atomoh-main
+    account_id: '111111111111'
+    region: ap-northeast-2
+    roles:
+      operator:
+        arn: arn:aws:iam::111111111111:role/DemoPlatformOperator
+        external_id_secret: /demo-platform/external-ids/atomoh-main/operator
+      terraformer:
+        arn: arn:aws:iam::111111111111:role/DemoPlatformTerraformer
+        external_id_secret: /demo-platform/external-ids/atomoh-main/terraformer
