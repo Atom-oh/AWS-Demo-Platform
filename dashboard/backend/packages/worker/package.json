@@ -14,13 +14,16 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@demo-platform/shared": "workspace:*",
     "@aws-sdk/client-dynamodb": "^3.620.0",
     "@aws-sdk/client-ec2": "^3.620.0",
     "@aws-sdk/client-ecs": "^3.620.0",
     "@aws-sdk/client-rds": "^3.620.0",
     "@aws-sdk/client-sqs": "^3.620.0",
     "@aws-sdk/client-sts": "^3.620.0",
-    "@aws-sdk/lib-dynamodb": "^3.620.0"
+    "@aws-sdk/lib-dynamodb": "^3.620.0",
+    "@demo-platform/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "aws-sdk-client-mock": "4.0.0"
   }
 }

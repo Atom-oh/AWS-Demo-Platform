@@ -105,6 +105,10 @@ importers:
       '@demo-platform/shared':
         specifier: workspace:*
         version: link:../shared
+    devDependencies:
+      aws-sdk-client-mock:
+        specifier: 4.0.0
+        version: 4.0.0
 
 packages:
 
