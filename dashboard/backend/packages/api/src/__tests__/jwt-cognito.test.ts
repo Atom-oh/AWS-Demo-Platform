@@ -3,7 +3,7 @@ import Fastify from 'fastify';
 import { registerJwtCognito } from '../plugins/jwt-cognito.js';
 
 const fakeVerifier = (returnUser: string | null) => ({
-  verify: vi.fn(async (token: string) => {
+  verify: vi.fn(async (_token: string) => {
     if (returnUser === null) throw new Error('invalid');
     return { 'cognito:username': returnUser, sub: 'sub-1' };
   }),

@@ -117,11 +117,14 @@ async function turnOffOne(res: ResourceRefT, c: Controllers): Promise<unknown> {
   }
 }
 
-async function turnOnOne(res: ResourceRefT, c: Controllers): Promise<void> {
+// NOTE (Phase 1 stub): turn_on resource restoration is deferred to Phase 5.
+// Restoration data lives in the DDB state record; threading it back into the
+// controllers' turnOn() methods is not implemented yet. `_c` is intentionally
+// unused until that wiring lands.
+async function turnOnOne(res: ResourceRefT, _c: Controllers): Promise<void> {
   switch (res.type) {
     case 'ecs':
-      // restoration data is in state's restoration_data, looked up by stepKey by caller; for now no-op until caller pulls
-      return; // Note: real implementation reads stored restoration_data before calling — handled in poll-loop integration
+      return;
     default:
       return;
   }

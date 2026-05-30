@@ -1,4 +1,5 @@
-import { DynamoDBClient, CreateTableCommand, DeleteTableCommand, DescribeTableCommand } from '@aws-sdk/client-dynamodb';
+import { CreateTableCommand, DeleteTableCommand, DescribeTableCommand } from '@aws-sdk/client-dynamodb';
+import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 
 export async function ensureStateTable(client: DynamoDBClient, tableName: string): Promise<void> {
   try {
@@ -27,7 +28,9 @@ export async function ensureHistoryTable(client: DynamoDBClient, tableName: stri
   try {
     await client.send(new DescribeTableCommand({ TableName: tableName }));
     await client.send(new DeleteTableCommand({ TableName: tableName }));
-  } catch {}
+  } catch {
+    // not exists, ok
+  }
   await client.send(
     new CreateTableCommand({
       TableName: tableName,
@@ -48,7 +51,9 @@ export async function ensureJobsTable(client: DynamoDBClient, tableName: string)
   try {
     await client.send(new DescribeTableCommand({ TableName: tableName }));
     await client.send(new DeleteTableCommand({ TableName: tableName }));
-  } catch {}
+  } catch {
+    // not exists, ok
+  }
   await client.send(
     new CreateTableCommand({
       TableName: tableName,

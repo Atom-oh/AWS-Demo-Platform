@@ -1,4 +1,4 @@
-import type { ArgocdClient, WorkloadHandle } from '@demo-platform/shared';
+import type { ArgocdClient } from '@demo-platform/shared';
 
 export interface ArgocdRestorationData {
   application: string;
