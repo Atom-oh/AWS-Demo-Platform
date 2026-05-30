@@ -55,6 +55,62 @@ projects:
     apply_requirements:
       - mergeable
 
+  # ── Stage 2 Phase 2 (Lifecycle Controller infra) ──
+  - name: dynamodb
+    dir: infra/dynamodb
+    terraform_version: v1.9.6
+    autoplan:
+      enabled: true
+      when_modified:
+        - "*.tf"
+        - "../../atlantis.yaml"
+    apply_requirements:
+      - mergeable
+
+  - name: iam
+    dir: infra/iam
+    terraform_version: v1.9.6
+    autoplan:
+      enabled: true
+      when_modified:
+        - "*.tf"
+        - "../../atlantis.yaml"
+    apply_requirements:
+      - mergeable
+
+  - name: sqs
+    dir: infra/sqs
+    terraform_version: v1.9.6
+    autoplan:
+      enabled: true
+      when_modified:
+        - "*.tf"
+        - "../../atlantis.yaml"
+    apply_requirements:
+      - mergeable
+
+  - name: ecr
+    dir: infra/ecr
+    terraform_version: v1.9.6
+    autoplan:
+      enabled: true
+      when_modified:
+        - "*.tf"
+        - "../../atlantis.yaml"
+    apply_requirements:
+      - mergeable
+
+  - name: secrets-manager
+    dir: infra/secrets-manager
+    terraform_version: v1.9.6
+    autoplan:
+      enabled: true
+      when_modified:
+        - "*.tf"
+        - "../../atlantis.yaml"
+    apply_requirements:
+      - mergeable
+
 # eks-mgmt is intentionally NOT registered. It's a cross-repo state
 # reference (the actual EKS cluster is owned by multi-region-architecture
 # repo). Atlantis would attempt to refresh tempo-storage S3 + EKS OIDC
