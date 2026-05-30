@@ -70,7 +70,7 @@ data "aws_iam_policy_document" "atlantis_perms" {
     actions = [
       "ec2:*", "eks:*", "iam:*", "elasticloadbalancing:*",
       "cloudfront:*", "route53:*", "acm:*",
-      "secretsmanager:*", "dynamodb:*", "logs:*",
+      "secretsmanager:*", "dynamodb:*", "logs:*", "sqs:*",
       "ecr:*", "ecs:*", "cognito-idp:*", "kms:*",
       "rds:Describe*", "elasticache:Describe*", "kafka:Describe*"
     ]
