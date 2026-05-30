@@ -9,3 +9,4 @@ export * from './aws/client-factory.js';
 export * from './aws/retry-config.js';
 export * from './aws/assume-role.js';
 export * from './ddb/state.js';
+export * from './ddb/jobs.js';
