@@ -31,5 +31,8 @@
     "undici": "^6.19.5",
     "yaml": "^2.5.0",
     "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "aws-sdk-client-mock": "4.0.0"
   }
 }
