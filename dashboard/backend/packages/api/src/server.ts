@@ -50,6 +50,11 @@ export async function buildServer(opts: BuildServerOpts = {}): Promise<FastifyIn
     }
   }
 
+  if (opts.jobsClient) {
+    const { registerJobs } = await import('./routes/jobs.js');
+    await registerJobs(app, { jobsClient: opts.jobsClient });
+  }
+
   return app;
 }
 
