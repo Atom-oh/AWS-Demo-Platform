@@ -79,6 +79,33 @@ importers:
         specifier: 4.0.0
         version: 4.0.0
 
+  packages/worker:
+    dependencies:
+      '@aws-sdk/client-dynamodb':
+        specifier: ^3.620.0
+        version: 3.1055.0
+      '@aws-sdk/client-ec2':
+        specifier: ^3.620.0
+        version: 3.1055.0
+      '@aws-sdk/client-ecs':
+        specifier: ^3.620.0
+        version: 3.1055.0
+      '@aws-sdk/client-rds':
+        specifier: ^3.620.0
+        version: 3.1055.0
+      '@aws-sdk/client-sqs':
+        specifier: ^3.620.0
+        version: 3.1055.0
+      '@aws-sdk/client-sts':
+        specifier: ^3.620.0
+        version: 3.1055.0
+      '@aws-sdk/lib-dynamodb':
+        specifier: ^3.620.0
+        version: 3.1055.0(@aws-sdk/client-dynamodb@3.1055.0)
+      '@demo-platform/shared':
+        specifier: workspace:*
+        version: link:../shared
+
 packages:
 
   '@aws-crypto/crc32@5.2.0':
