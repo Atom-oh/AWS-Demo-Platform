@@ -5,3 +5,5 @@ export * from './env.js';
 export * from './schemas/project.js';
 export * from './schemas/account.js';
 export * from './schemas/ddb-records.js';
+export * from './aws/client-factory.js';
+export * from './aws/retry-config.js';
