@@ -30,9 +30,9 @@ export class GithubClient {
       org: this.opts.org,
       per_page: 100,
     });
-    const mapped: DiscoveredRepo[] = repos.map((r: { full_name: string; default_branch: string; topics?: string[]; description: string | null }) => ({
+    const mapped: DiscoveredRepo[] = repos.map((r: { full_name: string; default_branch?: string; topics?: string[]; description?: string | null }) => ({
       full_name: r.full_name,
-      default_branch: r.default_branch,
+      default_branch: r.default_branch ?? 'main',
       topics: r.topics ?? [],
       description: r.description ?? null,
     }));
