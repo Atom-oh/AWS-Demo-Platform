@@ -124,9 +124,12 @@ Browser -> CloudFront -> VPC Origin -> Internal ALB -> TGB -> Pod (Atlantis | Ar
 | `infra/route53-private-zone` | Split-horizon PHZ for `*.atomai.click` |
 | `infra/cognito` | Admin auth (planned) |
 | `infra/dashboard-ecs` | Dashboard runtime (planned) |
-| `infra/iam` | Shared roles |
+| `infra/iam` | DashboardEcsTaskRole-dev + ExecutionRole-dev + DemoPlatformOperator (Stage 2) |
 | `infra/global` | Account-global resources |
-| `infra/dynamodb` | Dashboard state store (planned) |
+| `infra/dynamodb` | Lifecycle Controller state/jobs/history tables (Stage 2, dev) |
+| `infra/sqs` | Lifecycle Controller job queue + DLQ (Stage 2, dev) |
+| `infra/ecr` | `demo-platform/api` + `demo-platform/worker` image repos (Stage 2) |
+| `infra/secrets-manager` | Dashboard secret slots: github PAT, argocd token, cognito (Stage 2) |
 | `infra/modules` | Reusable submodules |
 
 ### Deployed Resources (Stage 1)
