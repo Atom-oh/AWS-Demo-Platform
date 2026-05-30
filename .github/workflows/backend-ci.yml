@@ -1,0 +1,45 @@
+name: backend-ci
+
+on:
+  pull_request:
+    paths:
+      - 'dashboard/backend/**'
+      - '.github/workflows/backend-ci.yml'
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard/backend
+    services:
+      localstack:
+        image: localstack/localstack:3.7
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: dynamodb,sqs,sts,secretsmanager,iam,logs
+          DEFAULT_REGION: ap-northeast-2
+        options: >-
+          --health-cmd "curl -f http://localhost:4566/_localstack/health || exit 1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.16'
+          cache: 'pnpm'
+          cache-dependency-path: dashboard/backend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+        env:
+          AWS_ENDPOINT_URL: http://localhost:4566
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
