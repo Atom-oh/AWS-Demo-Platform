@@ -93,6 +93,9 @@ importers:
       '@aws-sdk/client-rds':
         specifier: ^3.620.0
         version: 3.1055.0
+      '@aws-sdk/client-secrets-manager':
+        specifier: ^3.620.0
+        version: 3.1055.0
       '@aws-sdk/client-sqs':
         specifier: ^3.620.0
         version: 3.1055.0
@@ -105,6 +108,9 @@ importers:
       '@demo-platform/shared':
         specifier: workspace:*
         version: link:../shared
+      yaml:
+        specifier: ^2.5.0
+        version: 2.9.0
     devDependencies:
       aws-sdk-client-mock:
         specifier: 4.0.0
