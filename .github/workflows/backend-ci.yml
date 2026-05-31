@@ -12,10 +12,6 @@ on:
       - 'dashboard/backend/**'
       - '.github/workflows/backend-ci.yml'
 
-permissions:
-  contents: read
-  id-token: write # OIDC for the ECR push job
-
 jobs:
   lint-test:
     runs-on: ubuntu-latest
@@ -59,8 +55,13 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: lint-test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC only for this job
+    concurrency:
+      group: backend-push-${{ github.ref }}
+      cancel-in-progress: false
     env:
-      AWS_REGION: ap-northeast-2
       ECR_REGISTRY: 180294183052.dkr.ecr.ap-northeast-2.amazonaws.com
     steps:
       - uses: actions/checkout@v4
@@ -72,10 +73,12 @@ jobs:
       - name: Build & push api + worker
         working-directory: dashboard/backend
         run: |
-          SHA="${GITHUB_SHA::12}"
+          # Tag prefixed `sha-` to match the ECR lifecycle policy's tagPrefixList.
+          # Pin linux/amd64 to match the Phase 4 Fargate runtime platform.
+          SHA="sha-${GITHUB_SHA::12}"
           for svc in api worker; do
             REPO="$ECR_REGISTRY/demo-platform/$svc"
-            docker build -f "packages/$svc/Dockerfile" -t "$REPO:$SHA" -t "$REPO:main-latest" .
-            docker push "$REPO:$SHA"
-            docker push "$REPO:main-latest"
+            docker build --platform=linux/amd64 -f "packages/$svc/Dockerfile" \
+              -t "$REPO:$SHA" -t "$REPO:main-latest" .
+            docker push --all-tags "$REPO"
           done

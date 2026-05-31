@@ -73,7 +73,7 @@ jobs:
           echo "total_lines=$TOTAL_LINES" >> "$GITHUB_ENV"
           echo "Diff: $TOTAL_LINES lines (raw $RAW, filtered $((RAW - TOTAL_LINES)))"
 
-      - name: Review with Claude Code (Bedrock Opus 4.7)
+      - name: Review with Claude Code (Bedrock Opus 4.8)
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
@@ -163,7 +163,7 @@ jobs:
           sed '$ { /^VERDICT:/d }' /tmp/review.md > /tmp/review-clean.md
           {
             echo "$MARKER"
-            echo "## 🤖 AI Code Review (Claude Opus 4.7 on Bedrock)"
+            echo "## 🤖 AI Code Review (Claude Opus 4.8 on Bedrock)"
             echo ""
             echo "$STATUS_BADGE"
             echo ""
