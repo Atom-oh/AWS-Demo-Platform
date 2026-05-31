@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { SendMessageCommand, type SQSClient } from '@aws-sdk/client-sqs';
 import type { Project, StateClient, JobsClient } from '@demo-platform/shared';
-import { ConflictError, PermanentError } from '@demo-platform/shared';
+import { ConflictError, PermanentError, NotFoundError } from '@demo-platform/shared';
 
 export interface ActionsRouteDeps {
   projects: Record<string, Project>;
@@ -22,7 +22,7 @@ export async function registerActions(
     repo: string,
   ): Promise<void> {
     const project = deps.projects[repo];
-    if (!project) throw new PermanentError(`project not found: ${repo}`);
+    if (!project) throw new NotFoundError(`project not found: ${repo}`);
 
     const state = await deps.stateClient.read(repo);
     const want = op === 'turn_off' ? 'on' : 'off';
@@ -50,7 +50,7 @@ export async function registerActions(
   // single trailing-wildcard route and derive both the (multi-segment) repo and
   // the operation from the URL via regex.
   app.post('/api/projects/*', async (req, reply) => {
-    const m = /^\/api\/projects\/(.+)\/actions\/(turn_off|turn_on)/.exec(req.url);
+    const m = /^\/api\/projects\/(.+)\/actions\/(turn_off|turn_on)$/.exec(req.url);
     if (!m || m[1] === undefined || m[2] === undefined) {
       throw new PermanentError('invalid url');
     }

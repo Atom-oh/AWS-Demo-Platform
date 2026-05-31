@@ -11,7 +11,7 @@
     "test": "pnpm -r test",
     "test:int": "pnpm -r test:int",
     "lint": "pnpm -r lint",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm --filter @demo-platform/shared build && pnpm -r typecheck",
     "clean": "pnpm -r clean && rm -rf node_modules",
     "stack:up": "docker compose up -d",
     "stack:down": "docker compose down -v"

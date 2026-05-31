@@ -26,6 +26,14 @@ export class AssumeRoleFailedError extends Error {
   }
 }
 
+/** App-level "resource does not exist" — maps to HTTP 404 in the API. */
+export class NotFoundError extends Error {
+  constructor(message: string, public override cause?: unknown) {
+    super(message);
+    this.name = 'NotFoundError';
+  }
+}
+
 const TRANSIENT_NAMES = new Set([
   'ThrottlingException',
   'TooManyRequestsException',

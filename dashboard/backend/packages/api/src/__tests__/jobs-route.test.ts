@@ -44,7 +44,7 @@ describe('GET /api/jobs/:id', () => {
       adminUsernames: ['atomoh'],
     });
     const res = await app.inject({ method: 'GET', url: '/api/jobs/nope' });
-    expect(res.statusCode).toBe(400); // PermanentError → 400
+    expect(res.statusCode).toBe(404); // NotFoundError → 404
     await app.close();
   });
 });

@@ -22,7 +22,8 @@ export async function registerJwtCognito(
   opts: JwtPluginOpts,
 ): Promise<void> {
   app.addHook('onRequest', async (req: FastifyRequest, reply) => {
-    if (opts.skipPaths.includes(req.url)) return;
+    const path = req.url.split('?')[0]?.replace(/\/+$/, '') || '/';
+    if (opts.skipPaths.includes(path)) return;
 
     if (opts.skipJwt) {
       req.user = { username: opts.adminUsernames[0] ?? 'atomoh', sub: 'dev' };

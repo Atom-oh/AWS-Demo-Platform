@@ -1,8 +1,12 @@
 import type { FastifyInstance } from 'fastify';
-import { TransientError, ConflictError, PermanentError } from '@demo-platform/shared';
+import { TransientError, ConflictError, PermanentError, NotFoundError } from '@demo-platform/shared';
 
 export function registerErrorHandler(app: FastifyInstance): void {
   app.setErrorHandler((err, _req, reply) => {
+    if (err instanceof NotFoundError) {
+      void reply.code(404).send({ error: err.message });
+      return;
+    }
     if (err instanceof ConflictError) {
       void reply.code(409).send({ error: err.message });
       return;

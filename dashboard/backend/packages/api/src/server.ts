@@ -6,11 +6,13 @@ import type {
   StateClient,
   JobsClient,
 } from '@demo-platform/shared';
+import { createLogger } from '@demo-platform/shared';
 import { registerHealth } from './routes/health.js';
 import { registerJwtCognito, type JwtVerifier } from './plugins/jwt-cognito.js';
 import { registerErrorHandler } from './middleware/error-handler.js';
 import { registerProjects } from './routes/projects.js';
 import { registerActions } from './routes/actions.js';
+import { registerJobs } from './routes/jobs.js';
 
 export interface BuildServerOpts {
   skipJwt?: boolean;
@@ -51,7 +53,6 @@ export async function buildServer(opts: BuildServerOpts = {}): Promise<FastifyIn
   }
 
   if (opts.jobsClient) {
-    const { registerJobs } = await import('./routes/jobs.js');
     await registerJobs(app, { jobsClient: opts.jobsClient });
   }
 
@@ -59,11 +60,13 @@ export async function buildServer(opts: BuildServerOpts = {}): Promise<FastifyIn
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  // production entry is handled by future Task in Phase 4; for now buildServer with empty deps yields /health only.
-  buildServer({ skipJwt: true }).then(async (app) => {
+  // Production entry. Phase 4 injects real deps here. JWT is bypassed ONLY in
+  // non-production — never skip auth when NODE_ENV=production.
+  const log = createLogger({ name: 'api' });
+  const skipJwt = process.env.NODE_ENV !== 'production';
+  buildServer({ skipJwt }).then(async (app) => {
     const port = Number(process.env.PORT ?? 8080);
     await app.listen({ port, host: '0.0.0.0' });
-    // eslint-disable-next-line no-console
-    console.log(`api listening on :${port}`);
+    log.info({ port, skipJwt }, 'api listening');
   });
 }

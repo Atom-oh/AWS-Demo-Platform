@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { Project, StateClient } from '@demo-platform/shared';
+import { NotFoundError } from '@demo-platform/shared';
 
 export interface ProjectsRouteDeps {
   projects: Record<string, Project>;
@@ -18,15 +19,11 @@ export async function registerProjects(
     }));
   });
 
-  app.get('/api/projects/*', async (req, reply) => {
-    const u = req.url;
-    const m = /^\/api\/projects\/(.+)$/.exec(u);
+  app.get('/api/projects/*', async (req) => {
+    const m = /^\/api\/projects\/(.+)$/.exec(req.url);
     const repo = decodeURIComponent(m?.[1] ?? '');
     const project = deps.projects[repo];
-    if (!project) {
-      void reply.code(404).send({ error: `project not found: ${repo}` });
-      return;
-    }
+    if (!project) throw new NotFoundError(`project not found: ${repo}`);
     const state = await deps.stateClient.read(repo);
     return { project, state };
   });

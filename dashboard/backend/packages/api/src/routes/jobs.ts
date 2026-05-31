@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { JobsClient } from '@demo-platform/shared';
-import { PermanentError } from '@demo-platform/shared';
+import { NotFoundError } from '@demo-platform/shared';
 
 export interface JobsRouteDeps {
   jobsClient: JobsClient;
@@ -10,7 +10,7 @@ export async function registerJobs(app: FastifyInstance, deps: JobsRouteDeps): P
   app.get('/api/jobs/:id', async (req) => {
     const { id } = req.params as { id: string };
     const rec = await deps.jobsClient.read(id);
-    if (!rec) throw new PermanentError(`job not found: ${id}`);
+    if (!rec) throw new NotFoundError(`job not found: ${id}`);
     return {
       id,
       operation: rec.operation,
