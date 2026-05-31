@@ -1,0 +1,17 @@
+services:
+  localstack:
+    image: localstack/localstack:3.7
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: dynamodb,sqs,sts,secretsmanager,iam,logs
+      DEBUG: "0"
+      PERSISTENCE: "0"
+      DEFAULT_REGION: ap-northeast-2
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"

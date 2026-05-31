@@ -1,0 +1,7 @@
+name: a
+github: { repo: foo/a, branch: main }
+account: atomoh-main
+resources:
+  - type: ecs
+    cluster: c
+    service: s

@@ -1,0 +1,38 @@
+{
+  "name": "@demo-platform/shared",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist .tsbuildinfo",
+    "lint": "eslint 'src/**/*.ts'",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:int": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.620.0",
+    "@aws-sdk/client-ec2": "^3.620.0",
+    "@aws-sdk/client-ecs": "^3.620.0",
+    "@aws-sdk/client-rds": "^3.620.0",
+    "@aws-sdk/client-secrets-manager": "^3.620.0",
+    "@aws-sdk/client-sqs": "^3.620.0",
+    "@aws-sdk/client-sts": "^3.620.0",
+    "@aws-sdk/credential-providers": "^3.620.0",
+    "@aws-sdk/lib-dynamodb": "^3.620.0",
+    "@octokit/rest": "^21.0.0",
+    "pino": "^9.3.2",
+    "undici": "^6.19.5",
+    "yaml": "^2.5.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "aws-sdk-client-mock": "4.0.0"
+  }
+}
