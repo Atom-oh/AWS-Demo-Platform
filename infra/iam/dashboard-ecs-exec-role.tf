@@ -22,3 +22,23 @@ resource "aws_iam_role_policy_attachment" "exec_managed" {
   role       = aws_iam_role.exec.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
+
+# ECS injects task-definition `secrets` (valueFrom) using the EXECUTION role at
+# launch, so it needs GetSecretValue on the secrets the tasks reference (worker:
+# github/pat + argocd/admin-token; future: dev/cognito/*).
+data "aws_iam_policy_document" "exec_secrets" {
+  statement {
+    effect    = "Allow"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [
+      "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:/demo-platform/dev/*",
+      "arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:/demo-platform/argocd/*",
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "exec_secrets" {
+  name   = "DashboardEcsExecutionSecretsRead"
+  role   = aws_iam_role.exec.id
+  policy = data.aws_iam_policy_document.exec_secrets.json
+}
