@@ -24,6 +24,7 @@ import {
   AccountsFileSchema,
   type Project,
   type Account,
+  type Logger,
 } from '@demo-platform/shared';
 import { EcsController } from './controllers/ecs.js';
 import { Ec2Controller } from './controllers/ec2.js';
@@ -32,15 +33,21 @@ import { ArgocdController } from './controllers/argocd.js';
 import { pollForever, sweepRunningJobs } from './poll-loop.js';
 import { startDiscoveryCron } from './discoverer.js';
 
-async function loadProjects(dir: string): Promise<Record<string, Project>> {
+async function loadProjects(dir: string, logger: Logger): Promise<Record<string, Project>> {
   const entries = await fs.readdir(dir);
   const out: Record<string, Project> = {};
   for (const e of entries) {
     if (!e.endsWith('.yaml') && !e.endsWith('.yml')) continue;
     if (e === 'CLAUDE.md') continue;
     const raw = await fs.readFile(path.join(dir, e), 'utf8');
-    const parsed = ProjectSchema.parse(yaml.parse(raw));
-    out[parsed.github.repo] = parsed;
+    try {
+      const parsed = ProjectSchema.parse(yaml.parse(raw));
+      out[parsed.github.repo] = parsed;
+    } catch (err) {
+      // Resilience: a project yaml with unsupported resource types (e.g. lambda,
+      // stepfunctions, msk) must not crash the worker — log and skip it.
+      logger.warn({ file: e, err: (err as Error).message }, 'skipping invalid project yaml');
+    }
   }
   return out;
 }
@@ -83,7 +90,7 @@ async function main(): Promise<void> {
 
   const assumeCache = createAssumeRoleCache({ stsClient: sts });
 
-  const projects = await loadProjects(env.PROJECTS_DIR);
+  const projects = await loadProjects(env.PROJECTS_DIR, logger);
   const accounts = await loadAccounts(env.ACCOUNTS_FILE);
   logger.info({ projects: Object.keys(projects).length, accounts: Object.keys(accounts).length }, 'config loaded');
 
