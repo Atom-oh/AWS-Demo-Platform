@@ -43,6 +43,33 @@ export const KafkaResource = z.object({
   always_on: z.literal(true),
 });
 
+// MSK (managed Kafka) — visibility only. Distinct from `kafka` (which keys on ARN);
+// projects reference MSK by cluster name.
+export const MskResource = z.object({
+  type: z.literal('msk'),
+  cluster_name: z.string().min(1),
+  always_on: z.literal(true),
+});
+
+// Serverless / streaming resources — visibility only (no on/off; pay-per-use).
+export const StepFunctionsResource = z.object({
+  type: z.literal('stepfunctions'),
+  state_machine_name: z.string().min(1),
+  always_on: z.literal(true),
+});
+
+export const LambdaResource = z.object({
+  type: z.literal('lambda'),
+  function_names: z.array(z.string().min(1)).min(1),
+  always_on: z.literal(true),
+});
+
+export const FirehoseResource = z.object({
+  type: z.literal('firehose'),
+  delivery_stream_names: z.array(z.string().min(1)).min(1),
+  always_on: z.literal(true),
+});
+
 export const ResourceRef = z.discriminatedUnion('type', [
   EcsResource,
   Ec2Resource,
@@ -51,6 +78,10 @@ export const ResourceRef = z.discriminatedUnion('type', [
   DynamoDbResource,
   ElastiCacheResource,
   KafkaResource,
+  MskResource,
+  StepFunctionsResource,
+  LambdaResource,
+  FirehoseResource,
 ]);
 
 export const CodeServerUrl = z.union([

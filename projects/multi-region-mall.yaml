@@ -27,9 +27,6 @@ resources:
   - type: rds
     db_identifier: mall-apne2-aurora
     always_on: true
-  - type: dynamodb
-    table_names: []
-    always_on: true
   - type: elasticache
     cluster_id: mall-apne2-valkey
     always_on: true
