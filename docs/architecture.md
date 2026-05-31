@@ -164,17 +164,25 @@ The task identity is `DashboardEcsTaskRole-dev`; it assumes `DemoPlatformOperato
 per `accounts.yaml` (ExternalId from Secrets Manager). HPA-2 patch = Deployment
 `replicas=1` + HPA `min=max=1` via ArgoCD.
 
-**Status:** Phase 1 (code, LocalStack-tested) — built on branch
-`feat/stage-2-phase-1-backend-foundations`, **pending merge to `main` (PR #4)** ·
-Phase 2 (DDB/IAM/SQS/ECR/Secrets) deployed ✅ · Phase 3 (ECR image push) and
-Phase 4 (ECS/ALB/CF/R53/Cognito runtime) pending.
+**Status (dev, all deployed):** Phase 1 (code, LocalStack-tested) ✅ · Phase 2
+(DDB/IAM/SQS/ECR/Secrets) ✅ · Phase 3 (GHA OIDC → ECR image push) ✅ · Phase 4
+(ECS/ALB/CF/R53/Cognito runtime) ✅. The **api** service is LIVE:
+`https://admin-api-dev.atomai.click/health` → `{"status":"ok"}`. The **worker** is
+scaffolded at desiredCount=0 (needs github/argocd secrets + config bundling).
 
-**Phase 2 deployed resources (dev, atomoh-main):**
+**Deployed resources (dev, atomoh-main):**
 - DynamoDB: `demo-platform-{state,jobs,history}-dev` (deletion protection on)
-- IAM: `DashboardEcsTaskRole-dev`, `DashboardEcsExecutionRole-dev`, `DemoPlatformOperator`
+- IAM: `DashboardEcsTaskRole-dev`, `DashboardEcsExecutionRole-dev`, `DemoPlatformOperator`, `demo-platform-gha-ecr-push` (OIDC)
 - SQS: `demo-platform-jobs-dev` + DLQ
-- ECR: `demo-platform/api`, `demo-platform/worker`
-- Secrets Manager slots: `dev/github/pat`, `argocd/admin-token`, `dev/cognito/*`
+- ECR: `demo-platform/api`, `demo-platform/worker` (images pushed via GHA on main-merge, tags `sha-<sha>` + `main-latest`)
+- Secrets Manager: `dev/github/pat`, `argocd/admin-token`, `dev/cognito/*` (cognito slots populated by the cognito module)
+- ECS: cluster `demo-platform-dev`, `demo-platform-api-dev` (running 1/1), `demo-platform-worker-dev` (0/0 scaffold)
+- ALB: `demo-platform-api-dev` TG + listener rule (host `admin-api-dev.atomai.click`, 443)
+- CloudFront: `E2PKX3B7RSC75R` (admin-api-dev) → VPC Origin → Internal ALB
+- Route53: split-horizon `admin-api-dev` (public → CF, private → ALB)
+- Cognito: User Pool `atomoh-demo-platform-dev` + `dashboard-dev` client + hosted-UI domain
+
+**Remaining (worker enable / Stage 3):** populate `dev/github/pat` + `argocd/admin-token`, bundle `projects/*.yaml` + `accounts.yaml` into the worker image, scale worker to 1; register the `atomoh` Cognito user.
 
 ## Key Design Decisions
 
