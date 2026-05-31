@@ -149,3 +149,34 @@ resource "aws_lb_listener_rule" "argocd" {
     host_header { values = ["argocd.atomai.click"] }
   }
 }
+
+# Dashboard API (Stage 2 Phase 4) — ECS Fargate api service, IP targets.
+resource "aws_lb_target_group" "dashboard_api" {
+  name        = "demo-platform-api-dev"
+  port        = 8080
+  protocol    = "HTTP"
+  vpc_id      = local.vpc_id
+  target_type = "ip"
+
+  health_check {
+    path                = "/health"
+    protocol            = "HTTP"
+    matcher             = "200"
+    interval            = 15
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+  }
+}
+
+resource "aws_lb_listener_rule" "dashboard_api" {
+  listener_arn = aws_lb_listener.https.arn
+  priority     = 120
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.dashboard_api.arn
+  }
+  condition {
+    host_header { values = ["admin-api-dev.atomai.click"] }
+  }
+}

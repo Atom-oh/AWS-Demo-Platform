@@ -62,9 +62,21 @@ resource "aws_route53_record" "argocd_public" {
   }
 }
 
+# Dashboard API public record → CloudFront (Stage 2 Phase 4)
+resource "aws_route53_record" "dashboard_api_public" {
+  zone_id = data.aws_route53_zone.public.zone_id
+  name    = "admin-api-dev.atomai.click"
+  type    = "A"
+  alias {
+    name                   = data.terraform_remote_state.cloudfront.outputs.dashboard_api_cf_domain
+    zone_id                = "Z2FDTNDATAQYW2" # CloudFront global HZ
+    evaluate_target_health = false
+  }
+}
+
 # Private records → Internal ALB (split-horizon)
 locals {
-  internal_hosts = ["atlantis", "argocd", "admin", "admin-dev"]
+  internal_hosts = ["atlantis", "argocd", "admin", "admin-dev", "admin-api-dev"]
 }
 
 resource "aws_route53_record" "internal" {
