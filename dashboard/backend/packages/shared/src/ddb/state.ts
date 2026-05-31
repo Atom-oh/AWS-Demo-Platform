@@ -5,7 +5,7 @@ import {
   type DynamoDBDocumentClient,
 } from '@aws-sdk/lib-dynamodb';
 import { StateRecordSchema, type StateRecord, type ProjectStatusT } from '../schemas/ddb-records.js';
-import { ConflictError, classifyAwsError } from '../errors.js';
+import { classifyAwsError } from '../errors.js';
 
 export interface StateClientOpts {
   doc: DynamoDBDocumentClient;
@@ -81,9 +81,9 @@ export class StateClient {
         }),
       );
     } catch (err) {
-      const cls = classifyAwsError(err);
-      if (cls instanceof ConflictError) throw cls;
-      throw cls;
+      // classifyAwsError maps ConditionalCheckFailedException → ConflictError,
+      // which the API surfaces as 409 (concurrent / stale-state transition).
+      throw classifyAwsError(err);
     }
   }
 

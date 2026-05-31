@@ -65,5 +65,5 @@ export function createAssumeRoleCache(opts: AssumeRoleCacheOpts) {
     }
   }
 
-  return { assume, _cache: map };
+  return { assume };
 }

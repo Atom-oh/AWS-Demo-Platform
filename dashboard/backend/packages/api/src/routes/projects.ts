@@ -19,9 +19,11 @@ export async function registerProjects(
     }));
   });
 
-  app.get('/api/projects/*', async (req) => {
-    const m = /^\/api\/projects\/(.+)$/.exec(req.url);
-    const repo = decodeURIComponent(m?.[1] ?? '');
+  // Repos are always `owner/name` (exactly two segments per the Project schema),
+  // so we use explicit path params rather than a broad trailing wildcard.
+  app.get('/api/projects/:owner/:name', async (req) => {
+    const { owner, name } = req.params as { owner: string; name: string };
+    const repo = `${decodeURIComponent(owner)}/${decodeURIComponent(name)}`;
     const project = deps.projects[repo];
     if (!project) throw new NotFoundError(`project not found: ${repo}`);
     const state = await deps.stateClient.read(repo);

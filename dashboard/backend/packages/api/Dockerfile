@@ -17,6 +17,8 @@ RUN pnpm --filter @demo-platform/shared build && pnpm --filter @demo-platform/ap
 FROM node:20.16-alpine AS runtime
 RUN corepack enable && corepack prepare pnpm@9.7.0 --activate
 WORKDIR /app
+# Fail-closed: enforce JWT auth + ignore any stray AWS_ENDPOINT_URL at runtime.
+ENV NODE_ENV=production
 COPY --from=build /app/package.json /app/pnpm-workspace.yaml /app/pnpm-lock.yaml ./
 COPY --from=build /app/packages/shared/package.json ./packages/shared/
 COPY --from=build /app/packages/api/package.json ./packages/api/

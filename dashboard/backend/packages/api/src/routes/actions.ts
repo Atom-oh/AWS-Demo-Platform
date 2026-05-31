@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { SendMessageCommand, type SQSClient } from '@aws-sdk/client-sqs';
 import type { Project, StateClient, JobsClient } from '@demo-platform/shared';
-import { ConflictError, PermanentError, NotFoundError } from '@demo-platform/shared';
+import { ConflictError, NotFoundError } from '@demo-platform/shared';
 
 export interface ActionsRouteDeps {
   projects: Record<string, Project>;
@@ -46,16 +46,13 @@ export async function registerActions(
     void reply.code(202).send({ job_id: jobId });
   }
 
-  // Fastify requires the wildcard to be the last path segment, so we register a
-  // single trailing-wildcard route and derive both the (multi-segment) repo and
-  // the operation from the URL via regex.
-  app.post('/api/projects/*', async (req, reply) => {
-    const m = /^\/api\/projects\/(.+)\/actions\/(turn_off|turn_on)$/.exec(req.url);
-    if (!m || m[1] === undefined || m[2] === undefined) {
-      throw new PermanentError('invalid url');
+  // Repos are always `owner/name`; use explicit path params + a constrained op.
+  app.post('/api/projects/:owner/:name/actions/:op', async (req, reply) => {
+    const { owner, name, op } = req.params as { owner: string; name: string; op: string };
+    if (op !== 'turn_off' && op !== 'turn_on') {
+      throw new NotFoundError(`unknown action: ${op}`);
     }
-    const repo = decodeURIComponent(m[1]);
-    const op = m[2] as 'turn_off' | 'turn_on';
+    const repo = `${decodeURIComponent(owner)}/${decodeURIComponent(name)}`;
     return handle(op, req, reply, repo);
   });
 }

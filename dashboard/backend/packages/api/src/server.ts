@@ -60,10 +60,11 @@ export async function buildServer(opts: BuildServerOpts = {}): Promise<FastifyIn
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  // Production entry. Phase 4 injects real deps here. JWT is bypassed ONLY in
-  // non-production — never skip auth when NODE_ENV=production.
+  // Production entry. Phase 4 injects real deps here. JWT bypass is FAIL-CLOSED:
+  // enabled only when NODE_ENV is explicitly 'development'. Any other value
+  // (including unset) enforces auth.
   const log = createLogger({ name: 'api' });
-  const skipJwt = process.env.NODE_ENV !== 'production';
+  const skipJwt = process.env.NODE_ENV === 'development';
   buildServer({ skipJwt }).then(async (app) => {
     const port = Number(process.env.PORT ?? 8080);
     await app.listen({ port, host: '0.0.0.0' });

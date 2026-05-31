@@ -4,9 +4,12 @@ import yaml from 'yaml';
 import {
   ProjectSchema,
   AccountsFileSchema,
+  createLogger,
   type Project,
   type Account,
 } from '@demo-platform/shared';
+
+const log = createLogger({ name: 'projects-loader' });
 
 export async function loadProjects(dir: string): Promise<Record<string, Project>> {
   const entries = await fs.readdir(dir);
@@ -18,7 +21,9 @@ export async function loadProjects(dir: string): Promise<Record<string, Project>
       const parsed = ProjectSchema.parse(yaml.parse(raw));
       out[parsed.github.repo] = parsed;
     } catch (err) {
-      throw new Error(`failed to parse ${e}: ${(err as Error).message}`);
+      // Resilience: one malformed project yaml must not take the whole dashboard
+      // down — log and skip it (PR-time lint is the first line of defense).
+      log.warn({ file: e, err: (err as Error).message }, 'skipping invalid project yaml');
     }
   }
   return out;
