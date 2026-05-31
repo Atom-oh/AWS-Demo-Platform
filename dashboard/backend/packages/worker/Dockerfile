@@ -25,5 +25,10 @@ COPY --from=build /app/packages/worker/package.json ./packages/worker/
 COPY --from=build /app/packages/shared/dist ./packages/shared/dist
 COPY --from=build /app/packages/worker/dist ./packages/worker/dist
 RUN pnpm install --frozen-lockfile --prod
+# Project/account config — CI copies repo-root projects/ + accounts.yaml into
+# ./_config (build context) before building. PROJECTS_DIR / ACCOUNTS_FILE in the
+# ECS task def point at these (/app/projects, /app/accounts.yaml).
+COPY _config/projects /app/projects
+COPY _config/accounts.yaml /app/accounts.yaml
 USER node
 CMD ["node", "packages/worker/dist/index.js"]

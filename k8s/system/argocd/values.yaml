@@ -50,6 +50,10 @@ redis:
 
 configs:
   cm:
+    # Allow the admin account to mint API tokens — the Lifecycle Controller worker
+    # uses one (Secrets Manager /demo-platform/argocd/admin-token) for its ArgoCD
+    # REST controller (ADR-002). A dedicated service account is a Stage 4 follow-up.
+    accounts.admin: apiKey
     # --enable-helm: allow kustomize to render embedded Helm charts.
     # --load-restrictor LoadRestrictionsNone: allow kustomize bases to
     #   reference manifests outside their root dir (used by some MRA

@@ -6,3 +6,6 @@ dist/
 .env.local
 coverage/
 .vitest-cache/
+
+# CI-only: worker config bundle (projects/ + accounts.yaml copied at build)
+_config/
