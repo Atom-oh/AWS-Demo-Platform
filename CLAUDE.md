@@ -23,7 +23,7 @@ See `docs/superpowers/specs/2026-05-26-aws-demo-platform-design.md` for the full
 - **DNS** — Route 53 split-horizon (`*.atomai.click` wildcard ACM cert)
 - **Auth (admin)** — Cognito (User Pool provisioned in Stage 2 Phase 4)
 - **GitHub** — GitHub App `atomoh-atlantis` for Atlantis webhook auth
-- **Lifecycle Controller (Stage 2)** — `dashboard/backend/` Node.js TS pnpm monorepo (`shared`/`api`/`worker`). Fastify REST API + SQS worker that toggles ECS/EC2/RDS/ArgoCD via cross-account `DemoPlatformOperator`. State in DynamoDB. Phase 1 (code) built — pending merge to `main` (PR #4); Phase 2 (infra: DDB/IAM/SQS/ECR/Secrets) deployed.
+- **Lifecycle Controller (Stage 2)** — `dashboard/backend/` Node.js TS pnpm monorepo (`shared`/`api`/`worker`). Fastify REST API + SQS worker that toggles ECS/EC2/RDS/ArgoCD via cross-account `DemoPlatformOperator`. State in DynamoDB. **Deployed (dev): api is LIVE at `https://admin-api-dev.atomai.click/health`** (ECS Fargate). Phase 1 (code) ✅, Phase 2 (DDB/IAM/SQS/ECR/Secrets) ✅, Phase 3 (GHA OIDC → ECR push) ✅, Phase 4 (ECS/ALB/CF/R53/Cognito) ✅. worker is scaffolded at desiredCount=0 (see `infra/dashboard-ecs/CLAUDE.md`).
 - **Dashboard frontend (Stage 3, scaffold only)** — Next.js → ECS Fargate
 
 ## Project Structure
