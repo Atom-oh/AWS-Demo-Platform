@@ -26,16 +26,20 @@ export class GithubClient {
   }
 
   async listDemoRepos(): Promise<DiscoveredRepo[]> {
-    const repos = await this.octokit.paginate('GET /orgs/{org}/repos', {
-      org: this.opts.org,
+    // `owner` (Atom-oh) is a personal account, not an org, so `/orgs/{org}/repos`
+    // 404s. Use the authenticated user's repos and filter to the owner namespace.
+    const repos = await this.octokit.paginate('GET /user/repos', {
       per_page: 100,
+      affiliation: 'owner',
     });
-    const mapped: DiscoveredRepo[] = repos.map((r: { full_name: string; default_branch?: string; topics?: string[]; description?: string | null }) => ({
-      full_name: r.full_name,
-      default_branch: r.default_branch ?? 'main',
-      topics: r.topics ?? [],
-      description: r.description ?? null,
-    }));
+    const mapped: DiscoveredRepo[] = repos
+      .map((r: { full_name: string; default_branch?: string; topics?: string[]; description?: string | null }) => ({
+        full_name: r.full_name,
+        default_branch: r.default_branch ?? 'main',
+        topics: r.topics ?? [],
+        description: r.description ?? null,
+      }))
+      .filter((r) => r.full_name.startsWith(`${this.opts.org}/`));
     if (this.topicFilter === null) return mapped;
     return mapped.filter((r) => r.topics.includes(this.topicFilter as string));
   }
