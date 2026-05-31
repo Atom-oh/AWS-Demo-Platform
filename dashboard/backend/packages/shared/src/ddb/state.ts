@@ -99,12 +99,14 @@ export class StateClient {
           Key: { pk: this.pk(repo), sk: 'current' },
           UpdateExpression:
             'SET #s = :off, restoration_data = :rd, last_action = :a, last_action_at = :now, updated_at = :now',
+          ConditionExpression: '#s = :transitioning',
           ExpressionAttributeNames: { '#s': 'status' },
           ExpressionAttributeValues: {
             ':off': 'off',
             ':rd': args.restoration_data,
             ':a': 'turn_off',
             ':now': now,
+            ':transitioning': 'transitioning',
           },
         }),
       );
@@ -122,11 +124,13 @@ export class StateClient {
           Key: { pk: this.pk(repo), sk: 'current' },
           UpdateExpression:
             'SET #s = :on, last_action = :a, last_action_at = :now, updated_at = :now REMOVE restoration_data',
+          ConditionExpression: '#s = :transitioning',
           ExpressionAttributeNames: { '#s': 'status' },
           ExpressionAttributeValues: {
             ':on': 'on',
             ':a': 'turn_on',
             ':now': now,
+            ':transitioning': 'transitioning',
           },
         }),
       );

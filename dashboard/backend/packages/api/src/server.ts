@@ -65,9 +65,14 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   // (including unset) enforces auth.
   const log = createLogger({ name: 'api' });
   const skipJwt = process.env.NODE_ENV === 'development';
-  buildServer({ skipJwt }).then(async (app) => {
-    const port = Number(process.env.PORT ?? 8080);
-    await app.listen({ port, host: '0.0.0.0' });
-    log.info({ port, skipJwt }, 'api listening');
-  });
+  buildServer({ skipJwt })
+    .then(async (app) => {
+      const port = Number(process.env.PORT ?? 8080);
+      await app.listen({ port, host: '0.0.0.0' });
+      log.info({ port, skipJwt }, 'api listening');
+    })
+    .catch((err) => {
+      log.error({ err }, 'api failed to start');
+      process.exit(1);
+    });
 }
