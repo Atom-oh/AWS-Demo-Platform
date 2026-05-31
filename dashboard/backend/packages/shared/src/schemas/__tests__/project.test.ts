@@ -76,4 +76,26 @@ describe('ProjectSchema', () => {
     });
     expect(p.resources).toHaveLength(3);
   });
+
+  it('accepts msk/stepfunctions/lambda/firehose as always-on visibility-only', () => {
+    const p = ProjectSchema.parse({
+      ...validProject,
+      resources: [
+        { type: 'msk', cluster_name: 'mall-msk', always_on: true },
+        { type: 'stepfunctions', state_machine_name: 'cc-classify', always_on: true },
+        { type: 'lambda', function_names: ['fn-a', 'fn-b'], always_on: true },
+        { type: 'firehose', delivery_stream_names: ['cc-fh'], always_on: true },
+      ],
+    });
+    expect(p.resources).toHaveLength(4);
+  });
+
+  it('rejects lambda with empty function_names', () => {
+    expect(() =>
+      ProjectSchema.parse({
+        ...validProject,
+        resources: [{ type: 'lambda', function_names: [], always_on: true }],
+      }),
+    ).toThrow();
+  });
 });
