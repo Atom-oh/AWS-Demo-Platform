@@ -2,7 +2,7 @@
 
 ## Role
 Stage 2–3 admin platform for AWS Demo Platform.
-- **`backend/`** — Stage 2 **Lifecycle Controller** (built; Phase 1 complete). Node.js TypeScript pnpm-workspaces monorepo.
+- **`backend/`** — Stage 2 **Lifecycle Controller**. Node.js TypeScript pnpm-workspaces monorepo. Phase 1 code is built on branch `feat/stage-2-phase-1-backend-foundations` and **pending merge to `main` (PR #4)** — `main` still has empty placeholders until then.
 - **`frontend/`** — Stage 3 admin UI (Next.js). Still an empty placeholder.
 
 ## backend/ — Lifecycle Controller (implemented)
@@ -45,4 +45,4 @@ Next.js + TypeScript, master-detail layout, Cognito hosted-UI login. Empty place
 ## Rules
 - TypeScript strict on both sides; `.js` import extensions (Node16).
 - No AWS SDK calls from the frontend — all cross-account ops go through the backend (assumes `DemoPlatformOperator` per `accounts.yaml`).
-- Frontend never sees AWS credentials; backend uses the ECS task role → STS, never persists tokens.
+- Frontend never sees AWS credentials; backend runs as `DashboardEcsTaskRole-dev` → STS AssumeRole into `DemoPlatformOperator`, never persists tokens.

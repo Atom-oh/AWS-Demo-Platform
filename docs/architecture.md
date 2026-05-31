@@ -144,23 +144,30 @@ Browser -> CloudFront -> VPC Origin -> Internal ALB -> TGB -> Pod (Atlantis | Ar
 Backend that toggles demo resources on/off and tracks state. Code in
 `dashboard/backend/` (pnpm monorepo). Runs as two ECS Fargate services (Phase 4).
 
-```
-User → CF (admin-api-dev.atomai.click) → Internal ALB → [api task]
-                                                            │ Cognito JWT verify
-                                                            │ DDB state read
-                                                            ▼
-                                                  SQS demo-platform-jobs-dev
-                                                            │
-                                                            ▼
-                                                       [worker task]
-        DashboardEcsTaskRole-dev ──sts:AssumeRole+ExternalId──▶ DemoPlatformOperator (per accounts.yaml)
-                                                            │        ├─ ECS UpdateService desiredCount
-        DynamoDB: state / jobs / history  ◀─────────────────┤        ├─ EC2 Start/StopInstances
-        ArgoCD REST API (admin token) ◀─────────────────────┤        ├─ RDS Start/StopDBInstance
-        GitHub API (PAT, hourly discovery) ◀────────────────┘        └─ HPA-2 patch (Deploy replicas=1, HPA min=max=1)
+```mermaid
+flowchart LR
+  U[User] --> CF[CloudFront admin-api-dev]
+  CF --> ALB[Internal ALB]
+  ALB --> API[api task]
+  API -->|Cognito JWT verify; DDB state read; enqueue| Q[(SQS jobs)]
+  Q --> W[worker task]
+  W -->|sts:AssumeRole + ExternalId| OP[DemoPlatformOperator]
+  OP --> ECS[ECS UpdateService]
+  OP --> EC2[EC2 Start/Stop]
+  OP --> RDS[RDS Start/Stop]
+  W -->|HPA-2 patch| AG[ArgoCD REST API]
+  W --> DDB[(DDB state / jobs / history)]
+  W -->|hourly discovery| GH[GitHub API]
 ```
 
-**Status:** Phase 1 (code, LocalStack-tested) ✅ · Phase 2 (DDB/IAM/SQS/ECR/Secrets) deployed ✅ · Phase 3 (ECR image push) and Phase 4 (ECS/ALB/CF/R53/Cognito runtime) pending.
+The task identity is `DashboardEcsTaskRole-dev`; it assumes `DemoPlatformOperator`
+per `accounts.yaml` (ExternalId from Secrets Manager). HPA-2 patch = Deployment
+`replicas=1` + HPA `min=max=1` via ArgoCD.
+
+**Status:** Phase 1 (code, LocalStack-tested) — built on branch
+`feat/stage-2-phase-1-backend-foundations`, **pending merge to `main` (PR #4)** ·
+Phase 2 (DDB/IAM/SQS/ECR/Secrets) deployed ✅ · Phase 3 (ECR image push) and
+Phase 4 (ECS/ALB/CF/R53/Cognito runtime) pending.
 
 **Phase 2 deployed resources (dev, atomoh-main):**
 - DynamoDB: `demo-platform-{state,jobs,history}-dev` (deletion protection on)
