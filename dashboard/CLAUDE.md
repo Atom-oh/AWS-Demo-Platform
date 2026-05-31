@@ -1,38 +1,48 @@
 # dashboard/ Module
 
 ## Role
-Stage 3 admin UI + API for AWS Demo Platform. Currently a scaffold (`backend/` and `frontend/` are empty placeholders). Will be filled in Stage 3.
+Stage 2–3 admin platform for AWS Demo Platform.
+- **`backend/`** — Stage 2 **Lifecycle Controller** (built; Phase 1 complete). Node.js TypeScript pnpm-workspaces monorepo.
+- **`frontend/`** — Stage 3 admin UI (Next.js). Still an empty placeholder.
 
-## Planned Stack
-- **Frontend**: Next.js + TypeScript. Master-detail layout: left rail of projects, right pane shows resources / URLs / toggle controls.
-- **Backend**: Node.js + TypeScript. Express or Fastify. REST API.
-- **Runtime**: ECS Fargate behind the same Internal ALB (new target group + listener rule), routed from CloudFront.
-- **Auth**: Cognito hosted UI for admin login.
-- **Data sources**: GitHub (repo discovery), ArgoCD API (app status + sync trigger), AWS APIs (ECS/EC2/RDS describe + start/stop), Secrets Manager (add secrets).
-- **State**: DynamoDB for project metadata cache and operation history.
+## backend/ — Lifecycle Controller (implemented)
 
-## Planned Layout
+pnpm workspaces monorepo. Three packages:
+
+| Package | Role |
+|---|---|
+| `@demo-platform/shared` | Zod schemas (project/account/DDB records), pino logger, env loaders, AWS SDK client factory, AssumeRole cache (TTL skew), DDB clients (state/jobs/history), ArgoCD REST client, GitHub client |
+| `@demo-platform/api` | Fastify REST API: `/health`, `/api/projects`, `/api/projects/*`, `.../actions/turn_{on,off}`, `/api/jobs/:id`. Cognito JWT plugin (skip in `NODE_ENV=development`), projects-loader, error handler |
+| `@demo-platform/worker` | SQS consumer + startup sweep, 4 resource controllers (ECS/EC2/RDS/ArgoCD HPA-2), runJob dispatcher, GitHub discoverer (hourly cron) |
+
+### Commands (run from `dashboard/backend/`)
+```bash
+pnpm install
+pnpm test          # vitest — unit + LocalStack integration (needs stack up)
+pnpm typecheck     # tsc --noEmit, all 3 packages
+pnpm lint          # eslint
+pnpm build         # tsc -b → dist/
+pnpm stack:up      # docker compose up -d  (LocalStack :4566 for integration tests)
+pnpm stack:down
 ```
-dashboard/
-  backend/
-    src/
-      api/          # REST handlers
-      services/     # GitHub, ArgoCD, AWS adapters
-      persistence/  # DynamoDB access
-    package.json
-    tsconfig.json
-  frontend/
-    src/
-      pages/        # Next.js routes
-      components/   # UI primitives
-      hooks/        # API client hooks
-    package.json
-    tsconfig.json
-```
+Docker images: `docker build -f packages/{api,worker}/Dockerfile -t demo-platform-{api,worker}:dev .`
 
-## Rules (when implementation begins)
-- TypeScript strict mode on both sides.
-- No AWS SDK calls from the frontend — go through the backend.
-- All cross-account ops route through the backend, which assumes the configured `OperatorRole`/`DemoPlatformTerraformer` per `accounts.yaml`.
-- Frontend never sees AWS credentials. Backend never persists tokens (uses IRSA → STS).
-- Pages mount under `/` after Cognito auth. CF routes everything to one ALB listener rule.
+### Non-obvious patterns
+- **Node16 ESM**: all relative imports need `.js` extensions; `tsc -b` is the real gate (vitest/esbuild skips type errors).
+- **AssumeRole flow**: worker assumes `DemoPlatformOperator` per `accounts.yaml` with the ExternalId from Secrets Manager; creds cached with TTL skew.
+- **HPA-2 (ArgoCD controller)**: turn_off patches HPA `min=max=1` + Deployment `replicas=1` (never true zero).
+- **turn_on is a Phase-1 stub**: `worker/src/job-runner.ts::turnOnOne` marks state on but does NOT yet restore resources from `restoration_data` — deferred to Phase 5/E2E.
+- **Job model**: api enqueues to SQS → worker processes (idempotent); SQS visibility 300s, RDS start polling runs in background to avoid redelivery.
+
+### Tests
+- Unit: vitest + `aws-sdk-client-mock` / fetch mocks.
+- Integration: LocalStack (DynamoDB/SQS/STS/Secrets) via `docker-compose.yaml`.
+- CI: `.github/workflows/backend-ci.yml` (lint/typecheck/test on PR, LocalStack service container).
+
+## frontend/ — Stage 3 (not started)
+Next.js + TypeScript, master-detail layout, Cognito hosted-UI login. Empty placeholder.
+
+## Rules
+- TypeScript strict on both sides; `.js` import extensions (Node16).
+- No AWS SDK calls from the frontend — all cross-account ops go through the backend (assumes `DemoPlatformOperator` per `accounts.yaml`).
+- Frontend never sees AWS credentials; backend uses the ECS task role → STS, never persists tokens.

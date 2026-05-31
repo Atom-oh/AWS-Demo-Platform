@@ -21,9 +21,10 @@ See `docs/superpowers/specs/2026-05-26-aws-demo-platform-design.md` for the full
 - **Secrets** — AWS Secrets Manager via External Secrets Operator 2.5.0 (`ClusterSecretStore aws-secrets-manager`, ESO `v1` CRDs)
 - **Network ingress** — CloudFront → VPC Origin → Internal ALB → TargetGroupBinding → pod (no Ingress controller)
 - **DNS** — Route 53 split-horizon (`*.atomai.click` wildcard ACM cert)
-- **Auth (admin)** — Cognito (planned for dashboard)
+- **Auth (admin)** — Cognito (User Pool provisioned in Stage 2 Phase 4)
 - **GitHub** — GitHub App `atomoh-atlantis` for Atlantis webhook auth
-- **Dashboard (Stage 3, scaffold only)** — Next.js (frontend) + Node.js TypeScript (backend) → ECS Fargate
+- **Lifecycle Controller (Stage 2)** — `dashboard/backend/` Node.js TS pnpm monorepo (`shared`/`api`/`worker`). Fastify REST API + SQS worker that toggles ECS/EC2/RDS/ArgoCD via cross-account `DemoPlatformOperator`. State in DynamoDB. Phase 1 (code) built; Phase 2 (infra: DDB/IAM/SQS/ECR/Secrets) deployed.
+- **Dashboard frontend (Stage 3, scaffold only)** — Next.js → ECS Fargate
 
 ## Project Structure
 
@@ -36,8 +37,13 @@ infra/                    - Terraform (hub cluster, network, IAM, dashboard infr
   alb-internal/           - Internal ALB + SG rules
   cloudfront/             - CloudFront distribution + VPC Origin
   route53-private-zone/   - Split-horizon DNS PHZ
-  cognito/                - Admin auth (planned)
-  dashboard-ecs/          - Dashboard runtime (planned)
+  dynamodb/               - Lifecycle Controller state/jobs/history tables (Stage 2, dev)
+  iam/                    - DashboardEcsTaskRole-dev, ExecutionRole-dev, DemoPlatformOperator (Stage 2)
+  sqs/                    - Lifecycle Controller job queue + DLQ (Stage 2, dev)
+  ecr/                    - demo-platform/{api,worker} image repos (Stage 2)
+  secrets-manager/        - Dashboard secret slots: github PAT, argocd token, cognito (Stage 2)
+  cognito/                - Admin auth (Stage 2 Phase 4)
+  dashboard-ecs/          - Dashboard runtime ECS (Stage 2 Phase 4)
   modules/                - Shared Terraform modules (copied from multi-region-architecture)
 k8s/system/               - Kustomize manifests for hub system components
   atlantis/               - Atlantis deployment + ExternalSecret
@@ -47,7 +53,9 @@ argocd-apps/
   bootstrap/              - master-system-root + master-tenants-root (one-time apply)
   system/                 - System Applications (atlantis, argocd, external-secrets, CSS)
   tenants/                - Per-tenant root Applications (App-of-Apps targeting spokes)
-dashboard/                - Stage 3: admin UI + API (Next.js + Node.js TS) [scaffold only]
+dashboard/
+  backend/                - Stage 2 Lifecycle Controller (pnpm monorepo: shared/api/worker) [built]
+  frontend/               - Stage 3 admin UI (Next.js) [scaffold only]
 docs/
   superpowers/            - Specs, plans, retrospectives
   onboarding/             - Friend account setup guides
