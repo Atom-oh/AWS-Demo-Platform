@@ -70,6 +70,12 @@ jobs:
           role-to-assume: arn:aws:iam::180294183052:role/demo-platform-gha-ecr-push
           aws-region: ap-northeast-2
       - uses: aws-actions/amazon-ecr-login@v2
+      - name: Bundle worker config (projects + accounts.yaml) into build context
+        working-directory: dashboard/backend
+        run: |
+          rm -rf ./_config && mkdir -p ./_config
+          cp -r ../../projects ./_config/projects
+          cp ../../accounts.yaml ./_config/accounts.yaml
       - name: Build & push api + worker
         working-directory: dashboard/backend
         run: |
