@@ -9,3 +9,7 @@ output "exec_role_arn" {
 output "operator_role_arn" {
   value = aws_iam_role.operator.arn
 }
+
+output "gha_ecr_push_role_arn" {
+  value = aws_iam_role.gha_ecr_push.arn
+}

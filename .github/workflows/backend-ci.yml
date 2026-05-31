@@ -5,6 +5,16 @@ on:
     paths:
       - 'dashboard/backend/**'
       - '.github/workflows/backend-ci.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'dashboard/backend/**'
+      - '.github/workflows/backend-ci.yml'
+
+permissions:
+  contents: read
+  id-token: write # OIDC for the ECR push job
 
 jobs:
   lint-test:
@@ -43,3 +53,29 @@ jobs:
           AWS_ENDPOINT_URL: http://localhost:4566
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test
+
+  push-images:
+    # Build + push api/worker images to ECR on merge to main.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: lint-test
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ap-northeast-2
+      ECR_REGISTRY: 180294183052.dkr.ecr.ap-northeast-2.amazonaws.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::180294183052:role/demo-platform-gha-ecr-push
+          aws-region: ap-northeast-2
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build & push api + worker
+        working-directory: dashboard/backend
+        run: |
+          SHA="${GITHUB_SHA::12}"
+          for svc in api worker; do
+            REPO="$ECR_REGISTRY/demo-platform/$svc"
+            docker build -f "packages/$svc/Dockerfile" -t "$REPO:$SHA" -t "$REPO:main-latest" .
+            docker push "$REPO:$SHA"
+            docker push "$REPO:main-latest"
+          done
