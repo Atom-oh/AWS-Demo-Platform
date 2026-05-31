@@ -3,3 +3,5 @@ output "atlantis_cf_domain" { value = aws_cloudfront_distribution.atlantis.domai
 output "atlantis_cf_arn" { value = aws_cloudfront_distribution.atlantis.arn }
 output "argocd_cf_domain" { value = aws_cloudfront_distribution.argocd.domain_name }
 output "argocd_cf_arn" { value = aws_cloudfront_distribution.argocd.arn }
+output "dashboard_api_cf_domain" { value = aws_cloudfront_distribution.dashboard_api.domain_name }
+output "dashboard_api_cf_arn" { value = aws_cloudfront_distribution.dashboard_api.arn }

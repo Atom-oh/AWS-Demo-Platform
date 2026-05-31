@@ -111,6 +111,29 @@ projects:
     apply_requirements:
       - mergeable
 
+  # ── Stage 2 Phase 4 (Lifecycle Controller runtime) ──
+  - name: cognito
+    dir: infra/cognito
+    terraform_version: v1.9.6
+    autoplan:
+      enabled: true
+      when_modified:
+        - "*.tf"
+        - "../../atlantis.yaml"
+    apply_requirements:
+      - mergeable
+
+  - name: dashboard-ecs
+    dir: infra/dashboard-ecs
+    terraform_version: v1.9.6
+    autoplan:
+      enabled: true
+      when_modified:
+        - "*.tf"
+        - "../../atlantis.yaml"
+    apply_requirements:
+      - mergeable
+
 # eks-mgmt is intentionally NOT registered. It's a cross-repo state
 # reference (the actual EKS cluster is owned by multi-region-architecture
 # repo). Atlantis would attempt to refresh tempo-storage S3 + EKS OIDC
