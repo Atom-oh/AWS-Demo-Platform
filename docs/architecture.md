@@ -139,6 +139,43 @@ Browser -> CloudFront -> VPC Origin -> Internal ALB -> TGB -> Pod (Atlantis | Ar
 - VPC Origin: `vo_22VbzKdu79hDrHuT2h1j2B`
 - Internal ALB: `demo-platform-internal`
 
+## Lifecycle Controller (Stage 2)
+
+Backend that toggles demo resources on/off and tracks state. Code in
+`dashboard/backend/` (pnpm monorepo). Runs as two ECS Fargate services (Phase 4).
+
+```mermaid
+flowchart LR
+  U[User] --> CF[CloudFront admin-api-dev]
+  CF --> ALB[Internal ALB]
+  ALB --> API[api task]
+  API -->|Cognito JWT verify; DDB state read; enqueue| Q[(SQS jobs)]
+  Q --> W[worker task]
+  W -->|sts:AssumeRole + ExternalId| OP[DemoPlatformOperator]
+  OP --> ECS[ECS UpdateService]
+  OP --> EC2[EC2 Start/Stop]
+  OP --> RDS[RDS Start/Stop]
+  W -->|HPA-2 patch| AG[ArgoCD REST API]
+  W --> DDB[(DDB state / jobs / history)]
+  W -->|hourly discovery| GH[GitHub API]
+```
+
+The task identity is `DashboardEcsTaskRole-dev`; it assumes `DemoPlatformOperator`
+per `accounts.yaml` (ExternalId from Secrets Manager). HPA-2 patch = Deployment
+`replicas=1` + HPA `min=max=1` via ArgoCD.
+
+**Status:** Phase 1 (code, LocalStack-tested) — built on branch
+`feat/stage-2-phase-1-backend-foundations`, **pending merge to `main` (PR #4)** ·
+Phase 2 (DDB/IAM/SQS/ECR/Secrets) deployed ✅ · Phase 3 (ECR image push) and
+Phase 4 (ECS/ALB/CF/R53/Cognito runtime) pending.
+
+**Phase 2 deployed resources (dev, atomoh-main):**
+- DynamoDB: `demo-platform-{state,jobs,history}-dev` (deletion protection on)
+- IAM: `DashboardEcsTaskRole-dev`, `DashboardEcsExecutionRole-dev`, `DemoPlatformOperator`
+- SQS: `demo-platform-jobs-dev` + DLQ
+- ECR: `demo-platform/api`, `demo-platform/worker`
+- Secrets Manager slots: `dev/github/pat`, `argocd/admin-token`, `dev/cognito/*`
+
 ## Key Design Decisions
 
 - **CloudFront-only ingress** — Single public surface, single TLS/WAF anchor, no public LBs. The CF VPC Origin feature (AWS Nov 2024) enables this without NAT.

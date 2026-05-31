@@ -17,7 +17,7 @@ Admin platform for managing GitHub-linked AWS demo projects across multiple AWS 
 
 AWS Demo Platform unifies operation of multiple AWS demo projects under a single admin surface. A hub EKS cluster runs Atlantis (PR-based Terraform automation), ArgoCD (GitOps for spoke workloads), and the future admin dashboard. Operators can discover projects from GitHub, toggle AWS resources on/off, surface demo URLs and code-server URLs, and manage Secrets Manager entries — all through a CloudFront-fronted control plane.
 
-Stage 1 (infrastructure migration) is complete; the dashboard (Stage 3) is scaffolded.
+Stage 1 (infrastructure migration) is complete. Stage 2 (Lifecycle Controller) is in progress — the backend code is built (Phase 1, pending merge to `main` via PR #4) and its foundational infra (DynamoDB, IAM, SQS, ECR, Secrets Manager) is deployed (Phase 2). The frontend (Stage 3) is scaffolded.
 
 See `docs/superpowers/specs/2026-05-26-aws-demo-platform-design.md` for the full design and `docs/architecture.md` for the deployed topology.
 
@@ -83,7 +83,8 @@ bash tests/run-all.sh
 | `argocd-apps/system/` | ArgoCD Application CRs for system components |
 | `argocd-apps/tenants/` | ArgoCD root Application CRs per tenant project (App-of-Apps) |
 | `argocd-apps/bootstrap/` | Master-root Applications (one-time bootstrap) |
-| `dashboard/` | Stage 3 admin UI + API (Next.js + Node.js TS, scaffold) |
+| `dashboard/backend/` | Stage 2 Lifecycle Controller (Node.js TS pnpm monorepo: shared/api/worker, built) |
+| `dashboard/frontend/` | Stage 3 admin UI (Next.js, scaffold) |
 | `docs/superpowers/` | Specs, plans, retrospectives |
 | `docs/onboarding/` | Friend account onboarding guides |
 | `docs/decisions/` | ADRs |
@@ -139,7 +140,7 @@ MIT — see [LICENSE](LICENSE) when added.
 
 AWS Demo Platform은 여러 AWS 데모 프로젝트의 운영을 단일 관리자 화면으로 통합합니다. Hub EKS 클러스터에서 Atlantis(PR 기반 Terraform 자동화), ArgoCD(spoke 워크로드 GitOps), 그리고 향후 관리자 대시보드를 실행합니다. 운영자는 GitHub에서 프로젝트를 발견하고, AWS 리소스를 on/off 하고, 데모 URL 및 code-server URL을 노출하고, Secrets Manager 항목을 관리할 수 있으며, 모든 통신은 CloudFront 앞단의 제어 평면을 통해 이루어집니다.
 
-1단계(인프라 마이그레이션)는 완료되었고, 대시보드(3단계)는 스캐폴드 상태입니다.
+1단계(인프라 마이그레이션)는 완료되었습니다. 2단계(Lifecycle Controller)가 진행 중입니다 — 백엔드 코드가 구현되었고(Phase 1, PR #4로 `main` 머지 대기 중), 기반 인프라(DynamoDB, IAM, SQS, ECR, Secrets Manager)가 배포되었습니다(Phase 2). 프론트엔드(3단계)는 스캐폴드 상태입니다.
 
 전체 설계는 `docs/superpowers/specs/2026-05-26-aws-demo-platform-design.md`, 배포된 토폴로지는 `docs/architecture.md`를 참조하세요.
 
@@ -205,7 +206,8 @@ bash tests/run-all.sh
 | `argocd-apps/system/` | 시스템 컴포넌트용 ArgoCD Application CR |
 | `argocd-apps/tenants/` | tenant 프로젝트별 ArgoCD root Application CR (App-of-Apps) |
 | `argocd-apps/bootstrap/` | Master-root Application (1회 부트스트랩) |
-| `dashboard/` | 3단계 관리자 UI + API (Next.js + Node.js TS, 스캐폴드) |
+| `dashboard/backend/` | 2단계 Lifecycle Controller (Node.js TS pnpm 모노레포: shared/api/worker, 구현됨) |
+| `dashboard/frontend/` | 3단계 관리자 UI (Next.js, 스캐폴드) |
 | `docs/superpowers/` | 스펙, 계획, 회고 |
 | `docs/onboarding/` | 친구 계정 onboarding 가이드 |
 | `docs/decisions/` | ADR |
