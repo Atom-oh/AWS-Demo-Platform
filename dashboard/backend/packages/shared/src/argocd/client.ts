@@ -91,6 +91,15 @@ export class ArgocdClient {
   }
 
   async patchReplicas(app: string, h: WorkloadHandle, replicas: number): Promise<void> {
+    // HPA-2 guardrail: demo-off scales Deployments/StatefulSets to 1 (never 0) and
+    // pins HPA min=max=1. Scaling a workload to 0 here would violate the convention
+    // and fight ArgoCD's replica ignoreDifferences. Block it at the source.
+    if (h.kind === 'HorizontalPodAutoscaler') {
+      throw new PermanentError('patchReplicas is for Deployment/StatefulSet; use patchHpaBounds for HPA');
+    }
+    if (replicas < 1) {
+      throw new PermanentError(`HPA-2: replicas must be >= 1 (got ${replicas}); use patchHpaBounds for off`);
+    }
     const patch = JSON.stringify({ spec: { replicas } });
     await this.postPatch(app, h, patch);
   }

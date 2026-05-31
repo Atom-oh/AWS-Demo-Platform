@@ -30,19 +30,24 @@ export async function registerActions(
       throw new ConflictError(`expected status=${want}, current=${state?.status ?? 'unknown'}`);
     }
 
-    await deps.stateClient.transition(repo, {
-      from: want,
-      to: 'transitioning',
-      actor: req.user?.username ?? 'system',
-    });
+    const actor = req.user?.username ?? 'system';
+    await deps.stateClient.transition(repo, { from: want, to: 'transitioning', actor });
 
     const jobId = await deps.jobsClient.create({ repo, operation: op });
-    await deps.sqsClient.send(
-      new SendMessageCommand({
-        QueueUrl: deps.queueUrl,
-        MessageBody: JSON.stringify({ jobId, repo, operation: op }),
-      }),
-    );
+    try {
+      await deps.sqsClient.send(
+        new SendMessageCommand({
+          QueueUrl: deps.queueUrl,
+          MessageBody: JSON.stringify({ jobId, repo, operation: op }),
+        }),
+      );
+    } catch (err) {
+      // Enqueue failed — roll back so the project isn't stuck in `transitioning`
+      // (a pending job would never be picked up: the sweep only finds `running`).
+      await deps.jobsClient.markFailed(jobId, `enqueue failed: ${(err as Error).message}`);
+      await deps.stateClient.transition(repo, { from: 'transitioning', to: want, actor });
+      throw err;
+    }
     void reply.code(202).send({ job_id: jobId });
   }
 
