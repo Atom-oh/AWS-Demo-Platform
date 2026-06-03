@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AWS Demo Platform</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel-2: #1c2330; --border: #2a3240;
+    --text: #e6edf3; --muted: #8b97a7; --accent: #4493f8; --accent-2: #316dca;
+    --on: #2ea043; --on-bg: #1b3324; --off: #6e7681; --off-bg: #21262d;
+    --warn: #d29922; --warn-bg: #3a2f10; --err: #f85149; --err-bg: #3a1414;
+    --chip: #21262d; --shadow: 0 1px 3px rgba(0,0,0,.4);
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", Roboto, Helvetica, Arial, sans-serif; }
+  a { color: var(--accent); text-decoration: none; }
+  header.topbar { position:sticky; top:0; z-index:10; display:flex; align-items:center; gap:16px;
+    padding:14px 24px; background:rgba(13,17,23,.85); backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--border); }
+  .brand { display:flex; flex-direction:column; }
+  .brand b { font-size:16px; letter-spacing:.2px; }
+  .brand span { font-size:12px; color:var(--muted); }
+  .badge-dev { font-size:11px; font-weight:600; color:var(--warn); border:1px solid var(--warn);
+    border-radius:999px; padding:2px 8px; }
+  .search { flex:1; max-width:520px; margin-left:auto; }
+  .search input { width:100%; background:var(--panel); border:1px solid var(--border); color:var(--text);
+    border-radius:8px; padding:9px 12px; font-size:14px; outline:none; }
+  .search input:focus { border-color:var(--accent); }
+  .layout { display:grid; grid-template-columns:236px 1fr; gap:24px; padding:24px; max-width:1400px; margin:0 auto; }
+  aside { position:sticky; top:84px; align-self:start; }
+  aside h3 { font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:var(--muted);
+    margin:18px 0 8px; }
+  .facet { display:flex; align-items:center; justify-content:space-between; width:100%; text-align:left;
+    background:none; border:none; color:var(--text); padding:7px 10px; border-radius:7px; cursor:pointer;
+    font-size:13px; }
+  .facet:hover { background:var(--panel); }
+  .facet.active { background:var(--accent-2); color:#fff; }
+  .facet .cnt { color:var(--muted); font-size:12px; }
+  .facet.active .cnt { color:#cfe2ff; }
+  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:22px; }
+  .stat { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px 18px; }
+  .stat .n { font-size:28px; font-weight:700; line-height:1; }
+  .stat .l { font-size:12px; color:var(--muted); margin-top:6px; }
+  .stat.on .n { color:var(--on); } .stat.off .n { color:var(--off); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:16px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:18px;
+    display:flex; flex-direction:column; gap:12px; box-shadow:var(--shadow); transition:border-color .15s; }
+  .card:hover { border-color:#3d4858; }
+  .card .row { display:flex; align-items:center; gap:10px; }
+  .card h2 { font-size:15px; margin:0; flex:1; }
+  .repo { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; color:var(--muted); }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { font-size:11px; background:var(--chip); border:1px solid var(--border); color:var(--muted);
+    border-radius:6px; padding:3px 8px; }
+  .chip.cat { color:var(--accent); border-color:#234; }
+  .chip.acct { color:#d2a8ff; border-color:#332; }
+  .chip.res-on { color:var(--text); border-color:#3d4858; }
+  .chip.res-always { color:var(--muted); }
+  .chip.res-always::before { content:"●"; color:var(--on); margin-right:4px; font-size:8px; vertical-align:middle; }
+  .desc { font-size:13px; color:#b9c2cf; line-height:1.5; }
+  .pill { font-size:11px; font-weight:700; border-radius:999px; padding:3px 10px; text-transform:uppercase; letter-spacing:.4px; }
+  .pill.on { color:var(--on); background:var(--on-bg); }
+  .pill.off { color:var(--off); background:var(--off-bg); }
+  .pill.transitioning { color:var(--warn); background:var(--warn-bg); animation:pulse 1.2s ease-in-out infinite; }
+  .pill.error { color:var(--err); background:var(--err-bg); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.45} }
+  .card footer { display:flex; align-items:center; gap:10px; margin-top:auto; padding-top:6px; }
+  .btn { font-size:13px; font-weight:600; border-radius:8px; padding:8px 14px; cursor:pointer; border:1px solid var(--border); background:var(--panel-2); color:var(--text); }
+  .btn:hover { border-color:#3d4858; }
+  .btn.on { background:var(--on-bg); border-color:#2ea04355; color:#56d364; }
+  .btn.off { background:#1c2a3a; border-color:#316dca55; color:#79c0ff; }
+  .btn:disabled { opacity:.55; cursor:default; }
+  .btn.link { margin-left:auto; background:none; border:none; color:var(--accent); padding:8px 4px; }
+  .btn.link[aria-disabled="true"] { color:var(--muted); cursor:default; }
+  .prog { font-size:11px; color:var(--warn); }
+  .empty { color:var(--muted); padding:40px; text-align:center; }
+  .spinner { width:12px;height:12px;border:2px solid var(--warn);border-top-color:transparent;border-radius:50%;
+    display:inline-block;vertical-align:-1px;margin-right:5px;animation:spin .7s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg) } }
+  .toast { position:fixed; bottom:20px; right:20px; background:var(--panel); border:1px solid var(--border);
+    border-radius:10px; padding:12px 16px; font-size:13px; box-shadow:var(--shadow); opacity:0; transform:translateY(8px);
+    transition:.2s; pointer-events:none; max-width:340px; }
+  .toast.show { opacity:1; transform:translateY(0); }
+  .toast.err { border-color:var(--err); }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><b>AWS Demo Platform</b><span>Demo lifecycle &amp; discovery</span></div>
+  <span class="badge-dev">DEV</span>
+  <div class="search"><input id="q" type="search" placeholder="검색: 프로젝트, repo, 태그, 설명…  ( / 로 포커스 )" /></div>
+</header>
+<div class="layout">
+  <aside>
+    <h3>카테고리</h3><div id="facet-cat"></div>
+    <h3>계정</h3><div id="facet-acct"></div>
+    <h3>상태</h3><div id="facet-status"></div>
+  </aside>
+  <main>
+    <div class="stats" id="stats"></div>
+    <div class="grid" id="grid"><div class="empty">불러오는 중…</div></div>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+const api = (p, o) => fetch(p, o).then(async r => { if(!r.ok && r.status!==202) throw new Error((await r.json().catch(()=>({}))).message||r.status); return r.status===202? r.json() : r.json(); });
+let PROJECTS = [];   // {repo,name,account, project, status, ...detail}
+let filters = { cat:null, acct:null, status:null, q:'' };
+
+const TOGGLEABLE = new Set(['ecs','ec2','argocd-app','rds']);
+const resLabel = r => ({ecs:'ECS',ec2:'EC2','argocd-app':'ArgoCD',rds:'RDS',dynamodb:'DynamoDB',
+  elasticache:'ElastiCache',kafka:'Kafka',msk:'MSK',stepfunctions:'StepFn',lambda:'Lambda',firehose:'Firehose'}[r.type]||r.type);
+
+function toast(msg, isErr){ const t=document.getElementById('toast'); t.textContent=msg; t.className='toast show'+(isErr?' err':''); setTimeout(()=>t.className='toast',3200); }
+
+async function load(){
+  const list = await api('/api/projects');
+  PROJECTS = await Promise.all(list.map(async it=>{
+    const [owner,name] = it.repo.split('/');
+    try {
+      const d = await api(`/api/projects/${owner}/${name}`);
+      return { ...it, project:d.project, status:(d.state&&d.state.status)||'unknown' };
+    } catch { return { ...it, project:null, status:'unknown' }; }
+  }));
+  render();
+}
+
+function counts(key){ const m={}; PROJECTS.forEach(p=>{ const v=key(p); if(v) m[v]=(m[v]||0)+1; }); return m; }
+
+function renderFacets(){
+  const cat = counts(p=>p.project&&p.project.display&&p.project.display.category);
+  const acct = counts(p=>p.account);
+  const st = counts(p=>p.status);
+  const mk=(host,map,fkey)=>{ host.innerHTML='';
+    Object.entries(map).sort((a,b)=>b[1]-a[1]).forEach(([k,n])=>{
+      const b=document.createElement('button'); b.className='facet'+(filters[fkey]===k?' active':'');
+      b.innerHTML=`<span>${k}</span><span class="cnt">${n}</span>`;
+      b.onclick=()=>{ filters[fkey]= filters[fkey]===k?null:k; render(); }; host.appendChild(b);
+    });
+    if(!Object.keys(map).length) host.innerHTML='<div class="chip" style="border:none">—</div>';
+  };
+  mk(document.getElementById('facet-cat'),cat,'cat');
+  mk(document.getElementById('facet-acct'),acct,'acct');
+  mk(document.getElementById('facet-status'),st,'status');
+}
+
+function visible(){
+  const q=filters.q.toLowerCase();
+  return PROJECTS.filter(p=>{
+    if(filters.cat && !(p.project&&p.project.display&&p.project.display.category===filters.cat)) return false;
+    if(filters.acct && p.account!==filters.acct) return false;
+    if(filters.status && p.status!==filters.status) return false;
+    if(q){ const hay=[p.name,p.repo,p.account,p.project&&p.project.description,
+      ...(p.project?p.project.resources.map(r=>r.type):[])].join(' ').toLowerCase();
+      if(!hay.includes(q)) return false; }
+    return true;
+  });
+}
+
+function renderStats(){
+  const on=PROJECTS.filter(p=>p.status==='on').length, off=PROJECTS.filter(p=>p.status==='off').length;
+  const accts=new Set(PROJECTS.map(p=>p.account)).size;
+  document.getElementById('stats').innerHTML=
+    `<div class="stat"><div class="n">${PROJECTS.length}</div><div class="l">프로젝트</div></div>`+
+    `<div class="stat"><div class="n">${accts}</div><div class="l">계정</div></div>`+
+    `<div class="stat on"><div class="n">${on}</div><div class="l">ON</div></div>`+
+    `<div class="stat off"><div class="n">${off}</div><div class="l">OFF</div></div>`;
+}
+
+function card(p){
+  const pr=p.project, cat=pr&&pr.display&&pr.display.category, demo=pr&&pr.urls&&pr.urls.demo;
+  const res=(pr?pr.resources:[]).map(r=>{
+    const on=TOGGLEABLE.has(r.type) && !r.always_on;
+    return `<span class="chip ${on?'res-on':'res-always'}">${resLabel(r)}</span>`; }).join('');
+  const st=p.status, busy=(st==='transitioning');
+  let toggle='';
+  if(st==='on') toggle=`<button class="btn on" data-op="turn_off" data-repo="${p.repo}">Turn off</button>`;
+  else if(st==='off') toggle=`<button class="btn off" data-op="turn_on" data-repo="${p.repo}">Turn on</button>`;
+  else if(busy) toggle=`<button class="btn" disabled><span class="spinner"></span>전환 중</button>`;
+  else toggle=`<button class="btn" disabled>${st}</button>`;
+  const demoBtn = demo ? `<a class="btn link" href="${demo}" target="_blank" rel="noopener">데모 열기 ↗</a>`
+                       : `<span class="btn link" aria-disabled="true">데모 URL 없음</span>`;
+  return `<div class="card" data-repo="${p.repo}">
+    <div class="row"><h2>${pr?pr.name:p.name}</h2><span class="pill ${st}">${st}</span></div>
+    <div class="repo">${p.repo}</div>
+    <div class="chips">${cat?`<span class="chip cat">${cat}</span>`:''}<span class="chip acct">${p.account}</span></div>
+    ${pr&&pr.description?`<div class="desc">${pr.description}</div>`:''}
+    <div class="chips">${res||'<span class="chip">리소스 정보 없음</span>'}</div>
+    <footer>${toggle}<span class="prog" data-prog="${p.repo}"></span>${demoBtn}</footer>
+  </div>`;
+}
+
+function render(){
+  renderFacets(); renderStats();
+  const g=document.getElementById('grid'); const vis=visible();
+  g.innerHTML = vis.length? vis.map(card).join('') : '<div class="empty">조건에 맞는 프로젝트가 없습니다.</div>';
+  g.querySelectorAll('button[data-op]').forEach(b=> b.onclick=()=>toggle(b.dataset.repo,b.dataset.op));
+}
+
+async function toggle(repo, op){
+  const [owner,name]=repo.split('/'); const prog=document.querySelector(`[data-prog="${CSS.escape(repo)}"]`);
+  const p=PROJECTS.find(x=>x.repo===repo); p.status='transitioning'; render();
+  try {
+    const { job_id } = await api(`/api/projects/${owner}/${name}/actions/${op}`, {method:'POST'});
+    // poll
+    for(let i=0;i<60;i++){
+      await new Promise(r=>setTimeout(r,1000));
+      const j=await api(`/api/jobs/${job_id}`);
+      const ph=Object.keys(j.progress||{}).map(k=>`${k}:${j.progress[k]}`).join(' ');
+      if(prog) prog.textContent=ph||j.status;
+      if(j.status==='succeeded'){ toast(`${repo} → ${op==='turn_on'?'ON':'OFF'} 완료`); break; }
+      if(j.status==='failed'){ toast(`${repo} 실패: ${j.error||''}`,true); break; }
+    }
+  } catch(e){ toast(`${repo} 토글 실패: ${e.message}`,true); }
+  // refresh real state
+  try { const d=await api(`/api/projects/${owner}/${name}`); p.status=(d.state&&d.state.status)||'unknown'; } catch {}
+  render();
+}
+
+document.getElementById('q').addEventListener('input',e=>{ filters.q=e.target.value; render(); });
+window.addEventListener('keydown',e=>{ if(e.key==='/' && document.activeElement.id!=='q'){ e.preventDefault(); document.getElementById('q').focus(); }});
+load().catch(e=>{ document.getElementById('grid').innerHTML=`<div class="empty">API 로드 실패: ${e.message}</div>`; });
+</script>
+</body>
+</html>

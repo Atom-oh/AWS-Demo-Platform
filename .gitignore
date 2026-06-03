@@ -28,6 +28,9 @@
 # Node
 node_modules/
 .next/
+
+# Playwright MCP scratch (snapshots/screenshots/console logs)
+.playwright-mcp/
 .env
 .env.local
 .env*.local
