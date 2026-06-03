@@ -29,6 +29,7 @@ Single PR: faithful copy + repoint. Manifests are byte-identical to MRA, so on m
 
 - Karpenter overlays reference the sibling `../karpenter` base — base copied alongside; sibling layout preserved.
 - `actions-runner` (namespace + placeholder secret) is not referenced by any ADP AppSet — not migrated.
+- **`grafana-nlb.yaml` intentionally dropped**: MRA's `k8s/infra/grafana` bundled an `internet-facing` public NLB (with hardcoded MRA subnet/SG IDs) to expose Grafana — this violates the platform's CloudFront-only ingress rule (no public LBs). Only the dashboard ConfigMaps are migrated. On sync the live public NLB is pruned (security improvement); proper Grafana exposure via CF→VPC Origin→Internal ALB→TGB is a separate follow-up.
 - MRA dirs remain after this PR (harmless; nothing sources them once repointed). MRA cleanup is a separate optional PR.
 
 ## DoD
