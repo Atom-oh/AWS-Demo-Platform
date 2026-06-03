@@ -357,3 +357,44 @@ aside h3 {
 .toast.err {
   border-color: var(--err);
 }
+.userchip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.userchip span {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.login-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+}
+.login-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 40px 48px;
+  box-shadow: var(--shadow);
+}
+.login-card b {
+  font-size: 18px;
+}
+.login-card span {
+  font-size: 13px;
+  color: var(--muted);
+}
+.login-card .btn {
+  margin-top: 6px;
+}

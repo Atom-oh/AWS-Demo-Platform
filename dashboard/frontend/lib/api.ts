@@ -1,7 +1,15 @@
 import type { ProjectListItem, Project, Job } from './types';
+import { getAccessToken } from './token-store';
 
 async function req<T>(path: string, opts?: RequestInit): Promise<T> {
-  const r = await fetch(path, opts);
+  // Attach the Cognito ACCESS token (the api verifies tokenUse:'access'). The
+  // same-origin /api/* rewrite/CloudFront behavior forwards the Authorization
+  // header to the api. No token in dev (skipJwt) — header simply omitted.
+  const headers = new Headers(opts?.headers);
+  const token = getAccessToken();
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+
+  const r = await fetch(path, { ...opts, headers });
   if (!r.ok && r.status !== 202) {
     const body = (await r.json().catch(() => ({}))) as { message?: string };
     throw new Error(body.message ?? `HTTP ${r.status}`);
