@@ -52,7 +52,7 @@ resource "aws_ecs_task_definition" "api" {
   task_role_arn            = data.terraform_remote_state.iam.outputs.task_role_arn
 
   runtime_platform {
-    cpu_architecture        = "X86_64" # matches the linux/amd64 image build
+    cpu_architecture        = "ARM64" # matches the linux/arm64 (Graviton) image build
     operating_system_family = "LINUX"
   }
 
@@ -99,7 +99,10 @@ resource "aws_ecs_service" "api" {
   }
 
   lifecycle {
-    # image is rolled by GHA (update-service); desired_count managed out-of-band.
+    # Service is rolled onto new task-def revisions out-of-band via a manual
+    # `aws ecs update-service` (there is no GHA step that does it; backend-ci
+    # only builds/pushes images). desired_count is also managed out-of-band.
+    # Arch cutover order is in docs/runbooks/arm64-graviton-migration.md.
     ignore_changes = [task_definition, desired_count]
   }
 }
@@ -115,7 +118,7 @@ resource "aws_ecs_task_definition" "worker" {
   task_role_arn            = data.terraform_remote_state.iam.outputs.task_role_arn
 
   runtime_platform {
-    cpu_architecture        = "X86_64"
+    cpu_architecture        = "ARM64" # matches the linux/arm64 (Graviton) image build
     operating_system_family = "LINUX"
   }
 

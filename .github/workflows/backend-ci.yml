@@ -14,7 +14,7 @@ on:
 
 jobs:
   lint-test:
-    runs-on: ubuntu-latest
+    runs-on: aws-demo-platform-arm
     defaults:
       run:
         working-directory: dashboard/backend
@@ -54,7 +54,7 @@ jobs:
     # Build + push api/worker images to ECR on merge to main.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: lint-test
-    runs-on: ubuntu-latest
+    runs-on: aws-demo-platform-arm
     permissions:
       contents: read
       id-token: write # OIDC only for this job
@@ -80,11 +80,12 @@ jobs:
         working-directory: dashboard/backend
         run: |
           # Tag prefixed `sha-` to match the ECR lifecycle policy's tagPrefixList.
-          # Pin linux/amd64 to match the Phase 4 Fargate runtime platform.
+          # Pin linux/arm64 to match the Fargate Graviton runtime platform (ARM64).
+          # Built natively on the aws-demo-platform-arm self-hosted runner (no emulation).
           SHA="sha-${GITHUB_SHA::12}"
           for svc in api worker; do
             REPO="$ECR_REGISTRY/demo-platform/$svc"
-            docker build --platform=linux/amd64 -f "packages/$svc/Dockerfile" \
+            docker build --platform=linux/arm64 -f "packages/$svc/Dockerfile" \
               -t "$REPO:$SHA" -t "$REPO:main-latest" .
             docker push --all-tags "$REPO"
           done
