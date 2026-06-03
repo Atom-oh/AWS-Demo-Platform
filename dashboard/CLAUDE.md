@@ -31,7 +31,7 @@ Docker images: `docker build -f packages/{api,worker}/Dockerfile -t demo-platfor
 - **Node16 ESM**: all relative imports need `.js` extensions; `tsc -b` is the real gate (vitest/esbuild skips type errors).
 - **AssumeRole flow**: worker assumes `DemoPlatformOperator` per `accounts.yaml` with the ExternalId from Secrets Manager; creds cached with TTL skew.
 - **HPA-2 (ArgoCD controller)**: turn_off patches HPA `min=max=1` + Deployment `replicas=1` (never true zero).
-- **turn_on is a Phase-1 stub**: `worker/src/job-runner.ts::turnOnOne` marks state on but does NOT yet restore resources from `restoration_data` — deferred to Phase 5/E2E.
+- **turn_on restores resources**: `worker/src/job-runner.ts` reads `restoration_data` off the DDB state record and dispatches per-resource into each controller's `turnOn(rd)` (ECS desiredCount / EC2 start / RDS start / ArgoCD HPA-2 restore). RDS `waitForAvailable` is fire-and-forget. Restoration is keyed by a **unique per-resource `stepKey`** (e.g. `argocd-app:<application>`) so same-type resources don't collide. Partial turn_on failure calls `markError` (preserves `restoration_data` for retry) instead of `markOn`.
 - **Job model**: api enqueues to SQS → worker processes (idempotent); SQS visibility 300s, RDS start polling runs in background to avoid redelivery.
 
 ### Tests
