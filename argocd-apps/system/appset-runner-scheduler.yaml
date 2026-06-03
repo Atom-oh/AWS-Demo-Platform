@@ -15,9 +15,9 @@ spec:
     spec:
       project: default
       source:
-        repoURL: https://github.com/Atom-oh/multi-region-architecture
+        repoURL: https://github.com/Atom-oh/AWS-Demo-Platform
         targetRevision: main
-        path: k8s/infra/runner-scheduler
+        path: k8s/system/runner-scheduler
       destination:
         server: '{{server}}'
         namespace: actions-runner-system

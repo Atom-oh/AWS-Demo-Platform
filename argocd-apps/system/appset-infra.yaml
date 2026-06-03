@@ -10,26 +10,26 @@ spec:
           matchLabels:
             cluster-name: mall-apne2-az-a
         values:
-          karpenterPath: k8s/infra/karpenter-apne2-az-a
+          karpenterPath: k8s/system/karpenter-apne2-az-a
     - clusters:
         selector:
           matchLabels:
             cluster-name: mall-apne2-az-c
         values:
-          karpenterPath: k8s/infra/karpenter-apne2-az-c
+          karpenterPath: k8s/system/karpenter-apne2-az-c
     - clusters:
         selector:
           matchLabels:
             cluster-name: mall-apne2-mgmt
         values:
-          karpenterPath: k8s/infra/karpenter-apne2-mgmt
+          karpenterPath: k8s/system/karpenter-apne2-mgmt
   template:
     metadata:
       name: 'infra-karpenter-crds-{{name}}'
     spec:
       project: default
       source:
-        repoURL: https://github.com/Atom-oh/multi-region-architecture
+        repoURL: https://github.com/Atom-oh/AWS-Demo-Platform
         targetRevision: main
         path: '{{values.karpenterPath}}'
       destination:

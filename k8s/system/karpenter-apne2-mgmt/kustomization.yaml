@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../karpenter/runner-x86-ec2nodeclass.yaml
+  - ../karpenter/runner-x86-nodepool.yaml
+  - ../karpenter/runner-arm-ec2nodeclass.yaml
+  - ../karpenter/runner-arm-nodepool.yaml
+  - ../karpenter/platform-ec2nodeclass.yaml
+  - ../karpenter/platform-nodepool.yaml
+
+patches:
+  - target:
+      kind: EC2NodeClass
+    patch: |-
+      - op: replace
+        path: /spec/role
+        value: "mall-apne2-mgmt-node-group-apne2-mgmt"
+      - op: replace
+        path: /spec/securityGroupSelectorTerms
+        value:
+          - tags:
+              karpenter.sh/discovery: mall-apne2-mgmt
+      - op: replace
+        path: /spec/subnetSelectorTerms
+        value:
+          - tags:
+              Tier: private

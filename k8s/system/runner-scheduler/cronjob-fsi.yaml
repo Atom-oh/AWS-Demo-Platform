@@ -1,0 +1,77 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: runner-scale-up-fsi
+  namespace: actions-runner-system
+spec:
+  schedule: "0 9 * * 1-5"
+  timeZone: "Asia/Seoul"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        spec:
+          serviceAccountName: runner-scheduler
+          restartPolicy: OnFailure
+          tolerations:
+            - key: workload-type
+              value: platform
+              effect: NoSchedule
+          nodeSelector:
+            node-pool: platform
+          containers:
+            - name: kubectl
+              image: 180294183052.dkr.ecr.ap-northeast-2.amazonaws.com/bitnami-kubectl:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  for runner in aws-fsi-demo-x86 aws-fsi-demo-arm aws-fsi-demo-claude-arm; do
+                    kubectl patch autoscalingrunnerset "$runner" \
+                      -n actions-runner-system \
+                      --type merge \
+                      -p '{"spec":{"minRunners":2}}'
+                    echo "Scaled up $runner to minRunners=2"
+                  done
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: runner-scale-down-fsi
+  namespace: actions-runner-system
+spec:
+  schedule: "0 22 * * 1-5"
+  timeZone: "Asia/Seoul"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      template:
+        spec:
+          serviceAccountName: runner-scheduler
+          restartPolicy: OnFailure
+          tolerations:
+            - key: workload-type
+              value: platform
+              effect: NoSchedule
+          nodeSelector:
+            node-pool: platform
+          containers:
+            - name: kubectl
+              image: 180294183052.dkr.ecr.ap-northeast-2.amazonaws.com/bitnami-kubectl:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  for runner in aws-fsi-demo-x86 aws-fsi-demo-arm aws-fsi-demo-claude-arm; do
+                    kubectl patch autoscalingrunnerset "$runner" \
+                      -n actions-runner-system \
+                      --type merge \
+                      -p '{"spec":{"minRunners":0}}'
+                    echo "Scaled down $runner to minRunners=0"
+                  done

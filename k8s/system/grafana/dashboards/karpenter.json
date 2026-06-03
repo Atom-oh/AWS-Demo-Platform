@@ -1,0 +1,397 @@
+{
+  "annotations": { "list": [] },
+  "description": "Karpenter v1.9 — NodePool capacity, provisioning lifecycle, instance distribution, disruption events, and resource efficiency across 8 NodePools",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "type": "row", "title": "NodePool Capacity Overview", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "type": "stat", "title": "Total Nodes",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "blue", "value": null }] } } },
+      "options": { "colorMode": "background_solid", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "count(karpenter_nodes_allocatable{resource_type=\"cpu\", nodepool=~\"$nodepool\"})", "legendFormat": "" }]
+    },
+    {
+      "type": "stat", "title": "Total NodeClaims",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "blue", "value": null }] } } },
+      "options": { "colorMode": "background_solid", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "sum(karpenter_nodeclaims_current_status_seconds_count{nodepool=~\"$nodepool\"}) or count(karpenter_nodes_allocatable{resource_type=\"cpu\", nodepool=~\"$nodepool\"})", "legendFormat": "" }]
+    },
+    {
+      "type": "gauge", "title": "CPU Utilization (Requested / Allocatable)",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "unit": "percentunit", "min": 0, "max": 1, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.7 }, { "color": "red", "value": 0.9 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "sum(karpenter_nodes_total_pod_requests{resource_type=\"cpu\", nodepool=~\"$nodepool\"}) / sum(karpenter_nodes_allocatable{resource_type=\"cpu\", nodepool=~\"$nodepool\"})", "legendFormat": "" }]
+    },
+    {
+      "type": "gauge", "title": "Memory Utilization (Requested / Allocatable)",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "unit": "percentunit", "min": 0, "max": 1, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.7 }, { "color": "red", "value": 0.9 }] } } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "sum(karpenter_nodes_total_pod_requests{resource_type=\"memory\", nodepool=~\"$nodepool\"}) / sum(karpenter_nodes_allocatable{resource_type=\"memory\", nodepool=~\"$nodepool\"})", "legendFormat": "" }]
+    },
+    {
+      "type": "stat", "title": "Spot Nodes",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "orange", "value": null }] } } },
+      "options": { "colorMode": "background_solid", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "count(karpenter_nodes_allocatable{resource_type=\"cpu\", capacity_type=\"spot\", nodepool=~\"$nodepool\"}) or vector(0)", "legendFormat": "" }]
+    },
+    {
+      "type": "stat", "title": "On-Demand Nodes",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }] } } },
+      "options": { "colorMode": "background_solid", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "count(karpenter_nodes_allocatable{resource_type=\"cpu\", capacity_type=\"on-demand\", nodepool=~\"$nodepool\"}) or vector(0)", "legendFormat": "" }]
+    },
+    {
+      "type": "timeseries", "title": "NodePool CPU: Usage vs Limit",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "short", "custom": { "fillOpacity": 15, "lineWidth": 1 } },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": "limit:.*" }, "properties": [{ "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } }, { "id": "custom.fillOpacity", "value": 0 }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "karpenter_nodepools_usage{resource_type=\"cpu\", nodepool=~\"$nodepool\"}", "legendFormat": "usage: {{ nodepool }}" },
+        { "expr": "karpenter_nodepools_limit{resource_type=\"cpu\", nodepool=~\"$nodepool\"}", "legendFormat": "limit: {{ nodepool }}" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "NodePool Memory: Usage vs Limit",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "bytes", "custom": { "fillOpacity": 15, "lineWidth": 1 } },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": "limit:.*" }, "properties": [{ "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } }, { "id": "custom.fillOpacity", "value": 0 }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "karpenter_nodepools_usage{resource_type=\"memory\", nodepool=~\"$nodepool\"}", "legendFormat": "usage: {{ nodepool }}" },
+        { "expr": "karpenter_nodepools_limit{resource_type=\"memory\", nodepool=~\"$nodepool\"}", "legendFormat": "limit: {{ nodepool }}" }
+      ]
+    },
+    {
+      "type": "row", "title": "Provisioning & Lifecycle", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 }
+    },
+    {
+      "type": "timeseries", "title": "NodeClaims Created / Terminated",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "short", "custom": { "fillOpacity": 20, "lineWidth": 1, "stacking": { "mode": "normal" } } },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": "terminated:.*" }, "properties": [{ "id": "custom.transform", "value": "negative-Y" }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "sum by(nodepool) (increase(karpenter_nodeclaims_created_total{nodepool=~\"$nodepool\"}[5m]))", "legendFormat": "created: {{ nodepool }}" },
+        { "expr": "sum by(nodepool) (increase(karpenter_nodeclaims_terminated_total{nodepool=~\"$nodepool\"}[5m]))", "legendFormat": "terminated: {{ nodepool }}" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "NodeClaim Initialization Duration (p50/p95/p99)",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "s", "custom": { "fillOpacity": 10, "lineWidth": 2 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "p50" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "p95" }, "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "p99" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.5, sum(rate(karpenter_nodeclaims_initialized_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(karpenter_nodeclaims_initialized_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(karpenter_nodeclaims_initialized_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "Pod Scheduling Duration (p50/p95)",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 22 },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "s", "custom": { "fillOpacity": 10, "lineWidth": 2 } }
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.5, sum(rate(karpenter_provisioner_scheduling_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(karpenter_provisioner_scheduling_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "Pod Startup Duration (p50/p95)",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 22 },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "s", "custom": { "fillOpacity": 10, "lineWidth": 2 } }
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.5, sum(rate(karpenter_pods_startup_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(karpenter_pods_startup_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95" }
+      ]
+    },
+    {
+      "type": "stat", "title": "Pending Pods",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 22 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 1 }, { "color": "red", "value": 10 }] } } },
+      "options": { "colorMode": "background_solid", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "karpenter_pods_state{phase=\"Pending\"} or vector(0)", "legendFormat": "" }]
+    },
+    {
+      "type": "stat", "title": "Running Pods",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 22 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }] } } },
+      "options": { "colorMode": "background_solid", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "karpenter_pods_state{phase=\"Running\"} or vector(0)", "legendFormat": "" }]
+    },
+    {
+      "type": "timeseries", "title": "Pods by State",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 26 },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "short", "custom": { "fillOpacity": 20, "lineWidth": 1, "stacking": { "mode": "normal" } } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Pending" }, "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "Running" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [{ "expr": "karpenter_pods_state", "legendFormat": "{{ phase }}" }]
+    },
+    {
+      "type": "row", "title": "Instance Distribution", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 30 }
+    },
+    {
+      "type": "piechart", "title": "Nodes by Instance Type",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 31 },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } } },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "reduceOptions": { "calcs": ["lastNotNull"] }, "pieType": "donut" },
+      "targets": [{ "expr": "count by(instance_type) (karpenter_nodes_allocatable{resource_type=\"cpu\", nodepool=~\"$nodepool\"})", "legendFormat": "{{ instance_type }}" }]
+    },
+    {
+      "type": "piechart", "title": "Nodes by Capacity Type",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 31 },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "spot" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "on-demand" }, "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "reduceOptions": { "calcs": ["lastNotNull"] }, "pieType": "donut" },
+      "targets": [{ "expr": "count by(capacity_type) (karpenter_nodes_allocatable{resource_type=\"cpu\", nodepool=~\"$nodepool\"})", "legendFormat": "{{ capacity_type }}" }]
+    },
+    {
+      "type": "piechart", "title": "Nodes by Zone",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 31 },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" } } },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }, "reduceOptions": { "calcs": ["lastNotNull"] }, "pieType": "donut" },
+      "targets": [{ "expr": "count by(zone) (karpenter_nodes_allocatable{resource_type=\"cpu\", nodepool=~\"$nodepool\"})", "legendFormat": "{{ zone }}" }]
+    },
+    {
+      "type": "row", "title": "Disruption & Consolidation", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 39 }
+    },
+    {
+      "type": "timeseries", "title": "Disruption Actions Performed",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short", "custom": { "fillOpacity": 20, "lineWidth": 1, "stacking": { "mode": "normal" }, "drawStyle": "bars" } } },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "sum by(action, method) (increase(karpenter_disruption_actions_performed_total[5m]))", "legendFormat": "{{ action }}/{{ method }}" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "Nodes & Pods Disrupted",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 40 },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "short", "custom": { "fillOpacity": 20, "lineWidth": 1, "drawStyle": "bars" } },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": "pods:.*" }, "properties": [{ "id": "custom.axisPlacement", "value": "right" }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "sum by(action) (increase(karpenter_disruption_nodes_disrupted_total[5m]))", "legendFormat": "nodes: {{ action }}" },
+        { "expr": "sum by(action) (increase(karpenter_disruption_pods_disrupted_total[5m]))", "legendFormat": "pods: {{ action }}" }
+      ]
+    },
+    {
+      "type": "bargauge", "title": "Allowed Disruptions per NodePool",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 48 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "red", "value": null }, { "color": "yellow", "value": 1 }, { "color": "green", "value": 3 }] } } },
+      "options": { "orientation": "horizontal", "displayMode": "gradient", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "karpenter_nodepools_allowed_disruptions{nodepool=~\"$nodepool\"}", "legendFormat": "{{ nodepool }}" }]
+    },
+    {
+      "type": "timeseries", "title": "Disruption Evaluation Duration",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 48 },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "s", "custom": { "fillOpacity": 10, "lineWidth": 2 } } },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.5, sum(rate(karpenter_disruption_evaluation_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(karpenter_disruption_evaluation_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95" }
+      ]
+    },
+    {
+      "type": "row", "title": "Resource Efficiency", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 56 }
+    },
+    {
+      "type": "timeseries", "title": "CPU: Allocatable vs Pod Requests vs Daemon Requests",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 57 },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "short", "custom": { "fillOpacity": 15, "lineWidth": 1 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "allocatable" }, "properties": [{ "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } }, { "id": "custom.fillOpacity", "value": 0 }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "sum(karpenter_nodes_allocatable{resource_type=\"cpu\", nodepool=~\"$nodepool\"})", "legendFormat": "allocatable" },
+        { "expr": "sum(karpenter_nodes_total_pod_requests{resource_type=\"cpu\", nodepool=~\"$nodepool\"})", "legendFormat": "pod requests" },
+        { "expr": "sum(karpenter_nodes_total_daemon_requests{resource_type=\"cpu\", nodepool=~\"$nodepool\"})", "legendFormat": "daemon requests" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "Memory: Allocatable vs Pod Requests vs Daemon Requests",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 57 },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "bytes", "custom": { "fillOpacity": 15, "lineWidth": 1 } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "allocatable" }, "properties": [{ "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } }, { "id": "custom.fillOpacity", "value": 0 }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "sum(karpenter_nodes_allocatable{resource_type=\"memory\", nodepool=~\"$nodepool\"})", "legendFormat": "allocatable" },
+        { "expr": "sum(karpenter_nodes_total_pod_requests{resource_type=\"memory\", nodepool=~\"$nodepool\"})", "legendFormat": "pod requests" },
+        { "expr": "sum(karpenter_nodes_total_daemon_requests{resource_type=\"memory\", nodepool=~\"$nodepool\"})", "legendFormat": "daemon requests" }
+      ]
+    },
+    {
+      "type": "row", "title": "NodePool Detail", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 65 }
+    },
+    {
+      "type": "table", "title": "NodePool Resource Summary",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 66 },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }] } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "CPU Usage %" }, "properties": [{ "id": "unit", "value": "percentunit" }, { "id": "thresholds", "value": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.7 }, { "color": "red", "value": 0.9 }] } }, { "id": "custom.cellOptions", "value": { "type": "color-background" } }] },
+          { "matcher": { "id": "byName", "options": "Memory Usage %" }, "properties": [{ "id": "unit", "value": "percentunit" }, { "id": "thresholds", "value": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.7 }, { "color": "red", "value": 0.9 }] } }, { "id": "custom.cellOptions", "value": { "type": "color-background" } }] },
+          { "matcher": { "id": "byName", "options": "CPU Limit" }, "properties": [{ "id": "unit", "value": "short" }] },
+          { "matcher": { "id": "byName", "options": "CPU Used" }, "properties": [{ "id": "unit", "value": "short" }] },
+          { "matcher": { "id": "byName", "options": "Mem Limit" }, "properties": [{ "id": "unit", "value": "bytes" }] },
+          { "matcher": { "id": "byName", "options": "Mem Used" }, "properties": [{ "id": "unit", "value": "bytes" }] }
+        ]
+      },
+      "targets": [
+        { "expr": "karpenter_nodepools_usage{resource_type=\"cpu\", nodepool=~\"$nodepool\"}", "format": "table", "instant": true, "refId": "A" },
+        { "expr": "karpenter_nodepools_limit{resource_type=\"cpu\", nodepool=~\"$nodepool\"}", "format": "table", "instant": true, "refId": "B" },
+        { "expr": "karpenter_nodepools_usage{resource_type=\"memory\", nodepool=~\"$nodepool\"}", "format": "table", "instant": true, "refId": "C" },
+        { "expr": "karpenter_nodepools_limit{resource_type=\"memory\", nodepool=~\"$nodepool\"}", "format": "table", "instant": true, "refId": "D" },
+        { "expr": "karpenter_nodepools_usage{resource_type=\"cpu\", nodepool=~\"$nodepool\"} / karpenter_nodepools_limit{resource_type=\"cpu\", nodepool=~\"$nodepool\"}", "format": "table", "instant": true, "refId": "E" },
+        { "expr": "karpenter_nodepools_usage{resource_type=\"memory\", nodepool=~\"$nodepool\"} / karpenter_nodepools_limit{resource_type=\"memory\", nodepool=~\"$nodepool\"}", "format": "table", "instant": true, "refId": "F" }
+      ],
+      "transformations": [
+        { "id": "seriesToColumns", "options": { "byField": "nodepool" } },
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "Time 1": true, "Time 2": true, "Time 3": true, "Time 4": true, "Time 5": true, "Time 6": true, "__name__": true, "__name__ 1": true, "__name__ 2": true, "__name__ 3": true, "__name__ 4": true, "__name__ 5": true, "job": true, "job 1": true, "job 2": true, "job 3": true, "job 4": true, "job 5": true, "instance": true, "instance 1": true, "instance 2": true, "instance 3": true, "instance 4": true, "instance 5": true, "resource_type": true, "resource_type 1": true, "resource_type 2": true, "resource_type 3": true, "resource_type 4": true, "resource_type 5": true }, "renameByName": { "nodepool": "NodePool", "Value #A": "CPU Used", "Value #B": "CPU Limit", "Value #C": "Mem Used", "Value #D": "Mem Limit", "Value #E": "CPU Usage %", "Value #F": "Memory Usage %" } } }
+      ]
+    },
+    {
+      "type": "table", "title": "Nodes Detail",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 74 },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }] } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "CPU Alloc" }, "properties": [{ "id": "unit", "value": "short" }] },
+          { "matcher": { "id": "byName", "options": "Mem Alloc" }, "properties": [{ "id": "unit", "value": "bytes" }] },
+          { "matcher": { "id": "byName", "options": "CPU Req" }, "properties": [{ "id": "unit", "value": "short" }] },
+          { "matcher": { "id": "byName", "options": "Mem Req" }, "properties": [{ "id": "unit", "value": "bytes" }] }
+        ]
+      },
+      "targets": [
+        { "expr": "karpenter_nodes_allocatable{resource_type=\"cpu\", nodepool=~\"$nodepool\"}", "format": "table", "instant": true, "refId": "A" },
+        { "expr": "karpenter_nodes_allocatable{resource_type=\"memory\", nodepool=~\"$nodepool\"}", "format": "table", "instant": true, "refId": "B" },
+        { "expr": "karpenter_nodes_total_pod_requests{resource_type=\"cpu\", nodepool=~\"$nodepool\"}", "format": "table", "instant": true, "refId": "C" },
+        { "expr": "karpenter_nodes_total_pod_requests{resource_type=\"memory\", nodepool=~\"$nodepool\"}", "format": "table", "instant": true, "refId": "D" }
+      ],
+      "transformations": [
+        { "id": "seriesToColumns", "options": { "byField": "node_name" } },
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "Time 1": true, "Time 2": true, "Time 3": true, "__name__": true, "__name__ 1": true, "__name__ 2": true, "__name__ 3": true, "job": true, "job 1": true, "job 2": true, "job 3": true, "instance": true, "instance 1": true, "instance 2": true, "instance 3": true, "resource_type": true, "resource_type 1": true, "resource_type 2": true, "resource_type 3": true, "nodepool 1": true, "nodepool 2": true, "nodepool 3": true, "instance_type 1": true, "instance_type 2": true, "instance_type 3": true, "capacity_type 1": true, "capacity_type 2": true, "capacity_type 3": true, "zone 1": true, "zone 2": true, "zone 3": true }, "renameByName": { "node_name": "Node", "nodepool": "NodePool", "instance_type": "Instance Type", "capacity_type": "Capacity", "zone": "Zone", "Value #A": "CPU Alloc", "Value #B": "Mem Alloc", "Value #C": "CPU Req", "Value #D": "Mem Req" } } }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["karpenter", "autoscaling", "nodepool", "capacity"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "type": "datasource"
+      },
+      {
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "datasource": { "type": "prometheus", "uid": "$datasource" },
+        "includeAll": true,
+        "multi": true,
+        "name": "nodepool",
+        "query": "label_values(karpenter_nodepools_usage, nodepool)",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-3h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Karpenter NodePool Manager",
+  "uid": "karpenter-nodepool-mgr",
+  "version": 0,
+  "refresh": "30s"
+}

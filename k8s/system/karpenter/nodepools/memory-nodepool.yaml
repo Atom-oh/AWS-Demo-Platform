@@ -1,0 +1,78 @@
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: memory-tier
+spec:
+  template:
+    metadata:
+      labels:
+        node-pool: memory-tier
+        workload-type: memory-intensive
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: memory-optimized
+      requirements:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values:
+            - on-demand
+        - key: kubernetes.io/arch
+          operator: In
+          values:
+            - amd64
+        - key: karpenter.k8s.aws/instance-family
+          operator: In
+          values:
+            - r6i
+            - r6a
+            - r7i
+            - r7a
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values:
+            - large
+            - xlarge
+            - 2xlarge
+      taints:
+        - key: workload-type
+          value: memory-intensive
+          effect: NoSchedule
+  weight: 60
+  limits:
+    cpu: "100"
+    memory: 400Gi
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 10m
+    budgets:
+      - nodes: "10%"
+---
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: memory-optimized
+spec:
+  amiSelectorTerms:
+    - alias: al2023@latest
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 100Gi
+        volumeType: gp3
+        iops: 3000
+        throughput: 125
+        encrypted: true
+        deleteOnTermination: true
+  role: multi-region-mall-node-group
+  subnetSelectorTerms:
+    - tags:
+        Tier: private
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: multi-region-mall
+  tags:
+    Environment: production
+    ManagedBy: karpenter
+    WorkloadType: memory-intensive

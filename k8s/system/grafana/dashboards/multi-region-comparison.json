@@ -1,0 +1,235 @@
+{
+  "annotations": { "list": [] },
+  "description": "Multi-Region Comparison - Side-by-side us-east-1 vs us-west-2 metrics",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "gridPos": { "h": 2, "w": 24, "x": 0, "y": 0 },
+      "id": 50,
+      "options": { "content": "# Multi-Region Comparison\nus-east-1 (green) vs us-west-2 (blue) side-by-side operational metrics.", "mode": "markdown" },
+      "title": "",
+      "transparent": true,
+      "type": "text"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus-east" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "fixed", "fixedColor": "green" }, "thresholds": { "steps": [{ "color": "green", "value": null }] } }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 2 },
+      "id": 1,
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "sum(kube_pod_status_phase{phase=\"Running\", namespace=~\"$namespace\"})", "legendFormat": "East Pods" }],
+      "title": "East: Running Pods",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus-west" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "fixed", "fixedColor": "blue" }, "thresholds": { "steps": [{ "color": "blue", "value": null }] } }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 2 },
+      "id": 2,
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "sum(kube_pod_status_phase{phase=\"Running\", namespace=~\"$namespace\"})", "legendFormat": "West Pods" }],
+      "title": "West: Running Pods",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus-east" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 2 },
+      "id": 3,
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "sum(kube_pod_status_ready{condition=\"false\", namespace=~\"$namespace\"}) or vector(0)", "legendFormat": "Not Ready" }],
+      "title": "East: Not Ready",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus-west" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 2 },
+      "id": 4,
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "sum(kube_pod_status_ready{condition=\"false\", namespace=~\"$namespace\"}) or vector(0)", "legendFormat": "Not Ready" }],
+      "title": "West: Not Ready",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "datasource", "uid": "-- Mixed --" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 10 },
+          "unit": "short"
+        },
+        "overrides": [
+          { "matcher": { "id": "byFrameRefID", "options": "A" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] },
+          { "matcher": { "id": "byFrameRefID", "options": "B" }, "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "id": 5,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus-east" }, "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", image!=\"\"}[5m]))", "legendFormat": "us-east-1", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus-west" }, "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\", image!=\"\"}[5m]))", "legendFormat": "us-west-2", "refId": "B" }
+      ],
+      "title": "CPU: East vs West",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "datasource", "uid": "-- Mixed --" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 10 },
+          "unit": "bytes"
+        },
+        "overrides": [
+          { "matcher": { "id": "byFrameRefID", "options": "A" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] },
+          { "matcher": { "id": "byFrameRefID", "options": "B" }, "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "id": 6,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus-east" }, "expr": "sum(container_memory_working_set_bytes{namespace=~\"$namespace\", image!=\"\"})", "legendFormat": "us-east-1", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus-west" }, "expr": "sum(container_memory_working_set_bytes{namespace=~\"$namespace\", image!=\"\"})", "legendFormat": "us-west-2", "refId": "B" }
+      ],
+      "title": "Memory: East vs West",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "datasource", "uid": "-- Mixed --" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 10 },
+          "unit": "short"
+        },
+        "overrides": [
+          { "matcher": { "id": "byFrameRefID", "options": "A" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] },
+          { "matcher": { "id": "byFrameRefID", "options": "B" }, "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "id": 7,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus-east" }, "expr": "count(kube_node_info)", "legendFormat": "us-east-1", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus-west" }, "expr": "count(kube_node_info)", "legendFormat": "us-west-2", "refId": "B" }
+      ],
+      "title": "Node Count by Region",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "datasource", "uid": "-- Mixed --" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 10 },
+          "unit": "short"
+        },
+        "overrides": [
+          { "matcher": { "id": "byFrameRefID", "options": "A" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] },
+          { "matcher": { "id": "byFrameRefID", "options": "B" }, "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "id": 8,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus-east" }, "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=~\"$namespace\"}[5m]))", "legendFormat": "us-east-1", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus-west" }, "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=~\"$namespace\"}[5m]))", "legendFormat": "us-west-2", "refId": "B" }
+      ],
+      "title": "Restarts: East vs West",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus-east" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Deployment" }, "properties": [{ "id": "custom.width", "value": 250 }] }
+        ]
+      },
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 22 },
+      "id": 9,
+      "options": { "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Unavailable" }] },
+      "targets": [
+        { "expr": "kube_deployment_status_replicas{namespace=~\"$namespace\"}", "format": "table", "instant": true, "refId": "total" },
+        { "expr": "kube_deployment_status_replicas_available{namespace=~\"$namespace\"}", "format": "table", "instant": true, "refId": "available" },
+        { "expr": "kube_deployment_status_replicas_unavailable{namespace=~\"$namespace\"}", "format": "table", "instant": true, "refId": "unavailable" }
+      ],
+      "title": "Deployment Availability (East)",
+      "transformations": [
+        { "id": "seriesToColumns", "options": { "byField": "deployment" } },
+        { "id": "organize", "options": { "excludeByName": { "Time 1": true, "Time 2": true, "Time 3": true, "__name__ 1": true, "__name__ 2": true, "__name__ 3": true, "instance 1": true, "instance 2": true, "instance 3": true, "job 1": true, "job 2": true, "job 3": true, "namespace 2": true, "namespace 3": true }, "renameByName": { "deployment": "Deployment", "namespace 1": "Namespace", "Value #total": "Total", "Value #available": "Available", "Value #unavailable": "Unavailable" } } }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus-west" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Deployment" }, "properties": [{ "id": "custom.width", "value": 250 }] }
+        ]
+      },
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 22 },
+      "id": 10,
+      "options": { "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Unavailable" }] },
+      "targets": [
+        { "expr": "kube_deployment_status_replicas{namespace=~\"$namespace\"}", "format": "table", "instant": true, "refId": "total" },
+        { "expr": "kube_deployment_status_replicas_available{namespace=~\"$namespace\"}", "format": "table", "instant": true, "refId": "available" },
+        { "expr": "kube_deployment_status_replicas_unavailable{namespace=~\"$namespace\"}", "format": "table", "instant": true, "refId": "unavailable" }
+      ],
+      "title": "Deployment Availability (West)",
+      "transformations": [
+        { "id": "seriesToColumns", "options": { "byField": "deployment" } },
+        { "id": "organize", "options": { "excludeByName": { "Time 1": true, "Time 2": true, "Time 3": true, "__name__ 1": true, "__name__ 2": true, "__name__ 3": true, "instance 1": true, "instance 2": true, "instance 3": true, "job 1": true, "job 2": true, "job 3": true, "namespace 2": true, "namespace 3": true }, "renameByName": { "deployment": "Deployment", "namespace 1": "Namespace", "Value #total": "Total", "Value #available": "Available", "Value #unavailable": "Unavailable" } } }
+      ],
+      "type": "table"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["multi-region", "comparison", "observability"],
+  "templating": {
+    "list": [
+      {
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "description": "Filter by namespace/domain",
+        "hide": 0,
+        "includeAll": true,
+        "allValue": "core-services|user-services|fulfillment|business-services|platform",
+        "label": "Namespace",
+        "multi": true,
+        "name": "namespace",
+        "options": [
+          { "selected": false, "text": "core-services", "value": "core-services" },
+          { "selected": false, "text": "user-services", "value": "user-services" },
+          { "selected": false, "text": "fulfillment", "value": "fulfillment" },
+          { "selected": false, "text": "business-services", "value": "business-services" },
+          { "selected": false, "text": "platform", "value": "platform" }
+        ],
+        "query": "core-services,user-services,fulfillment,business-services,platform",
+        "type": "custom"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "Multi-Region Comparison",
+  "uid": "multi-region-comparison",
+  "version": 1
+}

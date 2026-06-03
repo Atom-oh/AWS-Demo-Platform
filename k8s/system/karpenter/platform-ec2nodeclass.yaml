@@ -1,0 +1,27 @@
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: platform
+spec:
+  amiSelectorTerms:
+    - alias: al2023@latest
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 100Gi
+        volumeType: gp3
+        iops: 3000
+        throughput: 125
+        encrypted: true
+        deleteOnTermination: true
+  role: multi-region-mall-node-group
+  subnetSelectorTerms:
+    - tags:
+        Tier: private
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: multi-region-mall
+  tags:
+    Environment: production
+    ManagedBy: karpenter
+    WorkloadType: platform

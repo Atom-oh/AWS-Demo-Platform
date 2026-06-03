@@ -1,0 +1,178 @@
+{
+  "annotations": { "list": [] },
+  "description": "OpenTelemetry Collector self-monitoring — resource usage, pipeline throughput, export errors, queue depth, and dropped telemetry",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "type": "row", "title": "Collector Overview", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }
+    },
+    {
+      "type": "stat", "title": "Active Collectors",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "blue", "value": null }] } } },
+      "options": { "colorMode": "background_solid", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "count(up{job=~\".*opentelemetry-collector.*\"} == 1)", "legendFormat": "" }]
+    },
+    {
+      "type": "stat", "title": "Spans Received/s",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 4, "w": 5, "x": 4, "y": 1 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "unit": "short", "thresholds": { "steps": [{ "color": "green", "value": null }] } } },
+      "options": { "colorMode": "background_solid", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "sum(rate(otelcol_receiver_accepted_spans[5m]))", "legendFormat": "" }]
+    },
+    {
+      "type": "stat", "title": "Spans Exported/s",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 4, "w": 5, "x": 9, "y": 1 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "unit": "short", "thresholds": { "steps": [{ "color": "green", "value": null }] } } },
+      "options": { "colorMode": "background_solid", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "sum(rate(otelcol_exporter_sent_spans[5m]))", "legendFormat": "" }]
+    },
+    {
+      "type": "stat", "title": "Spans Dropped/s",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 4, "w": 5, "x": 14, "y": 1 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "unit": "short", "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } },
+      "options": { "colorMode": "background_solid", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "sum(rate(otelcol_processor_dropped_spans[5m])) or vector(0)", "legendFormat": "" }]
+    },
+    {
+      "type": "stat", "title": "Export Failures/s",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 4, "w": 5, "x": 19, "y": 1 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "unit": "short", "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } } },
+      "options": { "colorMode": "background_solid", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "sum(rate(otelcol_exporter_send_failed_spans[5m])) or vector(0)", "legendFormat": "" }]
+    },
+    {
+      "type": "row", "title": "Pipeline Throughput", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 }
+    },
+    {
+      "type": "timeseries", "title": "Spans Received by Receiver",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short", "custom": { "fillOpacity": 15, "lineWidth": 1 } } },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "sum by(receiver, instance) (rate(otelcol_receiver_accepted_spans[5m]))", "legendFormat": "{{ instance }} / {{ receiver }}" }]
+    },
+    {
+      "type": "timeseries", "title": "Spans Exported by Exporter",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short", "custom": { "fillOpacity": 15, "lineWidth": 1 } } },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "sum by(exporter) (rate(otelcol_exporter_sent_spans[5m]))", "legendFormat": "sent: {{ exporter }}" },
+        { "expr": "sum by(exporter) (rate(otelcol_exporter_send_failed_spans[5m]))", "legendFormat": "failed: {{ exporter }}" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "Log Records Received vs Exported",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short", "custom": { "fillOpacity": 15, "lineWidth": 1 } } },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "sum by(receiver) (rate(otelcol_receiver_accepted_log_records[5m]))", "legendFormat": "received: {{ receiver }}" },
+        { "expr": "sum by(exporter) (rate(otelcol_exporter_sent_log_records[5m]))", "legendFormat": "exported: {{ exporter }}" },
+        { "expr": "sum by(exporter) (rate(otelcol_exporter_send_failed_log_records[5m]))", "legendFormat": "failed: {{ exporter }}" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "Export Queue Size",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short", "custom": { "fillOpacity": 10, "lineWidth": 2 } } },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "otelcol_exporter_queue_size", "legendFormat": "{{ instance }} / {{ exporter }}" },
+        { "expr": "otelcol_exporter_queue_capacity", "legendFormat": "capacity: {{ exporter }}" }
+      ]
+    },
+    {
+      "type": "row", "title": "Collector Resources & Errors", "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 }
+    },
+    {
+      "type": "timeseries", "title": "Collector CPU Usage",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 23 },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short", "custom": { "fillOpacity": 15, "lineWidth": 1 } } },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [{ "expr": "sum by(pod) (rate(container_cpu_usage_seconds_total{namespace=\"platform\", pod=~\"otel-collector.*\"}[5m]))", "legendFormat": "{{ pod }}" }]
+    },
+    {
+      "type": "timeseries", "title": "Collector Memory Usage",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 23 },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "bytes", "custom": { "fillOpacity": 15, "lineWidth": 1 } } },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "sum by(pod) (container_memory_working_set_bytes{namespace=\"platform\", pod=~\"otel-collector.*\"})", "legendFormat": "{{ pod }}" },
+        { "expr": "sum by(pod) (kube_pod_container_resource_limits{namespace=\"platform\", pod=~\"otel-collector.*\", resource=\"memory\"})", "legendFormat": "limit: {{ pod }}" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "Memory Limiter Decisions",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 23 },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "short", "custom": { "fillOpacity": 15, "lineWidth": 1 } },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": ".*refused.*" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "sum by(instance) (rate(otelcol_processor_accepted_spans{processor=\"memory_limiter\"}[5m]))", "legendFormat": "accepted: {{ instance }}" },
+        { "expr": "sum by(instance) (rate(otelcol_processor_refused_spans{processor=\"memory_limiter\"}[5m]))", "legendFormat": "refused: {{ instance }}" }
+      ]
+    },
+    {
+      "type": "table", "title": "Collector Pod Status",
+      "datasource": { "type": "prometheus", "uid": "$datasource" },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 31 },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }] } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Restarts" }, "properties": [{ "id": "thresholds", "value": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 3 }] } }, { "id": "custom.cellOptions", "value": { "type": "color-background" } }] }
+        ]
+      },
+      "targets": [
+        { "expr": "kube_pod_info{namespace=\"platform\", pod=~\"otel-collector.*\"}", "format": "table", "instant": true, "refId": "A" },
+        { "expr": "kube_pod_container_status_restarts_total{namespace=\"platform\", pod=~\"otel-collector.*\"}", "format": "table", "instant": true, "refId": "B" }
+      ],
+      "transformations": [
+        { "id": "seriesToColumns", "options": { "byField": "pod" } },
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "Time 1": true, "Time 2": true, "__name__": true, "__name__ 1": true, "container": true, "container_id": true, "endpoint": true, "host_ip": true, "job": true, "job 1": true, "instance": true, "instance 1": true, "namespace": true, "namespace 1": true, "service": true, "uid": true, "pod_ip": true, "created_by_kind": true, "created_by_name": true, "priority_class": true, "host_network": true, "Value #A": true }, "renameByName": { "pod": "Pod", "node": "Node", "Value #B": "Restarts" } } }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["otel", "collector", "observability", "pipeline"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "OTel Collector Health",
+  "uid": "otel-collector-health",
+  "version": 0,
+  "refresh": "30s"
+}
