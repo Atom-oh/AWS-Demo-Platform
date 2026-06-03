@@ -3,7 +3,7 @@
 ## Role
 Stage 2–3 admin platform for AWS Demo Platform.
 - **`backend/`** — Stage 2 **Lifecycle Controller**. Node.js TypeScript pnpm-workspaces monorepo. Phase 1 code is built on branch `feat/stage-2-phase-1-backend-foundations` and **pending merge to `main` (PR #4)** — `main` still has empty placeholders until then.
-- **`frontend/`** — Stage 3 admin UI (Next.js). Still an empty placeholder.
+- **`frontend/`** — Stage 3 admin UI (Next.js 14, App Router). **MVP built (dev only):** live project list, faceted discovery, working on/off toggles via same-origin `/api/*` proxy. See `frontend/CLAUDE.md`.
 
 ## backend/ — Lifecycle Controller (implemented)
 
@@ -39,8 +39,14 @@ Docker images: `docker build -f packages/{api,worker}/Dockerfile -t demo-platfor
 - Integration: LocalStack (DynamoDB/SQS/STS/Secrets) via `docker-compose.yaml`.
 - CI: `.github/workflows/backend-ci.yml` (lint/typecheck/test on PR, LocalStack service container).
 
-## frontend/ — Stage 3 (not started)
-Next.js + TypeScript, master-detail layout, Cognito hosted-UI login. Empty placeholder.
+## frontend/ — Stage 3 (MVP, dev only)
+Next.js 14 (App Router) + TypeScript. Dashboard with stat strip, faceted sidebar
+(category/account/status), search, and project cards with working on/off toggles
++ job polling. Talks to the backend via same-origin `/api/*` (dev: `next.config.mjs`
+rewrites to the dev-server on :8087; prod: same CloudFront origin as `api`).
+Backed in dev by `backend/packages/api/src/dev-server.ts` (real API, in-memory
+state, simulated worker). Full details in `frontend/CLAUDE.md`.
+Not yet: detail view, Cognito login, real-time updates, ECS deploy.
 
 ## Rules
 - TypeScript strict on both sides; `.js` import extensions (Node16).
