@@ -1,0 +1,377 @@
+{
+  "annotations": { "list": [] },
+  "description": "ClickHouse Synthetic Monitor - E2E user journey monitoring via ClickHouse trace analytics",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "datasource": { "type": "datasource", "uid": "grafana" },
+      "gridPos": { "h": 2, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "content": "## ClickHouse Synthetic Monitor\nE2E user journey monitoring via ClickHouse trace analytics. 7 scenarios run every 2 minutes against mall.atomai.click.\n\n**Scenarios**: Browse & Search | Registration | Cart | Purchase | Seller & Warehouse | Post-Purchase | Analytics",
+        "mode": "markdown"
+      },
+      "title": "",
+      "transparent": true,
+      "type": "text"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }] } }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 2 },
+      "id": 2,
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "rawSql": "SELECT count(DISTINCT TraceId) as value FROM otel.otel_traces WHERE ServiceName='synthetic-monitor' AND Timestamp >= $__fromTime AND Timestamp <= $__toTime",
+        "format": 1,
+        "queryType": "sql",
+        "refId": "A"
+      }],
+      "title": "Total Traces",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "blue", "value": null }] } }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 2 },
+      "id": 3,
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "rawSql": "SELECT count() as value FROM otel.otel_traces WHERE ServiceName='synthetic-monitor' AND Timestamp >= $__fromTime AND Timestamp <= $__toTime",
+        "format": 1,
+        "queryType": "sql",
+        "refId": "A"
+      }],
+      "title": "Total Spans",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 5 }, { "color": "red", "value": 10 }] },
+          "unit": "percent"
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 2 },
+      "id": 4,
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "rawSql": "SELECT round(countIf(StatusCode='ERROR') * 100.0 / count(), 2) as value FROM otel.otel_traces WHERE ServiceName='synthetic-monitor' AND Timestamp >= $__fromTime AND Timestamp <= $__toTime",
+        "format": 1,
+        "queryType": "sql",
+        "refId": "A"
+      }],
+      "title": "Error Rate %",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{ "color": "green", "value": null }] },
+          "unit": "ms"
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 2 },
+      "id": 5,
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "rawSql": "SELECT round(avg(Duration)/1000000, 1) as value FROM otel.otel_traces WHERE ServiceName='synthetic-monitor' AND Timestamp >= $__fromTime AND Timestamp <= $__toTime",
+        "format": 1,
+        "queryType": "sql",
+        "refId": "A"
+      }],
+      "title": "Avg Latency",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{ "color": "orange", "value": null }] },
+          "unit": "ms"
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 2 },
+      "id": 6,
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "rawSql": "SELECT round(quantile(0.99)(Duration)/1000000, 1) as value FROM otel.otel_traces WHERE ServiceName='synthetic-monitor' AND Timestamp >= $__fromTime AND Timestamp <= $__toTime",
+        "format": 1,
+        "queryType": "sql",
+        "refId": "A"
+      }],
+      "title": "P99 Latency",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 30 },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "id": 7,
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum", "mean"] }, "tooltip": { "mode": "multi" } },
+      "targets": [{
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "rawSql": "SELECT $__timeInterval(Timestamp) as time, count(DISTINCT TraceId) as traces FROM otel.otel_traces WHERE ServiceName='synthetic-monitor' AND Timestamp >= $__fromTime AND Timestamp <= $__toTime GROUP BY time ORDER BY time",
+        "format": 0,
+        "queryType": "sql",
+        "refId": "A"
+      }],
+      "title": "Trace Rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 30 },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "errors" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "id": 8,
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum", "mean"] }, "tooltip": { "mode": "multi" } },
+      "targets": [{
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "rawSql": "SELECT $__timeInterval(Timestamp) as time, countIf(StatusCode='ERROR') as errors, count() as total FROM otel.otel_traces WHERE ServiceName='synthetic-monitor' AND Timestamp >= $__fromTime AND Timestamp <= $__toTime GROUP BY time ORDER BY time",
+        "format": 0,
+        "queryType": "sql",
+        "refId": "A"
+      }],
+      "title": "Error Rate Over Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "unit": "ms"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "id": 9,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [{
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "rawSql": "SELECT SpanAttributes['synthetic.scenario'] as scenario, round(avg(Duration)/1000000, 1) as avg_ms, round(quantile(0.95)(Duration)/1000000, 1) as p95_ms FROM otel.otel_traces WHERE ServiceName='synthetic-monitor' AND SpanAttributes['synthetic.scenario'] != '' AND Timestamp >= $__fromTime AND Timestamp <= $__toTime GROUP BY scenario ORDER BY avg_ms DESC",
+        "format": 1,
+        "queryType": "sql",
+        "refId": "A"
+      }],
+      "title": "Scenario Avg/P95 Latency",
+      "type": "barchart"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "id": 10,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [{
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "rawSql": "SELECT SpanAttributes['synthetic.scenario'] as scenario, countIf(StatusCode='ERROR') as errors, count() as total, round(countIf(StatusCode='ERROR') * 100.0 / count(), 2) as error_pct FROM otel.otel_traces WHERE ServiceName='synthetic-monitor' AND SpanAttributes['synthetic.scenario'] != '' AND Timestamp >= $__fromTime AND Timestamp <= $__toTime GROUP BY scenario ORDER BY errors DESC",
+        "format": 1,
+        "queryType": "sql",
+        "refId": "A"
+      }],
+      "title": "Scenario Error Count",
+      "type": "barchart"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 10 },
+          "unit": "ms"
+        }
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 22 },
+      "id": 11,
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
+      "targets": [{
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "rawSql": "SELECT $__timeInterval(Timestamp) as time, SpanAttributes['synthetic.scenario'] as scenario, round(avg(Duration)/1000000, 1) as avg_ms FROM otel.otel_traces WHERE ServiceName='synthetic-monitor' AND SpanAttributes['synthetic.scenario'] != '' AND Timestamp >= $__fromTime AND Timestamp <= $__toTime GROUP BY time, scenario ORDER BY time",
+        "format": 0,
+        "queryType": "sql",
+        "refId": "A"
+      }],
+      "title": "Scenario Latency Over Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }] } },
+        "overrides": []
+      },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 30 },
+      "id": 12,
+      "options": { "showHeader": true, "sortBy": [{ "desc": true, "displayName": "avg_ms" }] },
+      "targets": [{
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "rawSql": "SELECT SpanAttributes['synthetic.scenario'] as scenario, SpanAttributes['synthetic.step'] as step, SpanAttributes['http.method'] as method, round(avg(Duration)/1000000, 1) as avg_ms, round(quantile(0.95)(Duration)/1000000, 1) as p95_ms, count() as calls, countIf(StatusCode='ERROR') as errors FROM otel.otel_traces WHERE ServiceName='synthetic-monitor' AND SpanAttributes['synthetic.step'] != '' AND Timestamp >= $__fromTime AND Timestamp <= $__toTime GROUP BY scenario, step, method ORDER BY scenario, avg_ms DESC",
+        "format": 1,
+        "queryType": "sql",
+        "refId": "A"
+      }],
+      "title": "Step Latency Table",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" }
+        }
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 40 },
+      "id": 13,
+      "options": { "legend": { "displayMode": "list", "placement": "right" }, "tooltip": { "mode": "single" }, "pieType": "donut" },
+      "targets": [{
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "rawSql": "SELECT SpanAttributes['http.status_code'] as status, count() as cnt FROM otel.otel_traces WHERE ServiceName='synthetic-monitor' AND SpanAttributes['http.status_code'] != '' AND Timestamp >= $__fromTime AND Timestamp <= $__toTime GROUP BY status ORDER BY cnt DESC",
+        "format": 1,
+        "queryType": "sql",
+        "refId": "A"
+      }],
+      "title": "HTTP Status Distribution",
+      "type": "piechart"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }] } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "TraceId" },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "View Trace in Tempo",
+                    "internal": {
+                      "datasourceUid": "tempo",
+                      "query": { "queryType": "traceql", "query": "${__value.raw}" }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 40 },
+      "id": 14,
+      "options": { "showHeader": true, "sortBy": [{ "desc": true, "displayName": "latency_ms" }] },
+      "targets": [{
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "rawSql": "SELECT Timestamp, SpanAttributes['http.method'] as method, SpanAttributes['http.url'] as url, SpanAttributes['http.status_code'] as status, round(Duration/1000000, 1) as latency_ms, TraceId FROM otel.otel_traces WHERE ServiceName='synthetic-monitor' AND SpanAttributes['http.url'] != '' AND Timestamp >= $__fromTime AND Timestamp <= $__toTime ORDER BY Duration DESC LIMIT 25",
+        "format": 1,
+        "queryType": "sql",
+        "refId": "A"
+      }],
+      "title": "Slowest HTTP Calls",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }] } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "TraceId" },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "View Trace in Tempo",
+                    "internal": {
+                      "datasourceUid": "tempo",
+                      "query": { "queryType": "traceql", "query": "${__value.raw}" }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 48 },
+      "id": 15,
+      "options": { "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Timestamp" }] },
+      "targets": [{
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "rawSql": "SELECT Timestamp, SpanAttributes['synthetic.scenario'] as scenario, SpanAttributes['synthetic.step'] as step, StatusMessage, TraceId FROM otel.otel_traces WHERE ServiceName='synthetic-monitor' AND StatusCode='ERROR' AND Timestamp >= $__fromTime AND Timestamp <= $__toTime ORDER BY Timestamp DESC LIMIT 20",
+        "format": 1,
+        "queryType": "sql",
+        "refId": "A"
+      }],
+      "title": "Recent Errors",
+      "type": "table"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["clickhouse", "synthetic", "monitoring", "otel"],
+  "templating": {
+    "list": [
+      {
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "definition": "SELECT DISTINCT SpanAttributes['synthetic.scenario'] FROM otel.otel_traces WHERE ServiceName='synthetic-monitor' AND SpanAttributes['synthetic.scenario'] != '' AND Timestamp >= $__fromTime AND Timestamp <= $__toTime ORDER BY SpanAttributes['synthetic.scenario']",
+        "description": "Filter by scenario",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Scenario",
+        "multi": true,
+        "name": "scenario",
+        "query": "SELECT DISTINCT SpanAttributes['synthetic.scenario'] FROM otel.otel_traces WHERE ServiceName='synthetic-monitor' AND SpanAttributes['synthetic.scenario'] != '' AND Timestamp >= $__fromTime AND Timestamp <= $__toTime ORDER BY SpanAttributes['synthetic.scenario']",
+        "refresh": 2,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "ClickHouse Synthetic Monitor - E2E User Journeys",
+  "uid": "clickhouse-synthetic-monitor",
+  "version": 1
+}

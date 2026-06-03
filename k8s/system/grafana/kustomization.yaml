@@ -1,0 +1,169 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - grafana-nlb.yaml
+
+patches:
+  - target:
+      kind: ConfigMap
+      name: grafana-dashboard-karpenter
+    patch: |
+      - op: add
+        path: /metadata/annotations
+        value:
+          grafana_folder: "Basic"
+  - target:
+      kind: ConfigMap
+      name: grafana-dashboard-clickhouse-trace-analytics
+    patch: |
+      - op: add
+        path: /metadata/annotations
+        value:
+          grafana_folder: "ClickHouse"
+  - target:
+      kind: ConfigMap
+      name: grafana-dashboard-clickhouse-log-explorer
+    patch: |
+      - op: add
+        path: /metadata/annotations
+        value:
+          grafana_folder: "ClickHouse"
+  - target:
+      kind: ConfigMap
+      name: grafana-dashboard-clickhouse-synthetic-monitor
+    patch: |
+      - op: add
+        path: /metadata/annotations
+        value:
+          grafana_folder: "ClickHouse"
+  - target:
+      kind: ConfigMap
+      name: grafana-dashboard-infrastructure-detailed
+    patch: |
+      - op: add
+        path: /metadata/annotations
+        value:
+          grafana_folder: "Infrastructure"
+  - target:
+      kind: ConfigMap
+      name: grafana-dashboard-service-map-red
+    patch: |
+      - op: add
+        path: /metadata/annotations
+        value:
+          grafana_folder: "APM"
+  - target:
+      kind: ConfigMap
+      name: grafana-dashboard-distributed-tracing
+    patch: |
+      - op: add
+        path: /metadata/annotations
+        value:
+          grafana_folder: "APM"
+  - target:
+      kind: ConfigMap
+      name: grafana-dashboard-otel-collector-health
+    patch: |
+      - op: add
+        path: /metadata/annotations
+        value:
+          grafana_folder: "Infrastructure"
+
+configMapGenerator:
+  - name: grafana-dashboard-synthetic-monitor
+    namespace: monitoring
+    files:
+      - dashboards/synthetic-monitor.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"
+  - name: grafana-dashboard-karpenter
+    namespace: monitoring
+    files:
+      - dashboards/karpenter.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"
+  - name: grafana-dashboard-service-health
+    namespace: monitoring
+    files:
+      - dashboards/service-health.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"
+  - name: grafana-dashboard-multi-region-comparison
+    namespace: monitoring
+    files:
+      - dashboards/multi-region-comparison.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"
+  - name: grafana-dashboard-infrastructure-nodepools
+    namespace: monitoring
+    files:
+      - dashboards/infrastructure-nodepools.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"
+  - name: grafana-dashboard-clickhouse-trace-analytics
+    namespace: monitoring
+    files:
+      - dashboards/clickhouse-trace-analytics.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"
+  - name: grafana-dashboard-clickhouse-log-explorer
+    namespace: monitoring
+    files:
+      - dashboards/clickhouse-log-explorer.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"
+  - name: grafana-dashboard-clickhouse-synthetic-monitor
+    namespace: monitoring
+    files:
+      - dashboards/clickhouse-synthetic-monitor.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"
+  - name: grafana-dashboard-infrastructure-detailed
+    namespace: monitoring
+    files:
+      - dashboards/infrastructure-detailed.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"
+  - name: grafana-dashboard-service-map-red
+    namespace: monitoring
+    files:
+      - dashboards/service-map-red.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"
+  - name: grafana-dashboard-distributed-tracing
+    namespace: monitoring
+    files:
+      - dashboards/distributed-tracing.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"
+  - name: grafana-dashboard-otel-collector-health
+    namespace: monitoring
+    files:
+      - dashboards/otel-collector-health.json
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"

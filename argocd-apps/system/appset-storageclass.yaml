@@ -23,9 +23,9 @@ spec:
     spec:
       project: default
       source:
-        repoURL: https://github.com/Atom-oh/multi-region-architecture
+        repoURL: https://github.com/Atom-oh/AWS-Demo-Platform
         targetRevision: main
-        path: k8s/infra/storageclass
+        path: k8s/system/storageclass
       destination:
         server: '{{server}}'
         namespace: kube-system

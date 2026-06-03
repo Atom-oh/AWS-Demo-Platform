@@ -1,0 +1,246 @@
+{
+  "annotations": { "list": [] },
+  "description": "ClickHouse Log Explorer - Log analytics from OTel logs stored in ClickHouse",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "blue", "value": null }] } }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "rawSql": "SELECT count() FROM otel.otel_logs WHERE TimestampTime >= $__fromTime AND TimestampTime <= $__toTime",
+        "format": 1,
+        "queryType": "sql",
+        "refId": "A"
+      }],
+      "title": "Total Logs",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 100 }, { "color": "red", "value": 1000 }] }
+        }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "rawSql": "SELECT count() FROM otel.otel_logs WHERE TimestampTime >= $__fromTime AND TimestampTime <= $__toTime AND SeverityText IN ('ERROR', 'FATAL', 'CRITICAL')",
+        "format": 1,
+        "queryType": "sql",
+        "refId": "A"
+      }],
+      "title": "Error Logs",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "yellow", "value": null }] } }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "rawSql": "SELECT count() FROM otel.otel_logs WHERE TimestampTime >= $__fromTime AND TimestampTime <= $__toTime AND SeverityText = 'WARN'",
+        "format": 1,
+        "queryType": "sql",
+        "refId": "A"
+      }],
+      "title": "Warning Logs",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "purple", "value": null }] } }
+      },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "rawSql": "SELECT count(DISTINCT ServiceName) FROM otel.otel_logs WHERE TimestampTime >= $__fromTime AND TimestampTime <= $__toTime",
+        "format": 1,
+        "queryType": "sql",
+        "refId": "A"
+      }],
+      "title": "Services Logging",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 50, "stacking": { "mode": "normal" } },
+          "unit": "short"
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "ERROR" }, "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "FATAL" }, "properties": [{ "id": "color", "value": { "fixedColor": "dark-red", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "CRITICAL" }, "properties": [{ "id": "color", "value": { "fixedColor": "dark-red", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "WARN" }, "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "INFO" }, "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }] },
+          { "matcher": { "id": "byName", "options": "DEBUG" }, "properties": [{ "id": "color", "value": { "fixedColor": "blue", "mode": "fixed" } }] }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 4 },
+      "id": 5,
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["sum", "mean"] }, "tooltip": { "mode": "multi" } },
+      "targets": [{
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "rawSql": "SELECT $__timeInterval(TimestampTime) as time, SeverityText, count() as logs FROM otel.otel_logs WHERE TimestampTime >= $__fromTime AND TimestampTime <= $__toTime AND ServiceName LIKE '%${service:raw}%' GROUP BY time, SeverityText ORDER BY time",
+        "format": 0,
+        "queryType": "sql",
+        "refId": "A"
+      }],
+      "title": "Log Volume by Severity",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "id": 6,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [{
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "rawSql": "SELECT ServiceName, count() as logs FROM otel.otel_logs WHERE TimestampTime >= $__fromTime AND TimestampTime <= $__toTime GROUP BY ServiceName ORDER BY logs DESC LIMIT 15",
+        "format": 1,
+        "queryType": "sql",
+        "refId": "A"
+      }],
+      "title": "Logs by Service",
+      "type": "barchart"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "id": 7,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
+      "targets": [{
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "rawSql": "SELECT ServiceName, countIf(SeverityText IN ('ERROR','FATAL','CRITICAL')) as errors, count() as total FROM otel.otel_logs WHERE TimestampTime >= $__fromTime AND TimestampTime <= $__toTime GROUP BY ServiceName HAVING errors > 0 ORDER BY errors DESC LIMIT 15",
+        "format": 1,
+        "queryType": "sql",
+        "refId": "A"
+      }],
+      "title": "Error Rate by Service",
+      "type": "barchart"
+    },
+    {
+      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{ "color": "green", "value": null }] },
+          "links": [{
+            "title": "View Trace in Tempo",
+            "internal": {
+              "datasourceUid": "tempo",
+              "query": { "queryType": "traceql", "query": "${__value.raw}" }
+            }
+          }]
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Timestamp" }, "properties": [{ "id": "custom.width", "value": 180 }] },
+          { "matcher": { "id": "byName", "options": "ServiceName" }, "properties": [{ "id": "custom.width", "value": 150 }] },
+          { "matcher": { "id": "byName", "options": "SeverityText" }, "properties": [{ "id": "custom.width", "value": 100 }] },
+          { "matcher": { "id": "byName", "options": "TraceId" }, "properties": [{ "id": "custom.width", "value": 280 }] },
+          { "matcher": { "id": "byName", "options": "SpanId" }, "properties": [{ "id": "custom.width", "value": 150 }] }
+        ]
+      },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 20 },
+      "id": 8,
+      "options": { "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Timestamp" }] },
+      "targets": [{
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "rawSql": "SELECT Timestamp, ServiceName, SeverityText, Body, TraceId, SpanId FROM otel.otel_logs WHERE TimestampTime >= $__fromTime AND TimestampTime <= $__toTime AND ServiceName LIKE '%${service:raw}%' AND (SeverityText LIKE '%${severity:raw}%' OR '${severity:raw}' = '') AND (Body LIKE '%${search:raw}%' OR '${search:raw}' = '') ORDER BY TimestampTime DESC, Timestamp DESC LIMIT 100",
+        "format": 1,
+        "queryType": "sql",
+        "refId": "A"
+      }],
+      "title": "Recent Logs",
+      "type": "table"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["clickhouse", "logs", "otel", "observability"],
+  "templating": {
+    "list": [
+      {
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse" },
+        "definition": "SELECT DISTINCT ServiceName FROM otel.otel_logs WHERE TimestampTime >= $__fromTime AND TimestampTime <= $__toTime ORDER BY ServiceName",
+        "description": "Filter by service name",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Service",
+        "multi": true,
+        "name": "service",
+        "query": "SELECT DISTINCT ServiceName FROM otel.otel_logs WHERE TimestampTime >= $__fromTime AND TimestampTime <= $__toTime ORDER BY ServiceName",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "current": { "selected": true, "text": "All", "value": "" },
+        "description": "Filter by severity level",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Severity",
+        "multi": false,
+        "name": "severity",
+        "options": [
+          { "selected": true, "text": "All", "value": "" },
+          { "selected": false, "text": "ERROR", "value": "ERROR" },
+          { "selected": false, "text": "WARN", "value": "WARN" },
+          { "selected": false, "text": "INFO", "value": "INFO" },
+          { "selected": false, "text": "DEBUG", "value": "DEBUG" }
+        ],
+        "query": "All,ERROR,WARN,INFO,DEBUG",
+        "type": "custom"
+      },
+      {
+        "current": { "selected": false, "text": "", "value": "" },
+        "description": "Search log body text",
+        "hide": 0,
+        "label": "Search Body",
+        "name": "search",
+        "options": [],
+        "query": "",
+        "type": "textbox"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "ClickHouse Log Explorer",
+  "uid": "clickhouse-log-explorer",
+  "version": 1
+}

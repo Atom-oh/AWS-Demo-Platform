@@ -1,0 +1,55 @@
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: platform
+spec:
+  template:
+    metadata:
+      labels:
+        node-pool: platform
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: platform
+      requirements:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values:
+            - spot
+            - on-demand
+        - key: kubernetes.io/arch
+          operator: In
+          values:
+            - arm64
+        - key: karpenter.k8s.aws/instance-family
+          operator: In
+          values:
+            - c6g
+            - c7g
+            - c8g
+            - m6g
+            - m7g
+            - m8g
+            - r6g
+            - r7g
+            - r8g
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values:
+            - large
+            - xlarge
+            - 2xlarge
+            - 4xlarge
+      taints:
+        - key: workload-type
+          value: platform
+          effect: NoSchedule
+  limits:
+    cpu: "32"
+    memory: 64Gi
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 30s
+    budgets:
+      - nodes: "10%"

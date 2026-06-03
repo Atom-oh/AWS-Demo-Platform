@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ec2nodeclass.yaml
+  - general-nodepool.yaml
+  - critical-nodepool.yaml
+  - nodepools/api-nodepool.yaml
+  - nodepools/worker-nodepool.yaml
+  - nodepools/memory-nodepool.yaml
+  - nodepools/batch-nodepool.yaml
+  - runner-x86-ec2nodeclass.yaml
+  - runner-x86-nodepool.yaml
+  - runner-arm-ec2nodeclass.yaml
+  - runner-arm-nodepool.yaml

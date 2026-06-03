@@ -1,0 +1,81 @@
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: worker-tier
+spec:
+  template:
+    metadata:
+      labels:
+        node-pool: worker-tier
+        workload-type: worker
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: worker-optimized
+      requirements:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values:
+            - spot
+            - on-demand
+        - key: kubernetes.io/arch
+          operator: In
+          values:
+            - amd64
+        - key: karpenter.k8s.aws/instance-family
+          operator: In
+          values:
+            - m6i
+            - m6g
+            - m6a
+            - m7i
+            - m7g
+            - m7a
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values:
+            - large
+            - xlarge
+            - 2xlarge
+      taints:
+        - key: workload-type
+          value: worker
+          effect: NoSchedule
+  weight: 80
+  limits:
+    cpu: "200"
+    memory: 400Gi
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 5m
+    budgets:
+      - nodes: "30%"
+---
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: worker-optimized
+spec:
+  amiSelectorTerms:
+    - alias: al2023@latest
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 100Gi
+        volumeType: gp3
+        iops: 3000
+        throughput: 125
+        encrypted: true
+        deleteOnTermination: true
+  role: multi-region-mall-node-group
+  subnetSelectorTerms:
+    - tags:
+        Tier: private
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: multi-region-mall
+  tags:
+    Environment: production
+    ManagedBy: karpenter
+    WorkloadType: worker

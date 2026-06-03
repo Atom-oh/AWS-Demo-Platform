@@ -1,0 +1,51 @@
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: runner-x86
+spec:
+  template:
+    metadata:
+      labels:
+        node-pool: runner-x86
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: runner-x86
+      requirements:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values:
+            - spot
+            - on-demand
+        - key: kubernetes.io/arch
+          operator: In
+          values:
+            - amd64
+        - key: karpenter.k8s.aws/instance-family
+          operator: In
+          values:
+            - c6i
+            - c7i
+            - c7i-flex
+            - c8i
+            - m6i
+            - m7i
+            - m7i-flex
+            - m8i
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values:
+            - xlarge
+            - 2xlarge
+            - 4xlarge
+      taints:
+        - key: workload-type
+          value: ci-runner
+          effect: NoSchedule
+  limits:
+    cpu: "128"
+    memory: 256Gi
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 30s

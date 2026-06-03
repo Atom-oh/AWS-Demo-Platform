@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../karpenter
+
+patches:
+  - target:
+      kind: EC2NodeClass
+    patch: |-
+      - op: replace
+        path: /spec/role
+        value: "mall-apne2-az-a-node-group-apne2-az-a"
+      - op: replace
+        path: /spec/securityGroupSelectorTerms
+        value:
+          - tags:
+              karpenter.sh/discovery: mall-apne2-az-a
+      - op: replace
+        path: /spec/subnetSelectorTerms
+        value:
+          - tags:
+              Tier: private
+              topology.kubernetes.io/zone: ap-northeast-2a

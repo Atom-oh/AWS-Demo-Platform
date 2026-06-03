@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: runner-scheduler
+  namespace: actions-runner-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: runner-scheduler
+  namespace: actions-runner-system
+rules:
+  - apiGroups: ["actions.github.com"]
+    resources: ["autoscalingrunnersets"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: runner-scheduler
+  namespace: actions-runner-system
+subjects:
+  - kind: ServiceAccount
+    name: runner-scheduler
+    namespace: actions-runner-system
+roleRef:
+  kind: Role
+  name: runner-scheduler
+  apiGroup: rbac.authorization.k8s.io

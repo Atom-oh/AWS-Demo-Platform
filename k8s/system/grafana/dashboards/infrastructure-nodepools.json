@@ -1,0 +1,285 @@
+{
+  "annotations": { "list": [] },
+  "description": "Infrastructure & NodePools - Cluster capacity, Karpenter NodePool resource usage, instance types",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "gridPos": { "h": 2, "w": 24, "x": 0, "y": 0 },
+      "id": 50,
+      "options": { "content": "# Infrastructure & NodePools\nCluster capacity, Karpenter NodePool breakdown (general, critical, api-tier, worker-tier, batch-tier, memory-tier), and instance type distribution.", "mode": "markdown" },
+      "title": "",
+      "transparent": true,
+      "type": "text"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "$region" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 70 }, { "color": "red", "value": 90 }] },
+          "unit": "percent", "min": 0, "max": 100
+        }
+      },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 2 },
+      "id": 1,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false, "showThresholdMarkers": true },
+      "targets": [{ "expr": "100 * sum(rate(container_cpu_usage_seconds_total{image!=\"\"}[5m])) / sum(kube_node_status_allocatable{resource=\"cpu\"})", "legendFormat": "CPU %" }],
+      "title": "Cluster CPU %",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "$region" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 70 }, { "color": "red", "value": 90 }] },
+          "unit": "percent", "min": 0, "max": 100
+        }
+      },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 2 },
+      "id": 2,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false, "showThresholdMarkers": true },
+      "targets": [{ "expr": "100 * sum(container_memory_working_set_bytes{image!=\"\"}) / sum(kube_node_status_allocatable{resource=\"memory\"})", "legendFormat": "Memory %" }],
+      "title": "Cluster Memory %",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "$region" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }] } }
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 12, "y": 2 },
+      "id": 3,
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "count(kube_node_info)", "legendFormat": "Nodes" }],
+      "title": "Total Nodes",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "$region" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" } }
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 16, "y": 2 },
+      "id": 4,
+      "options": { "legend": { "displayMode": "table", "placement": "right" }, "pieType": "donut", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "count by (label_karpenter_sh_nodepool) (kube_node_labels{label_karpenter_sh_nodepool=~\"$nodepool\"})", "legendFormat": "{{label_karpenter_sh_nodepool}}" }],
+      "title": "Nodes per NodePool",
+      "type": "piechart"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "$region" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" } }
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 20, "y": 2 },
+      "id": 5,
+      "options": { "legend": { "displayMode": "table", "placement": "right" }, "pieType": "donut", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [{ "expr": "count by (label_karpenter_sh_capacity_type) (kube_node_labels{label_karpenter_sh_nodepool=~\"$nodepool\"})", "legendFormat": "{{label_karpenter_sh_capacity_type}}" }],
+      "title": "Spot vs On-Demand",
+      "type": "piechart"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "$region" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 30, "stacking": { "mode": "normal" } },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 7 },
+      "id": 6,
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "lastNotNull"] }, "tooltip": { "mode": "multi" } },
+      "targets": [{ "expr": "sum by (label_karpenter_sh_nodepool) (\n  rate(container_cpu_usage_seconds_total{image!=\"\"}[5m])\n  * on(node) group_left(label_karpenter_sh_nodepool)\n  kube_node_labels{label_karpenter_sh_nodepool=~\"$nodepool\"}\n)", "legendFormat": "{{label_karpenter_sh_nodepool}}" }],
+      "title": "CPU Usage by NodePool",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "$region" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 30, "stacking": { "mode": "normal" } },
+          "unit": "bytes"
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 7 },
+      "id": 7,
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "lastNotNull"] }, "tooltip": { "mode": "multi" } },
+      "targets": [{ "expr": "sum by (label_karpenter_sh_nodepool) (\n  container_memory_working_set_bytes{image!=\"\"}\n  * on(node) group_left(label_karpenter_sh_nodepool)\n  kube_node_labels{label_karpenter_sh_nodepool=~\"$nodepool\"}\n)", "legendFormat": "{{label_karpenter_sh_nodepool}}" }],
+      "title": "Memory Usage by NodePool",
+      "type": "timeseries"
+    },
+    {
+      "gridPos": { "h": 2, "w": 24, "x": 0, "y": 15 },
+      "id": 51,
+      "options": { "content": "## NodePool CPU Utilization", "mode": "markdown" },
+      "title": "",
+      "transparent": true,
+      "type": "text"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "$region" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 60 }, { "color": "red", "value": 85 }] },
+          "unit": "percent", "min": 0, "max": 100
+        }
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 17 },
+      "id": 20,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false, "showThresholdMarkers": true },
+      "targets": [{ "expr": "100 * sum(rate(container_cpu_usage_seconds_total{image!=\"\"}[5m]) * on(node) group_left() kube_node_labels{label_karpenter_sh_nodepool=\"general\"}) / sum(kube_node_status_allocatable{resource=\"cpu\"} * on(node) group_left() kube_node_labels{label_karpenter_sh_nodepool=\"general\"})", "legendFormat": "general" }],
+      "title": "general",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "$region" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 60 }, { "color": "red", "value": 85 }] },
+          "unit": "percent", "min": 0, "max": 100
+        }
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 4, "y": 17 },
+      "id": 21,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false, "showThresholdMarkers": true },
+      "targets": [{ "expr": "100 * sum(rate(container_cpu_usage_seconds_total{image!=\"\"}[5m]) * on(node) group_left() kube_node_labels{label_karpenter_sh_nodepool=\"critical\"}) / sum(kube_node_status_allocatable{resource=\"cpu\"} * on(node) group_left() kube_node_labels{label_karpenter_sh_nodepool=\"critical\"})", "legendFormat": "critical" }],
+      "title": "critical",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "$region" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 60 }, { "color": "red", "value": 85 }] },
+          "unit": "percent", "min": 0, "max": 100
+        }
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 8, "y": 17 },
+      "id": 22,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false, "showThresholdMarkers": true },
+      "targets": [{ "expr": "100 * sum(rate(container_cpu_usage_seconds_total{image!=\"\"}[5m]) * on(node) group_left() kube_node_labels{label_karpenter_sh_nodepool=\"api-tier\"}) / sum(kube_node_status_allocatable{resource=\"cpu\"} * on(node) group_left() kube_node_labels{label_karpenter_sh_nodepool=\"api-tier\"})", "legendFormat": "api-tier" }],
+      "title": "api-tier",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "$region" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 60 }, { "color": "red", "value": 85 }] },
+          "unit": "percent", "min": 0, "max": 100
+        }
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 12, "y": 17 },
+      "id": 23,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false, "showThresholdMarkers": true },
+      "targets": [{ "expr": "100 * sum(rate(container_cpu_usage_seconds_total{image!=\"\"}[5m]) * on(node) group_left() kube_node_labels{label_karpenter_sh_nodepool=\"worker-tier\"}) / sum(kube_node_status_allocatable{resource=\"cpu\"} * on(node) group_left() kube_node_labels{label_karpenter_sh_nodepool=\"worker-tier\"})", "legendFormat": "worker-tier" }],
+      "title": "worker-tier",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "$region" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 60 }, { "color": "red", "value": 85 }] },
+          "unit": "percent", "min": 0, "max": 100
+        }
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 16, "y": 17 },
+      "id": 24,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false, "showThresholdMarkers": true },
+      "targets": [{ "expr": "100 * sum(rate(container_cpu_usage_seconds_total{image!=\"\"}[5m]) * on(node) group_left() kube_node_labels{label_karpenter_sh_nodepool=\"batch-tier\"}) / sum(kube_node_status_allocatable{resource=\"cpu\"} * on(node) group_left() kube_node_labels{label_karpenter_sh_nodepool=\"batch-tier\"})", "legendFormat": "batch-tier" }],
+      "title": "batch-tier",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "$region" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 60 }, { "color": "red", "value": 85 }] },
+          "unit": "percent", "min": 0, "max": 100
+        }
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 20, "y": 17 },
+      "id": 25,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false, "showThresholdMarkers": true },
+      "targets": [{ "expr": "100 * sum(rate(container_cpu_usage_seconds_total{image!=\"\"}[5m]) * on(node) group_left() kube_node_labels{label_karpenter_sh_nodepool=\"memory-tier\"}) / sum(kube_node_status_allocatable{resource=\"cpu\"} * on(node) group_left() kube_node_labels{label_karpenter_sh_nodepool=\"memory-tier\"})", "legendFormat": "memory-tier" }],
+      "title": "memory-tier",
+      "type": "gauge"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "$region" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }] } },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Instance Type" }, "properties": [{ "id": "custom.width", "value": 200 }] }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 22 },
+      "id": 30,
+      "options": { "showHeader": true, "sortBy": [{ "desc": true, "displayName": "Count" }] },
+      "targets": [{ "expr": "count by (label_node_kubernetes_io_instance_type) (kube_node_labels{label_karpenter_sh_nodepool=~\"$nodepool\"})", "format": "table", "instant": true, "legendFormat": "" }],
+      "title": "Instance Types in Use",
+      "transformations": [
+        { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "label_node_kubernetes_io_instance_type": "Instance Type", "Value": "Count" } } }
+      ],
+      "type": "table"
+    }
+  ],
+  "schemaVersion": 39,
+  "tags": ["infrastructure", "nodepools", "karpenter", "observability"],
+  "templating": {
+    "list": [
+      {
+        "current": { "selected": false, "text": "prometheus-east", "value": "prometheus-east" },
+        "description": "Select region datasource",
+        "hide": 0,
+        "label": "Region",
+        "name": "region",
+        "options": [
+          { "selected": true, "text": "prometheus-east", "value": "prometheus-east" },
+          { "selected": false, "text": "prometheus-west", "value": "prometheus-west" }
+        ],
+        "query": "prometheus-east,prometheus-west",
+        "type": "custom"
+      },
+      {
+        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "description": "Filter by Karpenter NodePool",
+        "hide": 0,
+        "includeAll": true,
+        "allValue": "general|critical|api-tier|worker-tier|batch-tier|memory-tier",
+        "label": "NodePool",
+        "multi": true,
+        "name": "nodepool",
+        "options": [
+          { "selected": false, "text": "general", "value": "general" },
+          { "selected": false, "text": "critical", "value": "critical" },
+          { "selected": false, "text": "api-tier", "value": "api-tier" },
+          { "selected": false, "text": "worker-tier", "value": "worker-tier" },
+          { "selected": false, "text": "batch-tier", "value": "batch-tier" },
+          { "selected": false, "text": "memory-tier", "value": "memory-tier" }
+        ],
+        "query": "general,critical,api-tier,worker-tier,batch-tier,memory-tier",
+        "type": "custom"
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "Infrastructure & NodePools",
+  "uid": "infrastructure-nodepools",
+  "version": 1
+}
