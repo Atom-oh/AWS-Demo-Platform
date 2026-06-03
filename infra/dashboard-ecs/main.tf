@@ -99,7 +99,10 @@ resource "aws_ecs_service" "api" {
   }
 
   lifecycle {
-    # image is rolled by GHA (update-service); desired_count managed out-of-band.
+    # Service is rolled onto new task-def revisions out-of-band via a manual
+    # `aws ecs update-service` (there is no GHA step that does it; backend-ci
+    # only builds/pushes images). desired_count is also managed out-of-band.
+    # Arch cutover order is in docs/runbooks/arm64-graviton-migration.md.
     ignore_changes = [task_definition, desired_count]
   }
 }
