@@ -6,4 +6,5 @@ output "https_listener_arn" { value = aws_lb_listener.https.arn }
 output "atlantis_tg_arn" { value = aws_lb_target_group.atlantis.arn }
 output "argocd_tg_arn" { value = aws_lb_target_group.argocd_server.arn }
 output "dashboard_api_tg_arn" { value = aws_lb_target_group.dashboard_api.arn }
+output "dashboard_frontend_tg_arn" { value = aws_lb_target_group.dashboard_frontend.arn }
 output "acm_cert_arn" { value = data.aws_acm_certificate.alb_wildcard.arn }

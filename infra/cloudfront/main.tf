@@ -126,6 +126,71 @@ resource "aws_cloudfront_distribution" "argocd" {
   }
 }
 
+# Dashboard frontend CF distribution (Stage 3) — SAME-ORIGIN:
+#   default behavior  -> frontend TG  (Host: admin-dev.atomai.click,    ALB rule 130)
+#   /api/* behavior    -> api TG       (Host: admin-api-dev.atomai.click, ALB rule 120)
+# AllViewer forwards the Cognito Bearer on /api/* unchanged; CachingDisabled so
+# POST toggles + auth are never cached. The browser stays on one origin (no CORS).
+resource "aws_cloudfront_distribution" "dashboard_frontend" {
+  enabled         = true
+  is_ipv6_enabled = true
+  comment         = "Dashboard frontend (Stage 3 admin UI, dev)"
+  aliases         = ["admin-dev.atomai.click"]
+  price_class     = "PriceClass_200"
+
+  # Origin 1: frontend (default). Host=admin-dev -> ALB priority-130 rule.
+  origin {
+    domain_name = "admin-dev.atomai.click"
+    origin_id   = "alb-internal-frontend"
+    vpc_origin_config {
+      vpc_origin_id            = aws_cloudfront_vpc_origin.alb.id
+      origin_read_timeout      = 60
+      origin_keepalive_timeout = 5
+    }
+  }
+  # Origin 2: api (for /api/*). Host=admin-api-dev -> ALB EXISTING priority-120 rule.
+  origin {
+    domain_name = "admin-api-dev.atomai.click"
+    origin_id   = "alb-internal-api"
+    vpc_origin_config {
+      vpc_origin_id            = aws_cloudfront_vpc_origin.alb.id
+      origin_read_timeout      = 60
+      origin_keepalive_timeout = 5
+    }
+  }
+
+  default_cache_behavior {
+    target_origin_id         = "alb-internal-frontend"
+    viewer_protocol_policy   = "redirect-to-https"
+    allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods           = ["GET", "HEAD"]
+    cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # CachingDisabled
+    origin_request_policy_id = "216adef6-5c7f-47e4-b989-5492eafa07d3" # AllViewer
+  }
+
+  ordered_cache_behavior {
+    path_pattern             = "/api/*"
+    target_origin_id         = "alb-internal-api"
+    viewer_protocol_policy   = "redirect-to-https"
+    allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods           = ["GET", "HEAD"]
+    cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # CachingDisabled
+    origin_request_policy_id = "216adef6-5c7f-47e4-b989-5492eafa07d3" # AllViewer (forwards Authorization)
+  }
+
+  viewer_certificate {
+    acm_certificate_arn      = data.aws_acm_certificate.cf_wildcard.arn
+    minimum_protocol_version = "TLSv1.2_2021"
+    ssl_support_method       = "sni-only"
+  }
+
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
+}
+
 # Dashboard API CF distribution (Stage 2 Phase 4)
 resource "aws_cloudfront_distribution" "dashboard_api" {
   enabled         = true

@@ -180,3 +180,36 @@ resource "aws_lb_listener_rule" "dashboard_api" {
     host_header { values = ["admin-api-dev.atomai.click"] }
   }
 }
+
+# Dashboard frontend (Stage 3) — ECS Fargate Next.js service, IP targets, port 3000.
+# CloudFront sends /api/* to admin-api-dev (priority 120) and everything else for
+# admin-dev to this rule, so /api/* never hits the frontend TG.
+resource "aws_lb_target_group" "dashboard_frontend" {
+  name        = "demo-platform-fe-dev"
+  port        = 3000
+  protocol    = "HTTP"
+  vpc_id      = local.vpc_id
+  target_type = "ip"
+
+  health_check {
+    path                = "/" # Next App Router has no /health; '/' SSR-renders 200
+    protocol            = "HTTP"
+    matcher             = "200"
+    interval            = 15
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+  }
+}
+
+resource "aws_lb_listener_rule" "dashboard_frontend" {
+  listener_arn = aws_lb_listener.https.arn
+  priority     = 130
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.dashboard_frontend.arn
+  }
+  condition {
+    host_header { values = ["admin-dev.atomai.click"] }
+  }
+}

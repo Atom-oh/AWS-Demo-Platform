@@ -5,3 +5,5 @@ output "argocd_cf_domain" { value = aws_cloudfront_distribution.argocd.domain_na
 output "argocd_cf_arn" { value = aws_cloudfront_distribution.argocd.arn }
 output "dashboard_api_cf_domain" { value = aws_cloudfront_distribution.dashboard_api.domain_name }
 output "dashboard_api_cf_arn" { value = aws_cloudfront_distribution.dashboard_api.arn }
+output "dashboard_frontend_cf_domain" { value = aws_cloudfront_distribution.dashboard_frontend.domain_name }
+output "dashboard_frontend_cf_arn" { value = aws_cloudfront_distribution.dashboard_frontend.arn }
