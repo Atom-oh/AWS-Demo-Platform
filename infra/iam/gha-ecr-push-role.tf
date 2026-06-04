@@ -54,6 +54,7 @@ data "aws_iam_policy_document" "gha_ecr_push" {
     resources = [
       "arn:aws:ecr:${local.region}:${local.account_id}:repository/demo-platform/api",
       "arn:aws:ecr:${local.region}:${local.account_id}:repository/demo-platform/worker",
+      "arn:aws:ecr:${local.region}:${local.account_id}:repository/demo-platform/frontend",
     ]
   }
 }
