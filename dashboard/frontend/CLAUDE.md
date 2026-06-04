@@ -81,7 +81,9 @@ lib/
 - `NEXT_PUBLIC_*` (see `.env.local.example`) are **build-time inlined** — the prod
   image is built with prod values as build args. `NEXT_PUBLIC_AUTH_ENABLED=false`
   is the local-dev bypass, mirroring the api's `skipJwt`.
-- Deploy build: image tagged `ARM64`? no — `X86_64`/amd64 (matches the live baseline).
+- Deploy build: **arm64/Graviton** — `frontend-ci` builds `--platform=linux/arm64` on the
+  `aws-demo-platform-arm` self-hosted runner; frontend task `cpu_architecture=ARM64`,
+  consistent with api/worker after the PR #16 Graviton migration landed on main.
 
 ## Image & deploy
 - `Dockerfile` (Next standalone, `PORT=3000`, `HOSTNAME=0.0.0.0`), `output:'standalone'`.

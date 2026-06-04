@@ -37,9 +37,10 @@ jobs:
 
   push-image:
     # Build + push the frontend image to ECR on merge to main.
+    # Native arm64 build on the self-hosted runner (matches api/worker / Graviton).
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: lint-build
-    runs-on: ubuntu-latest
+    runs-on: aws-demo-platform-arm
     permissions:
       contents: read
       id-token: write # OIDC only for this job
@@ -59,11 +60,11 @@ jobs:
         working-directory: dashboard/frontend
         run: |
           # Tag prefixed `sha-` to match the ECR lifecycle policy's tagPrefixList.
-          # Pin linux/amd64 to match the Fargate runtime platform (X86_64).
+          # Native linux/arm64 to match the Fargate runtime platform (ARM64/Graviton).
           # NEXT_PUBLIC_* are inlined at build time → bake the PROD Cognito config.
           SHA="sha-${GITHUB_SHA::12}"
           REPO="$ECR_REGISTRY/demo-platform/frontend"
-          docker build --platform=linux/amd64 \
+          docker build --platform=linux/arm64 \
             --build-arg NEXT_PUBLIC_COGNITO_REGION=ap-northeast-2 \
             --build-arg NEXT_PUBLIC_COGNITO_DOMAIN=atomoh-demo-platform-dev.auth.ap-northeast-2.amazoncognito.com \
             --build-arg NEXT_PUBLIC_COGNITO_CLIENT_ID="${{ vars.COGNITO_APP_CLIENT_ID }}" \

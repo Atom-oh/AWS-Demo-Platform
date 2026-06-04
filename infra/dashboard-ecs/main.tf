@@ -208,7 +208,7 @@ resource "aws_ecs_task_definition" "frontend" {
   task_role_arn            = data.terraform_remote_state.iam.outputs.task_role_arn
 
   runtime_platform {
-    cpu_architecture        = "X86_64" # matches the linux/amd64 image build
+    cpu_architecture        = "ARM64" # matches the linux/arm64 (Graviton) image build — consistent with api/worker
     operating_system_family = "LINUX"
   }
 
