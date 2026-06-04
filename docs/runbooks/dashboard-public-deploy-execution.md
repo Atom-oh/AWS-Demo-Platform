@@ -22,6 +22,7 @@ harness gates autonomous shared-infra apply).
 1. Confirm #19 is green (review + lint-build). Then comment these on #19 **in order**
    (wait for each "Applied"):
    ```
+   atlantis apply -d infra/iam                  # add frontend repo to gha-ecr-push (before merge!)
    atlantis apply -d infra/ecr                  # frontend ECR repo (before merge!)
    atlantis apply -d infra/alb-internal         # frontend TG + listener rule 130
    atlantis apply -d infra/cloudfront           # admin-dev distribution (~10–15 min)
