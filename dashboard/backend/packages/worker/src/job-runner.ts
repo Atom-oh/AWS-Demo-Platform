@@ -90,8 +90,9 @@ export async function runJob(opts: RunJobOpts): Promise<void> {
     await ddb.state.markOn(job.repo);
   } else {
     // Partial turn_on: markOn would REMOVE restoration_data, stranding the
-    // resources that failed to come back. markError preserves it so a retry can
-    // re-restore (markError is unconditional and leaves restoration_data intact).
+    // resources that failed to come back. markError preserves it (unconditional,
+    // leaves restoration_data intact); the api's turn_on accepts status='error',
+    // so the project stays retryable via the API (no manual DDB edit needed).
     await ddb.state.markError(job.repo, `turn_on partial failure: ${errors.join('; ')}`);
   }
 
