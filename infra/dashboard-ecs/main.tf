@@ -58,14 +58,25 @@ resource "aws_ecs_task_definition" "api" {
 
   container_definitions = jsonencode([
     {
-      name      = "api"
-      image     = local.api_image
-      essential = true
+      name         = "api"
+      image        = local.api_image
+      essential    = true
       portMappings = [{ containerPort = 8080, protocol = "tcp" }]
       environment = [
         { name = "NODE_ENV", value = "production" },
         { name = "PORT", value = "8080" },
         { name = "AWS_REGION", value = local.region },
+        # Lifecycle Controller deps — api now serves /api/* (not just /health):
+        { name = "DDB_TABLE_STATE", value = "demo-platform-state-dev" },
+        { name = "DDB_TABLE_JOBS", value = "demo-platform-jobs-dev" },
+        { name = "SQS_QUEUE_URL", value = local.sqs_queue_url },
+        { name = "PROJECTS_DIR", value = "/app/projects" },
+        { name = "ADMIN_USERNAMES", value = "atomoh" },
+      ]
+      # Cognito ids for the access-token JWT verifier (fail-closed in prod).
+      secrets = [
+        { name = "COGNITO_USER_POOL_ID", valueFrom = data.aws_secretsmanager_secret.cognito_user_pool_id.arn },
+        { name = "COGNITO_APP_CLIENT_ID", valueFrom = data.aws_secretsmanager_secret.cognito_app_client_id.arn },
       ]
       logConfiguration = {
         logDriver = "awslogs"
