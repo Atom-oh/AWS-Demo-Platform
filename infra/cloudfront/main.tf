@@ -129,8 +129,12 @@ resource "aws_cloudfront_distribution" "argocd" {
 # Dashboard frontend CF distribution (Stage 3) — SAME-ORIGIN:
 #   default behavior  -> frontend TG  (Host: admin-dev.atomai.click,    ALB rule 130)
 #   /api/* behavior    -> api TG       (Host: admin-api-dev.atomai.click, ALB rule 120)
-# AllViewer forwards the Cognito Bearer on /api/* unchanged; CachingDisabled so
-# POST toggles + auth are never cached. The browser stays on one origin (no CORS).
+# Both behaviors use AllViewerExceptHostHeader so CloudFront sets Host = the
+# ORIGIN's domain_name (NOT the viewer Host, which is always admin-dev). That is
+# what makes /api/* reach ALB rule 120 (api) instead of rule 130 (frontend). All
+# other viewer headers — including Authorization (Cognito Bearer) — are still
+# forwarded. CachingDisabled so POST toggles + auth are never cached. One origin,
+# no CORS.
 resource "aws_cloudfront_distribution" "dashboard_frontend" {
   enabled         = true
   is_ipv6_enabled = true
@@ -165,7 +169,7 @@ resource "aws_cloudfront_distribution" "dashboard_frontend" {
     allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
     cached_methods           = ["GET", "HEAD"]
     cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # CachingDisabled
-    origin_request_policy_id = "216adef6-5c7f-47e4-b989-5492eafa07d3" # AllViewer
+    origin_request_policy_id = "b689b0a8-53d0-40ab-baf2-68738e2966ac" # AllViewerExceptHostHeader (Host=admin-dev -> ALB rule 130)
   }
 
   ordered_cache_behavior {
@@ -175,7 +179,7 @@ resource "aws_cloudfront_distribution" "dashboard_frontend" {
     allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
     cached_methods           = ["GET", "HEAD"]
     cache_policy_id          = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad" # CachingDisabled
-    origin_request_policy_id = "216adef6-5c7f-47e4-b989-5492eafa07d3" # AllViewer (forwards Authorization)
+    origin_request_policy_id = "b689b0a8-53d0-40ab-baf2-68738e2966ac" # AllViewerExceptHostHeader -> Host=admin-api-dev -> ALB rule 120; forwards Authorization
   }
 
   viewer_certificate {
