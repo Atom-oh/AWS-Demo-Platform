@@ -6,10 +6,10 @@ import type {
   HistoryClient,
   Logger,
 } from '@demo-platform/shared';
-import type { EcsController } from './controllers/ecs.js';
-import type { Ec2Controller } from './controllers/ec2.js';
-import type { RdsController } from './controllers/rds.js';
-import type { ArgocdController } from './controllers/argocd.js';
+import type { EcsController, EcsRestorationData } from './controllers/ecs.js';
+import type { Ec2Controller, Ec2RestorationData } from './controllers/ec2.js';
+import type { RdsController, RdsRestorationData } from './controllers/rds.js';
+import type { ArgocdController, ArgocdRestorationData } from './controllers/argocd.js';
 
 export interface JobInput {
   id: string;
@@ -47,6 +47,21 @@ export async function runJob(opts: RunJobOpts): Promise<void> {
 
   const restoration: Record<string, unknown> = {};
   const errors: string[] = [];
+  // RDS start is asynchronous at AWS (minutes); we poll availability AFTER the
+  // job is marked, so the SQS message isn't held past its visibility timeout.
+  const rdsToAwait: string[] = [];
+
+  // turn_on restores resources from the data captured at turn_off time, which
+  // lives on the off-state DDB record. Read it once up front. Keyed by stepKey.
+  let restorationMap: Record<string, unknown> = {};
+  if (job.operation === 'turn_on') {
+    const stateRec = await ddb.state.read(job.repo);
+    restorationMap = (stateRec?.restoration_data ?? {}) as Record<string, unknown>;
+    if (Object.keys(restorationMap).length === 0) {
+      // Best-effort (non-prod): nothing to restore (already on, or data pruned).
+      logger.warn({ jobId: job.id, repo: job.repo }, 'turn_on with empty restoration_data');
+    }
+  }
 
   for (const res of project.resources) {
     if ('always_on' in res && res.always_on) continue; // visibility only
@@ -57,7 +72,8 @@ export async function runJob(opts: RunJobOpts): Promise<void> {
         if (rd !== undefined) restoration[key] = rd;
         await ddb.jobs.appendProgress(job.id, key, 'done');
       } else {
-        await turnOnOne(res, controllers);
+        const rdsId = await turnOnOne(res, controllers, restorationMap[key]);
+        if (rdsId) rdsToAwait.push(rdsId);
         await ddb.jobs.appendProgress(job.id, key, 'done');
       }
     } catch (err) {
@@ -70,8 +86,21 @@ export async function runJob(opts: RunJobOpts): Promise<void> {
 
   if (job.operation === 'turn_off') {
     await ddb.state.markOff(job.repo, { restoration_data: restoration });
-  } else {
+  } else if (errors.length === 0) {
     await ddb.state.markOn(job.repo);
+  } else {
+    // Partial turn_on: markOn would REMOVE restoration_data, stranding the
+    // resources that failed to come back. markError preserves it (unconditional,
+    // leaves restoration_data intact); the api's turn_on accepts status='error',
+    // so the project stays retryable via the API (no manual DDB edit needed).
+    await ddb.state.markError(job.repo, `turn_on partial failure: ${errors.join('; ')}`);
+  }
+
+  // Fire-and-forget RDS availability polling (never awaited inside the handler).
+  for (const id of rdsToAwait) {
+    void controllers.rds
+      .waitForAvailable(id)
+      .catch((err) => logger.warn({ jobId: job.id, id, err }, 'rds waitForAvailable failed'));
   }
 
   if (errors.length === 0) {
@@ -97,8 +126,23 @@ export async function runJob(opts: RunJobOpts): Promise<void> {
   }
 }
 
+// Unique per-resource key so multiple resources of the same type (e.g. a project
+// with two argocd-app entries) each keep their own restoration_data. The same key
+// is used for the turn_off write and the turn_on read, so restoration is symmetric.
+// Visibility-only types are skipped before this is called, so they fall to `type`.
 function stepKey(res: ResourceRefT): string {
-  return res.type;
+  switch (res.type) {
+    case 'ecs':
+      return `ecs:${res.cluster}/${res.service}`;
+    case 'ec2':
+      return `ec2:${res.instance_ids.join(',')}`;
+    case 'rds':
+      return `rds:${res.db_identifier}`;
+    case 'argocd-app':
+      return `argocd-app:${res.application}`;
+    default:
+      return res.type;
+  }
 }
 
 async function turnOffOne(res: ResourceRefT, c: Controllers): Promise<unknown> {
@@ -113,19 +157,37 @@ async function turnOffOne(res: ResourceRefT, c: Controllers): Promise<unknown> {
     case 'argocd-app':
       return c.argocd.turnOff({ application: res.application });
     default:
-      return undefined; // always-on types (dynamodb/elasticache/kafka)
+      return undefined; // always-on types (dynamodb/elasticache/kafka/...)
   }
 }
 
-// NOTE (Phase 1 stub): turn_on resource restoration is deferred to Phase 5.
-// Restoration data lives in the DDB state record; threading it back into the
-// controllers' turnOn() methods is not implemented yet. `_c` is intentionally
-// unused until that wiring lands.
-async function turnOnOne(res: ResourceRefT, _c: Controllers): Promise<void> {
+// Restore one resource from its captured restoration_data (rd). Returns an RDS
+// db identifier to background-poll for availability, or undefined. A missing rd
+// (undefined) is an idempotent skip — e.g. the resource was already on, was added
+// after turn_off, or its data was pruned.
+async function turnOnOne(
+  res: ResourceRefT,
+  c: Controllers,
+  rd: unknown,
+): Promise<string | undefined> {
   switch (res.type) {
     case 'ecs':
-      return;
+      if (!rd) return undefined;
+      await c.ecs.turnOn(rd as EcsRestorationData);
+      return undefined;
+    case 'ec2':
+      if (!rd) return undefined;
+      await c.ec2.turnOn(rd as Ec2RestorationData);
+      return undefined;
+    case 'rds':
+      if (res.always_on || !rd) return undefined;
+      await c.rds.turnOn(rd as RdsRestorationData);
+      return res.db_identifier; // poll availability in the background
+    case 'argocd-app':
+      if (!rd) return undefined;
+      await c.argocd.turnOn(rd as ArgocdRestorationData);
+      return undefined;
     default:
-      return;
+      return undefined; // visibility-only types
   }
 }

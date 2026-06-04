@@ -25,6 +25,9 @@ COPY --from=build /app/packages/api/package.json ./packages/api/
 COPY --from=build /app/packages/shared/dist ./packages/shared/dist
 COPY --from=build /app/packages/api/dist ./packages/api/dist
 RUN pnpm install --frozen-lockfile --prod
+# Project config — CI bundles repo-root projects/ into ./_config (build context,
+# the same step that bakes the worker). PROJECTS_DIR in the api task def -> /app/projects.
+COPY _config/projects /app/projects
 USER node
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \

@@ -63,7 +63,7 @@ resource "aws_ecs_task_definition" "api" {
   task_role_arn            = data.terraform_remote_state.iam.outputs.task_role_arn
 
   runtime_platform {
-    cpu_architecture        = "X86_64" # matches the linux/amd64 image build
+    cpu_architecture        = "ARM64" # matches the linux/arm64 (Graviton) image build
     operating_system_family = "LINUX"
   }
 
@@ -77,6 +77,17 @@ resource "aws_ecs_task_definition" "api" {
         { name = "NODE_ENV", value = "production" },
         { name = "PORT", value = "8080" },
         { name = "AWS_REGION", value = local.region },
+        # Lifecycle Controller deps — api now serves /api/* (not just /health):
+        { name = "DDB_TABLE_STATE", value = "demo-platform-state-dev" },
+        { name = "DDB_TABLE_JOBS", value = "demo-platform-jobs-dev" },
+        { name = "SQS_QUEUE_URL", value = local.sqs_queue_url },
+        { name = "PROJECTS_DIR", value = "/app/projects" },
+        { name = "ADMIN_USERNAMES", value = "atomoh" },
+      ]
+      # Cognito ids for the access-token JWT verifier (fail-closed in prod).
+      secrets = [
+        { name = "COGNITO_USER_POOL_ID", valueFrom = data.aws_secretsmanager_secret.cognito_user_pool_id.arn },
+        { name = "COGNITO_APP_CLIENT_ID", valueFrom = data.aws_secretsmanager_secret.cognito_app_client_id.arn },
       ]
       logConfiguration = {
         logDriver = "awslogs"
@@ -110,7 +121,10 @@ resource "aws_ecs_service" "api" {
   }
 
   lifecycle {
-    # image is rolled by GHA (update-service); desired_count managed out-of-band.
+    # Service is rolled onto new task-def revisions out-of-band via a manual
+    # `aws ecs update-service` (there is no GHA step that does it; backend-ci
+    # only builds/pushes images). desired_count is also managed out-of-band.
+    # Arch cutover order is in docs/runbooks/arm64-graviton-migration.md.
     ignore_changes = [task_definition, desired_count]
   }
 }
@@ -126,7 +140,7 @@ resource "aws_ecs_task_definition" "worker" {
   task_role_arn            = data.terraform_remote_state.iam.outputs.task_role_arn
 
   runtime_platform {
-    cpu_architecture        = "X86_64"
+    cpu_architecture        = "ARM64" # matches the linux/arm64 (Graviton) image build
     operating_system_family = "LINUX"
   }
 

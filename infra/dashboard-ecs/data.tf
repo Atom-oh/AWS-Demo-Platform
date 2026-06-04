@@ -44,3 +44,12 @@ data "aws_secretsmanager_secret" "github_pat" {
 data "aws_secretsmanager_secret" "argocd_token" {
   name = "/demo-platform/argocd/admin-token"
 }
+
+# Cognito ids for the api JWT verifier (created by infra/secrets-manager, value
+# written by infra/cognito). Injected as ECS `secrets` into the api task.
+data "aws_secretsmanager_secret" "cognito_user_pool_id" {
+  name = "/demo-platform/dev/cognito/user-pool-id"
+}
+data "aws_secretsmanager_secret" "cognito_app_client_id" {
+  name = "/demo-platform/dev/cognito/app-client-id"
+}
