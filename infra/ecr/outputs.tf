@@ -9,3 +9,7 @@ output "api_repository_url" {
 output "worker_repository_url" {
   value = aws_ecr_repository.this["demo-platform/worker"].repository_url
 }
+
+output "frontend_repository_url" {
+  value = aws_ecr_repository.this["demo-platform/frontend"].repository_url
+}

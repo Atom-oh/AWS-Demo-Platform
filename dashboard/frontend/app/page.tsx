@@ -4,8 +4,12 @@ import { useProjects } from '@/hooks/useProjects';
 import { StatStrip } from '@/components/StatStrip';
 import { FacetSidebar, type Filters } from '@/components/FacetSidebar';
 import { ProjectCard } from '@/components/ProjectCard';
+import { LoginGate } from '@/components/LoginGate';
+import { useAuth } from '@/components/AuthProvider';
+import { authEnabled } from '@/lib/auth-config';
 
-export default function Dashboard() {
+function DashboardInner() {
+  const { username, email, logout } = useAuth();
   const { rows, loading, error, toggle } = useProjects();
   const [filters, setFilters] = useState<Filters>({ cat: null, acct: null, status: null });
   const [q, setQ] = useState('');
@@ -50,7 +54,7 @@ export default function Dashboard() {
           <b>AWS Demo Platform</b>
           <span>Demo lifecycle &amp; discovery</span>
         </div>
-        <span className="badge-dev">DEV</span>
+        <span className="badge-dev">{authEnabled ? 'DEV' : 'LOCAL'}</span>
         <div className="search">
           <input
             value={q}
@@ -58,6 +62,14 @@ export default function Dashboard() {
             placeholder="검색: 프로젝트, repo, 태그, 설명…"
           />
         </div>
+        {authEnabled && (
+          <div className="userchip">
+            <span>{username ?? email ?? 'admin'}</span>
+            <button className="btn" onClick={logout}>
+              로그아웃
+            </button>
+          </div>
+        )}
       </header>
       <div className="layout">
         <FacetSidebar rows={rows} filters={filters} setFilters={setFilters} />
@@ -77,5 +89,13 @@ export default function Dashboard() {
       </div>
       {toast && <div className={`toast show${toast.err ? ' err' : ''}`}>{toast.msg}</div>}
     </>
+  );
+}
+
+export default function Page() {
+  return (
+    <LoginGate>
+      <DashboardInner />
+    </LoginGate>
   );
 }

@@ -1,0 +1,75 @@
+name: frontend-ci
+
+on:
+  pull_request:
+    paths:
+      - 'dashboard/frontend/**'
+      - '.github/workflows/frontend-ci.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'dashboard/frontend/**'
+      - '.github/workflows/frontend-ci.yml'
+
+jobs:
+  lint-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.16'
+          cache: 'pnpm'
+          cache-dependency-path: dashboard/frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+
+  push-image:
+    # Build + push the frontend image to ECR on merge to main.
+    # Native arm64 build on the self-hosted runner (matches api/worker / Graviton).
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: lint-build
+    runs-on: aws-demo-platform-arm
+    permissions:
+      contents: read
+      id-token: write # OIDC only for this job
+    concurrency:
+      group: frontend-push-${{ github.ref }}
+      cancel-in-progress: false
+    env:
+      ECR_REGISTRY: 180294183052.dkr.ecr.ap-northeast-2.amazonaws.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::180294183052:role/demo-platform-gha-ecr-push
+          aws-region: ap-northeast-2
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build & push frontend
+        working-directory: dashboard/frontend
+        run: |
+          # Tag prefixed `sha-` to match the ECR lifecycle policy's tagPrefixList.
+          # Native linux/arm64 to match the Fargate runtime platform (ARM64/Graviton).
+          # NEXT_PUBLIC_* are inlined at build time → bake the PROD Cognito config.
+          SHA="sha-${GITHUB_SHA::12}"
+          REPO="$ECR_REGISTRY/demo-platform/frontend"
+          docker build --platform=linux/arm64 \
+            --build-arg NEXT_PUBLIC_COGNITO_REGION=ap-northeast-2 \
+            --build-arg NEXT_PUBLIC_COGNITO_DOMAIN=atomoh-demo-platform-dev.auth.ap-northeast-2.amazoncognito.com \
+            --build-arg NEXT_PUBLIC_COGNITO_CLIENT_ID="${{ vars.COGNITO_APP_CLIENT_ID }}" \
+            --build-arg NEXT_PUBLIC_COGNITO_REDIRECT_URI=https://admin-dev.atomai.click/auth/callback \
+            --build-arg NEXT_PUBLIC_COGNITO_LOGOUT_URI=https://admin-dev.atomai.click \
+            --build-arg NEXT_PUBLIC_AUTH_ENABLED=true \
+            -t "$REPO:$SHA" -t "$REPO:main-latest" .
+          docker push --all-tags "$REPO"

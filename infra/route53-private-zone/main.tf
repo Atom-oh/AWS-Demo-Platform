@@ -74,6 +74,19 @@ resource "aws_route53_record" "dashboard_api_public" {
   }
 }
 
+# Dashboard frontend public record → CloudFront (Stage 3).
+# (The private split-horizon record for admin-dev is created below via internal_hosts.)
+resource "aws_route53_record" "dashboard_frontend_public" {
+  zone_id = data.aws_route53_zone.public.zone_id
+  name    = "admin-dev.atomai.click"
+  type    = "A"
+  alias {
+    name                   = data.terraform_remote_state.cloudfront.outputs.dashboard_frontend_cf_domain
+    zone_id                = "Z2FDTNDATAQYW2" # CloudFront global HZ
+    evaluate_target_health = false
+  }
+}
+
 # Private records → Internal ALB (split-horizon)
 locals {
   internal_hosts = ["atlantis", "argocd", "admin", "admin-dev", "admin-api-dev"]

@@ -70,8 +70,30 @@ lib/
   always-on/visibility-only chips).
 - Pinned to Next `14.2.35` (patched; do not downgrade below 14.2.33 — security advisory).
 
+## Auth (Cognito)
+- **Authorization Code + PKCE** against the Hosted UI (public SPA client, no secret).
+  `lib/auth.ts` (login/exchange/refresh/logout), `lib/pkce.ts` (Web Crypto),
+  `lib/token-store.ts` (access/id in memory, refresh in sessionStorage),
+  `components/AuthProvider.tsx` (`useAuth`, silent refresh ~60s before exp),
+  `components/LoginGate.tsx` (gates the dashboard), `app/auth/callback/page.tsx`.
+- `lib/api.ts` sends the **ACCESS token** as `Authorization: Bearer` (the api
+  verifies `tokenUse:'access'` and matches `cognito:username` vs `ADMIN_USERNAMES`).
+- `NEXT_PUBLIC_*` (see `.env.local.example`) are **build-time inlined** — the prod
+  image is built with prod values as build args. `NEXT_PUBLIC_AUTH_ENABLED=false`
+  is the local-dev bypass, mirroring the api's `skipJwt`.
+- Deploy build: **arm64/Graviton** — `frontend-ci` builds `--platform=linux/arm64` on the
+  `aws-demo-platform-arm` self-hosted runner; frontend task `cpu_architecture=ARM64`,
+  consistent with api/worker after the PR #16 Graviton migration landed on main.
+
+## Image & deploy
+- `Dockerfile` (Next standalone, `PORT=3000`, `HOSTNAME=0.0.0.0`), `output:'standalone'`.
+- ECR repo `demo-platform/frontend`; built/pushed by `.github/workflows/frontend-ci.yml`.
+- Runtime infra: `infra/dashboard-ecs` frontend service + `infra/alb-internal` TG
+  (priority 130) + `infra/cloudfront` same-origin distribution (`/api/*`→api) +
+  `infra/route53-private-zone` public alias `admin-dev.atomai.click`.
+
 ## Not yet done (follow-ups)
 - Detail view (per-project drawer: resources, secrets, code-server URL, job history)
-- Cognito hosted-UI login (dev uses the API's `skipJwt`)
 - Real-time updates (SSE/WebSocket) instead of poll-on-toggle
-- ECS Fargate deploy (`infra/dashboard-ecs` adds a frontend service + CF behavior)
+- Token storage hardening (httpOnly cookie BFF) — current in-memory/sessionStorage
+  is XSS-exposed; acceptable for a single-admin non-prod tool

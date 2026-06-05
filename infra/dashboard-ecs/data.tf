@@ -1,12 +1,13 @@
 data "aws_caller_identity" "current" {}
 
 locals {
-  account_id    = data.aws_caller_identity.current.account_id
-  region        = "ap-northeast-2"
-  ecr_registry  = "${local.account_id}.dkr.ecr.${local.region}.amazonaws.com"
-  api_image     = "${local.ecr_registry}/demo-platform/api:main-latest"
-  worker_image  = "${local.ecr_registry}/demo-platform/worker:main-latest"
-  sqs_queue_url = "https://sqs.${local.region}.amazonaws.com/${local.account_id}/demo-platform-jobs-dev"
+  account_id     = data.aws_caller_identity.current.account_id
+  region         = "ap-northeast-2"
+  ecr_registry   = "${local.account_id}.dkr.ecr.${local.region}.amazonaws.com"
+  api_image      = "${local.ecr_registry}/demo-platform/api:main-latest"
+  worker_image   = "${local.ecr_registry}/demo-platform/worker:main-latest"
+  frontend_image = "${local.ecr_registry}/demo-platform/frontend:main-latest"
+  sqs_queue_url  = "https://sqs.${local.region}.amazonaws.com/${local.account_id}/demo-platform-jobs-dev"
 }
 
 data "terraform_remote_state" "shared" {

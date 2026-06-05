@@ -5,7 +5,8 @@
 # alongside immutable `<sha>` tags (ECR mutability is per-repo, not per-tag).
 
 locals {
-  repos = ["demo-platform/api", "demo-platform/worker"]
+  # api + worker (Stage 2) and frontend (Stage 3 Next.js standalone image).
+  repos = ["demo-platform/api", "demo-platform/worker", "demo-platform/frontend"]
 }
 
 resource "aws_ecr_repository" "this" {

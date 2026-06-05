@@ -19,6 +19,10 @@ resource "aws_cloudwatch_log_group" "worker" {
   name              = "/demo-platform/dev/worker"
   retention_in_days = 14
 }
+resource "aws_cloudwatch_log_group" "frontend" {
+  name              = "/demo-platform/dev/frontend"
+  retention_in_days = 14
+}
 
 # Task SG — api accepts 8080 from the ALB SG; both egress anywhere (ECR/AWS APIs).
 resource "aws_security_group" "task" {
@@ -30,6 +34,13 @@ resource "aws_security_group" "task" {
     description     = "api container port from Internal ALB"
     from_port       = 8080
     to_port         = 8080
+    protocol        = "tcp"
+    security_groups = [data.terraform_remote_state.alb_internal.outputs.alb_sg_id]
+  }
+  ingress {
+    description     = "frontend container port from Internal ALB"
+    from_port       = 3000
+    to_port         = 3000
     protocol        = "tcp"
     security_groups = [data.terraform_remote_state.alb_internal.outputs.alb_sg_id]
   }
@@ -179,6 +190,72 @@ resource "aws_ecs_service" "worker" {
   }
 
   lifecycle {
+    ignore_changes = [task_definition, desired_count]
+  }
+}
+
+# ───────────────────────── frontend (Stage 3 Next.js) ─────────────────────────
+# Public at admin-dev.atomai.click via CloudFront (same-origin: /api/* -> api).
+# No API_ORIGIN env — CloudFront routes /api/* to the api TG (Next rewrite is a
+# no-op in prod). NEXT_PUBLIC_* (Cognito) are baked into the image at build time.
+resource "aws_ecs_task_definition" "frontend" {
+  family                   = "demo-platform-frontend-dev"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = data.terraform_remote_state.iam.outputs.exec_role_arn
+  task_role_arn            = data.terraform_remote_state.iam.outputs.task_role_arn
+
+  runtime_platform {
+    cpu_architecture        = "ARM64" # matches the linux/arm64 (Graviton) image build — consistent with api/worker
+    operating_system_family = "LINUX"
+  }
+
+  container_definitions = jsonencode([
+    {
+      name         = "frontend"
+      image        = local.frontend_image
+      essential    = true
+      portMappings = [{ containerPort = 3000, protocol = "tcp" }]
+      environment = [
+        { name = "NODE_ENV", value = "production" },
+        { name = "PORT", value = "3000" },
+        { name = "HOSTNAME", value = "0.0.0.0" }, # Next standalone binds HOSTNAME
+      ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.frontend.name
+          "awslogs-region"        = local.region
+          "awslogs-stream-prefix" = "frontend"
+        }
+      }
+    }
+  ])
+}
+
+resource "aws_ecs_service" "frontend" {
+  name            = "demo-platform-frontend-dev"
+  cluster         = aws_ecs_cluster.this.id
+  task_definition = aws_ecs_task_definition.frontend.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = data.terraform_remote_state.shared.outputs.private_subnet_ids
+    security_groups  = [aws_security_group.task.id]
+    assign_public_ip = false
+  }
+
+  load_balancer {
+    target_group_arn = data.terraform_remote_state.alb_internal.outputs.dashboard_frontend_tg_arn
+    container_name   = "frontend"
+    container_port   = 3000
+  }
+
+  lifecycle {
+    # image rolled out-of-band via `aws ecs update-service --force-new-deployment`.
     ignore_changes = [task_definition, desired_count]
   }
 }
