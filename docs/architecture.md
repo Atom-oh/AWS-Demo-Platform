@@ -194,6 +194,9 @@ scaffolded at desiredCount=0 (needs github/argocd secrets + config bundling).
 - **Wildcard ACM cert reuse** — Use the existing `*.atomai.click` cert via `data` lookup instead of issuing per-subdomain certs. CF Origin DomainName matches the cert SAN to avoid SNI mismatch over HTTPS-only.
 - **Helm + Kustomize hybrid** — Helm for upstream third-party charts (ArgoCD, ESO). Kustomize for repo-owned manifests (Atlantis). Avoids forking charts while keeping our own manifests transparent.
 - **TF backend shared with multi-region-architecture** — Single S3 bucket + DDB lock table across both repos. TF 1.9.8 → `dynamodb_table` instead of TF 1.10+ `use_lockfile`.
+- **Same-origin CloudFront for the dashboard** ([ADR-004](decisions/ADR-004-same-origin-cloudfront-dashboard.md)) — One distribution for `admin-dev`; `/api/*` routed to the api origin via `AllViewerExceptHostHeader` (CloudFront sets `Host`=origin domain → correct ALB rule) so the Cognito Bearer rides same-origin with no CORS.
+- **Cognito Auth Code + PKCE for the SPA** ([ADR-005](decisions/ADR-005-cognito-spa-auth-code-pkce.md)) — Public client, no secret; the SPA sends the access token as Bearer; tokens in memory + refresh in sessionStorage; `AUTH_ENABLED=false` dev bypass mirrors the api `skipJwt`.
+- **ARM64/Graviton images, native build** ([ADR-006](decisions/ADR-006-arm64-graviton-native-build.md)) — All ECS tasks `cpu_architecture=ARM64`; CI builds `linux/arm64` natively on the `aws-demo-platform-arm` runner (no QEMU). Image platform and task arch kept in lockstep.
 
 ## Operations
 - Deployment: see [docs/runbooks/.template.md](runbooks/.template.md) (concrete runbooks pending)
@@ -343,6 +346,9 @@ Browser -> CloudFront -> VPC Origin -> Internal ALB -> TGB -> Pod (Atlantis | Ar
 - **와일드카드 ACM 인증서 재사용** — 서브도메인마다 인증서를 발급하는 대신 기존 `*.atomai.click` 인증서를 `data` lookup으로 사용합니다. HTTPS-only에서 SNI mismatch를 피하기 위해 CF Origin DomainName을 인증서 SAN과 일치시킵니다.
 - **Helm + Kustomize 하이브리드** — 외부 third-party 차트(ArgoCD, ESO)는 Helm으로, 리포 소유 매니페스트(Atlantis)는 Kustomize로. 차트를 fork하지 않으면서 자체 매니페스트는 투명하게 유지합니다.
 - **multi-region-architecture와 TF 백엔드 공유** — 두 리포가 단일 S3 버킷 + DDB lock 테이블을 공유합니다. TF 1.9.8에서는 TF 1.10+의 `use_lockfile` 대신 `dynamodb_table`을 사용합니다.
+- **대시보드 동일 오리진 CloudFront** ([ADR-004](decisions/ADR-004-same-origin-cloudfront-dashboard.md)) — `admin-dev` 단일 배포; `/api/*`는 `AllViewerExceptHostHeader`로 api 오리진에 라우팅(CloudFront가 `Host`=오리진 도메인으로 설정 → 올바른 ALB 규칙)되어 Cognito Bearer가 동일 오리진으로 실려 CORS가 없습니다.
+- **SPA용 Cognito Auth Code + PKCE** ([ADR-005](decisions/ADR-005-cognito-spa-auth-code-pkce.md)) — public client, 시크릿 없음; SPA는 access 토큰을 Bearer로 전송; 토큰은 메모리 + refresh는 sessionStorage; `AUTH_ENABLED=false` dev 우회는 api `skipJwt`를 반영합니다.
+- **ARM64/Graviton 이미지, 네이티브 빌드** ([ADR-006](decisions/ADR-006-arm64-graviton-native-build.md)) — 모든 ECS 태스크 `cpu_architecture=ARM64`; CI는 `aws-demo-platform-arm` 러너에서 `linux/arm64`를 네이티브 빌드(QEMU 없음). 이미지 플랫폼과 태스크 아키텍처를 lockstep으로 유지합니다.
 
 ## 운영
 - 배포: [docs/runbooks/.template.md](runbooks/.template.md) 참조 (구체적인 runbook은 작성 예정)
