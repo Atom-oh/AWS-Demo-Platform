@@ -12,11 +12,10 @@ if ! declare -F pass >/dev/null 2>&1; then
   fail() { echo "  FAIL $1 -> ${2:-}"; _t_fail=1; }
 fi
 
-mkfake() { # $1 binname, $2 exitcode, $3 output
+mkfake() { # $1 binname, $2 exitcode, $3 marker. 성공 시 marker + stdin(diff) 를 echo
   cat > "$BIN/$1" <<EOF
 #!/usr/bin/env bash
-[ "$2" -eq 0 ] && echo "$3"
-exit $2
+if [ "$2" -eq 0 ]; then echo "$3"; cat; else exit $2; fi
 EOF
   chmod +x "$BIN/$1"
 }
@@ -26,9 +25,14 @@ setup() { WORK=$(mktemp -d); BIN=$(mktemp -d); export PATH="$BIN:$PATH"
 # (a) 전원 응답 (codex + kiro x3 + antigravity = 5)
 setup; mkfake codex 0 "codex-finding"; mkfake kiro-cli 0 "kiro-finding"; mkfake agy 0 "agy-finding"
 "$SCRIPT" "$WORK/diff.txt" "$WORK/prompt.txt" "$WORK" >/dev/null 2>&1
-allok=1
-for f in codex kiro-opus kiro-kimi kiro-glm antigravity; do [ -s "$WORK/slot/$f.md" ] || allok=0; done
+allok=1; diffok=1
+for f in codex kiro-opus kiro-kimi kiro-glm antigravity; do
+  [ -s "$WORK/slot/$f.md" ] || allok=0
+  # 각 패널의 stdin 으로 diff 가 실제 전달됐는지 검증 (</dev/null 가 파이프를 덮는 회귀 방지)
+  grep -q "diff --git" "$WORK/slot/$f.md" 2>/dev/null || diffok=0
+done
 [ "$allok" = 1 ] && pass "run-panel (a) all slots filled" || fail "run-panel (a) all slots filled" "a slot is empty"
+[ "$diffok" = 1 ] && pass "run-panel (a) diff reached every panel (stdin)" || fail "run-panel (a) diff reached every panel (stdin)" "a panel got empty stdin"
 [ "$(wc -l < "$WORK/responded.txt" 2>/dev/null || echo 0)" = 5 ] \
   && pass "run-panel (a) responded=5" || fail "run-panel (a) responded=5" "responded != 5"
 
