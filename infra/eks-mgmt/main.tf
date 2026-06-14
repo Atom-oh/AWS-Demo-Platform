@@ -185,6 +185,14 @@ resource "aws_iam_role_policy" "ci_runner_bedrock" {
         Resource = "*"
       },
       {
+        # bedrock-mantle 은 bedrock 과 별개 IAM 서비스. codex 의 openai.gpt-5.5
+        # (bedrock-mantle Responses API, us-east-1 In-Region)는 bedrock-mantle:CreateInference
+        # 가 필요하다 — bedrock:InvokeModel 로는 안 됨(401 Unauthorized).
+        Effect   = "Allow"
+        Action   = ["bedrock-mantle:*"]
+        Resource = "*"
+      },
+      {
         Effect   = "Allow"
         Action   = "iam:PassRole"
         Resource = [
