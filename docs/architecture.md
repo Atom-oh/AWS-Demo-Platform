@@ -175,7 +175,7 @@ scaffolded at desiredCount=0 (needs github/argocd secrets + config bundling).
 - DynamoDB: `demo-platform-{state,jobs,history}-dev` (deletion protection on)
 - IAM: `DashboardEcsTaskRole-dev`, `DashboardEcsExecutionRole-dev`, `DemoPlatformOperator`, `demo-platform-gha-ecr-push` (OIDC)
 - SQS: `demo-platform-jobs-dev` + DLQ
-- ECR: `demo-platform/api`, `demo-platform/worker` (images pushed via GHA on main-merge, tags `sha-<sha>` + `main-latest`)
+- ECR: `demo-platform/api`, `demo-platform/worker`, `demo-platform/frontend`, `actions-runner-claude` (images pushed via GHA on main-merge, tags `sha-<sha>` + `main-latest`/`latest`)
 - Secrets Manager: `dev/github/pat`, `argocd/admin-token`, `dev/cognito/*` (cognito slots populated by the cognito module)
 - ECS: cluster `demo-platform-dev`, `demo-platform-api-dev` (running 1/1), `demo-platform-worker-dev` (0/0 scaffold)
 - ALB: `demo-platform-api-dev` TG + listener rule (host `admin-api-dev.atomai.click`, 443)
@@ -198,6 +198,7 @@ scaffolded at desiredCount=0 (needs github/argocd secrets + config bundling).
 - **Same-origin CloudFront for the dashboard** ([ADR-004](decisions/ADR-004-same-origin-cloudfront-dashboard.md)) — One distribution for `admin-dev`; `/api/*` routed to the api origin via `AllViewerExceptHostHeader` (CloudFront sets `Host`=origin domain → correct ALB rule) so the Cognito Bearer rides same-origin with no CORS.
 - **Cognito Auth Code + PKCE for the SPA** ([ADR-005](decisions/ADR-005-cognito-spa-auth-code-pkce.md)) — Public client, no secret; the SPA sends the access token as Bearer; tokens in memory + refresh in sessionStorage; `AUTH_ENABLED=false` dev bypass mirrors the api `skipJwt`.
 - **ARM64/Graviton images, native build** ([ADR-006](decisions/ADR-006-arm64-graviton-native-build.md)) — All ECS tasks `cpu_architecture=ARM64`; CI builds `linux/arm64` natively on the `aws-demo-platform-arm` runner (no QEMU). Image platform and task arch kept in lockstep.
+- **Multi-AI PR review panel** ([ADR-007](decisions/ADR-007-multi-ai-pr-review-panel.md)) — `pr-review.yml` runs a Codex (Bedrock) + Kiro (`opus`/`kimi-k2.5`/`glm-5`) + Antigravity (`agy`, free-tier best-effort) panel feeding a Claude Opus 4.8 chair that synthesizes one review + fail-closed `VERDICT`. Runner image (`actions-runner-claude`) built in-repo; Kiro/Antigravity auth via ExternalSecret `ai-panel-keys` from Secrets Manager `/demo-platform/actions/AI-key`.
 
 ## Operations
 - Deployment: see [docs/runbooks/.template.md](runbooks/.template.md) (concrete runbooks pending)
