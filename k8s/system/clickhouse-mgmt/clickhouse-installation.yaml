@@ -17,8 +17,12 @@ spec:
         templates:
           podTemplate: clickhouse-pod
     users:
+      # default user has no password (otel-collector exporters connect unauthenticated).
+      # Restrict the user-level network ACL to the hub/spoke RFC1918 range to match the
+      # internal NLB's loadBalancerSourceRanges (defense in depth). Residual risk that any
+      # 10.0.0.0/8 host reaches the unauthenticated DB is accepted/documented in ADR-007.
       default/networks/ip:
-        - "0.0.0.0/0"
+        - "10.0.0.0/8"
       default/profile: default
       default/quota: default
     profiles:

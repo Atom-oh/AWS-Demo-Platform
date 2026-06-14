@@ -21,6 +21,28 @@ The EKS clusters are **reused** from `multi-region-architecture` — the three i
 
 Source-range hardening: rather than depend on a hardcoded externally-managed SG (`sg-0613a5ecf8009daff` from the mall's shared remote_state), each NLB sets `spec.loadBalancerSourceRanges: ["10.0.0.0/8"]`, so the AWS Load Balancer Controller provisions a managed frontend SG that admits only the hub/spoke RFC1918 range — matching the platform convention ("every LB SG accepts only the CF VPC Origin SG + 10.0.0.0/8"). These NLBs sit behind no CloudFront origin (direct spoke→hub), so 10.0.0.0/8 is the sole allowed source.
 
+```mermaid
+flowchart LR
+  subgraph spokes["spoke clusters (az-a / az-c)"]
+    OC["OTel Collector"]
+    PA["Prometheus agent"]
+  end
+  subgraph hub["hub mall-apne2-mgmt — ns observability/monitoring"]
+    CHN["clickhouse-nlb<br/>:9000 / :8123"]
+    TPN["tempo-nlb<br/>:4317 / :3200"]
+    PRN["prometheus-nlb<br/>:9090"]
+    CH["ClickHouse (CHI)"]
+    TP["Tempo"]
+    PR["Prometheus"]
+  end
+  OC -- "traces/logs (TCP)" --> CHN --> CH
+  OC -- "OTLP gRPC" --> TPN --> TP
+  PA -- "remote_write" --> PRN --> PR
+  classDef nlb fill:#fde,stroke:#b35;
+  class CHN,TPN,PRN nlb;
+```
+_All three NLBs are `scheme=internal`, source-restricted to `10.0.0.0/8` (managed SG). No public exposure._
+
 ## Options Considered
 
 ### Option 1: Keep the internal NLBs as an explicit exception (chosen)
@@ -47,6 +69,9 @@ Keep the three internal NLBs in `k8s/system/clickhouse-mgmt/internal-nlb-service
 ### Negative
 - A data-plane-only NLB exception now exists alongside the no-NLB convention; future readers must consult this ADR. If the topology later collapses to a single cluster, this can be reclaimed with in-cluster ClusterIP. See [[non-production-tolerance]].
 
+### Accepted security risk
+- The ClickHouse `default` user has **no password** (the live OTel-collector exporters connect unauthenticated, and adding a password would break the reused live pipeline). With `clickhouse-nlb` reachable from `10.0.0.0/8`, any host in that range can read/write the otel traces/logs DB without auth. The user-level `networks/ip` ACL is tightened from `0.0.0.0/0` to `10.0.0.0/8` (matching the NLB source range) as defense in depth, but the residual unauthenticated-within-10/8 exposure is **explicitly accepted** for this non-production, cluster-reuse context. Future hardening (if promoted toward prod): set a `password_sha256_hex` via an ESO `ExternalSecret` and update the exporters, or narrow the ACL/source-range to the spoke node/pod CIDRs.
+
 ## References
 - `docs/superpowers/specs/2026-05-26-aws-demo-platform-design.md`
 - `docs/superpowers/specs/2026-06-14-mgmt-cluster-argocd-target-handoff-design.md`
@@ -69,7 +94,7 @@ Keep the three internal NLBs in `k8s/system/clickhouse-mgmt/internal-nlb-service
 
 EKS 클러스터는 `multi-region-architecture`와 **재사용**된다 — internal NLB 3개(`clickhouse-nlb`, `tempo-nlb`, `prometheus-nlb`, 전부 `scheme=internal`)는 이미 존재하며 live 트래픽을 처리한다. ArgoCD는 이 타깃을 `prune: true`로 동기화하므로, 마이그레이션 타깃에서 빼면 **live NLB가 삭제**되어 관측 파이프라인이 끊긴다.
 
-소스 범위 강화: mall의 shared remote_state가 만든 외부 SG(`sg-0613a5ecf8009daff`)에 의존하는 대신, 각 NLB는 `spec.loadBalancerSourceRanges: ["10.0.0.0/8"]`을 지정한다. 그러면 AWS Load Balancer Controller가 hub/spoke RFC1918 범위만 허용하는 managed 프런트엔드 SG를 생성한다 — 플랫폼 규약("모든 LB SG는 CF VPC Origin SG + 10.0.0.0/8만 허용")과 일치. 이 NLB들은 CloudFront origin 뒤가 아니라(spoke→hub 직접) 10.0.0.0/8이 유일한 허용 소스다.
+소스 범위 강화: mall의 shared remote_state가 만든 외부 SG(`sg-0613a5ecf8009daff`)에 의존하는 대신, 각 NLB는 `spec.loadBalancerSourceRanges: ["10.0.0.0/8"]`을 지정한다. 그러면 AWS Load Balancer Controller가 hub/spoke RFC1918 범위만 허용하는 managed 프런트엔드 SG를 생성한다 — 플랫폼 규약("모든 LB SG는 CF VPC Origin SG + 10.0.0.0/8만 허용")과 일치. 이 NLB들은 CloudFront origin 뒤가 아니라(spoke→hub 직접) 10.0.0.0/8이 유일한 허용 소스다. (토폴로지 다이어그램은 위 English 섹션 참고.)
 
 ## 검토한 옵션
 
@@ -96,6 +121,9 @@ EKS 클러스터는 `multi-region-architecture`와 **재사용**된다 — inter
 
 ### 부정적
 - no-NLB 규약과 함께 데이터플레인 한정 NLB 예외가 존재하게 된다; 향후 독자는 이 ADR을 참조해야 한다. 추후 단일 클러스터로 통합되면 in-cluster ClusterIP로 회수 가능. [[non-production-tolerance]] 참고.
+
+### 수용한 보안 리스크
+- ClickHouse `default` 유저는 **패스워드가 없다**(live OTel-collector exporter가 무인증으로 접속 중이며, 패스워드를 추가하면 재사용 중인 live 파이프라인이 깨진다). `clickhouse-nlb`가 `10.0.0.0/8`에서 도달 가능하므로 해당 대역의 임의 호스트가 무인증으로 otel trace/log DB를 읽고 쓸 수 있다. 유저 레벨 `networks/ip` ACL을 `0.0.0.0/0`에서 `10.0.0.0/8`로(NLB 소스 범위와 일치) 좁혀 defense-in-depth를 적용했으나, 10/8 내 무인증 노출은 비프로덕션·클러스터 재사용 맥락에서 **명시적으로 수용**한다. 향후 프로덕션 승격 시: ESO `ExternalSecret`로 `password_sha256_hex` 설정 + exporter 갱신, 또는 ACL/소스 범위를 spoke 노드/pod CIDR로 한정.
 
 ## 참고 자료
 - `docs/superpowers/specs/2026-05-26-aws-demo-platform-design.md`

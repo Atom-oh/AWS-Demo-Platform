@@ -13,7 +13,8 @@
 **핵심 사전 사실:**
 - 이 repo `infra/eks-mgmt`(main)가 tempo S3 버킷/IRSA role을 소스 appset 값과 **정확히 같은 이름**으로 생성(`environment=production`, `region=ap-northeast-2`, `name_suffix=-mgmt`). 신규 Terraform 불필요.
 - 소스 `appset-tempo`의 kustomize 패치 중 ConfigMap `tempo-config` `/data/TEMPO_S3_BUCKET`·`/data/AWS_REGION` replace는 **해당 키가 존재하지 않아** kustomize build를 깨뜨린다. tempo는 `-config.expand-env=true` + 컨테이너 env(Deployment 패치가 주입)로 `${TEMPO_S3_BUCKET}`/`${AWS_REGION}`를 해석하므로, 이 깨진 ConfigMap 패치는 **의도적으로 드롭**한다(이 repo가 manifest를 소유하므로 정당한 적응; 동작 동일).
-- `clickhouse-installation.yaml`의 `default/networks/ip: 0.0.0.0/0`은 SG 인그레스가 아니라 **ClickHouse 유저 네트워크 ACL**(internal-only NLB 뒤, in-cluster)이며 기존 live 설정의 충실 복제다 — 보안 게이트 false-positive 아님.
+- `clickhouse-installation.yaml`의 `default/networks/ip`는 SG 인그레스가 아니라 **ClickHouse 유저 네트워크 ACL**이다. (PR 리뷰 반영) 무인증 default 유저가 internal NLB(`10.0.0.0/8`)를 통해 도달 가능하므로, ACL을 `0.0.0.0/0` → `10.0.0.0/8`로 좁혀 NLB 소스 범위와 일치시키고, 10/8 내 무인증 노출은 ADR-007에 **수용 리스크로 명시**한다. (아래 embedded 스니펫은 강화 이전 원본 스냅샷 — 최종 매니페스트는 `10.0.0.0/8`.)
+- NLB 소스 범위: 하드코딩 SG(`sg-0613a5ecf8009daff`) 대신 `spec.loadBalancerSourceRanges: ["10.0.0.0/8"]`(managed SG). 아래 embedded 스니펫의 `aws-load-balancer-security-groups` 줄은 강화 이전 원본이며 최종 매니페스트엔 없다.
 - tempo.yaml의 Deployment env에 있는 `tempo-region-config`/`region-config` ConfigMap 참조는 **둘 다 `optional: true`** 이므로 ConfigMap이 없어도 Pod는 실패하지 않는다(env가 미설정될 뿐). 또한 배포 시 `appset-tempo`의 Deployment 패치가 `containers[0].env`를 리터럴 `AWS_REGION`/`TEMPO_S3_BUCKET`로 **통째 교체**하므로 이 optional 참조는 런타임에 사라진다 — 별도 ConfigMap 생성 불필요.
 
 ---
@@ -777,7 +778,7 @@ Expected: ADR 섹션 구조 확인(Status/Context/Decision/Consequences 등)
 `docs/decisions/.template.md`는 **EN/KO 양어**이며 헤딩이 `Status / Context / Options Considered / Decision / Consequences / References`이다. ADR-001~006과 일관되도록 **모든 헤딩을 EN·KO 양쪽 모두** 채운다(특히 `Options Considered`에 대안 3개: ① internal NLB 유지(채택) ② TGB→ALB로 전환 ③ in-cluster ClusterIP만 사용·spoke 수집 포기 — 각 trade-off 명시). 내용 요지(각 섹션에 반영):
 - **Status**: Accepted (2026-06-14)
 - **Context**: 데모 플랫폼 규약은 CloudFront→ALB→TGB만 허용하고 NLB/Ingress 금지. 그러나 hub(`mall-apne2-mgmt`)에는 spoke(az-a/az-c) otel-collector가 trace/log를 push하고 workload Prometheus가 remote-write하는 cross-cluster fan-in이 존재. ClickHouse native TCP(:9000)는 L7 ALB로 종단 불가, Tempo OTLP/Prometheus remote-write도 L4 종단이 적합. EKS 클러스터는 `multi-region-architecture`와 재사용되며 해당 internal NLB 3개(clickhouse-nlb/tempo-nlb/prometheus-nlb)가 이미 live. ArgoCD `prune: true`이므로 타깃에서 빼면 live NLB가 삭제되어 관측 파이프라인이 끊김.
-- **Decision**: `k8s/system/clickhouse-mgmt/internal-nlb-services.yaml`의 internal NLB 3개를 "no-NLB" 규약의 **명시적 예외**로 유지. scheme=internal, SG `sg-0613a5ecf8009daff`로 제한. 외부 노출(public ALB/NLB) 및 Kubernetes Ingress 금지 규약은 그대로 유효.
+- **Decision**: `k8s/system/clickhouse-mgmt/internal-nlb-services.yaml`의 internal NLB 3개를 "no-NLB" 규약의 **명시적 예외**로 유지. scheme=internal, `loadBalancerSourceRanges: 10.0.0.0/8`(managed SG)로 제한. 외부 노출(public ALB/NLB) 및 Kubernetes Ingress 금지 규약은 그대로 유효. 무인증 ClickHouse default 유저의 10/8 내 도달 가능성은 수용 리스크로 명시.
 - **Consequences**: (+) live 관측 fan-in 무중단, 충실한 GitOps 핸드오프. (−) 데이터플레인에 한해 NLB 예외 존재 — 향후 단일 클러스터로 통합 시 in-cluster ClusterIP로 회수 가능. (참고) `[[non-production-tolerance]]`.
 
 - [ ] **Step 3: 커밋**
