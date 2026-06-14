@@ -27,7 +27,7 @@ flowchart LR
   PR[pull_request_target] --> RUN[runner: aws-demo-platform-claude-arm]
   RUN --> P[run-panel.sh parallel + timeout]
   P -->|codex exec, Bedrock us-east-2 gpt-5.5| C[slot/codex.md]
-  P -->|kiro-cli --model opus/kimi-k2.5/glm-5, KIRO_API_KEY| K[slot/kiro-*.md]
+  P -->|kiro-cli --model claude-opus-4.8/kimi-k2.5/glm-5, KIRO_API_KEY| K[slot/kiro-*.md]
   P -->|agy -p, ANTIGRAVITY_API_KEY free-tier| A[slot/antigravity.md]
   C --> S[synthesize.sh]
   K --> S
@@ -52,7 +52,7 @@ flowchart LR
 
 ## Decision
 
-**Option 2.** Panel = Codex (1) + Kiro (`opus`, `kimi-k2.5`, `glm-5`) +
+**Option 2.** Panel = Codex (1) + Kiro (`claude-opus-4.8`, `kimi-k2.5`, `glm-5`) +
 Antigravity (`agy`). Panelists emit findings only; **Claude Opus 4.8 is the
 chair** and produces the single review + `VERDICT`. Orchestration lives in repo
 scripts (`scripts/pr-review/`), not inline YAML. Auth: **Codex uses Bedrock
@@ -121,7 +121,7 @@ PR을 게이트한다. 여기에 Codex·Kiro 패널을 더해 **Claude 의장**�
 
 ## 결정
 
-**옵션 2.** 패널 = Codex(1) + Kiro(`opus`, `kimi-k2.5`, `glm-5`) + Antigravity(`agy`).
+**옵션 2.** 패널 = Codex(1) + Kiro(`claude-opus-4.8`, `kimi-k2.5`, `glm-5`) + Antigravity(`agy`).
 패널은 findings 만, **Claude Opus 4.8이 의장**으로 단일 리뷰+`VERDICT` 생성.
 오케스트레이션은 인라인 YAML이 아닌 repo 스크립트(`scripts/pr-review/`). 인증:
 **Codex는 Bedrock 네이티브** — baking된 `~/.codex/config.toml`(`amazon-bedrock`,
