@@ -1,4 +1,4 @@
-# Codex CLI — Bedrock 네이티브. 러너 노드 IAM 자격증명 사용(us-east-2).
+# Codex CLI — Bedrock 네이티브. 러너 노드 IAM 자격증명 사용(us-east-1).
 model = "openai.gpt-5.5"
 model_provider = "amazon-bedrock"
 model_reasoning_effort = "xhigh"
