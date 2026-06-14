@@ -22,7 +22,7 @@
 | Codex 인증 | **Bedrock 네이티브** — `~/.codex/config.toml`(`model_provider = "amazon-bedrock"`), 시크릿 불필요. 러너 노드 IAM 사용 |
 | Codex 모델 | `openai.gpt-5.5`, region `us-east-2`, `model_reasoning_effort = "xhigh"` |
 | Kiro 인증 | `KIRO_API_KEY` — Secrets Manager → ExternalSecret → 러너 env |
-| Kiro 모델 | `opus`, `kimi-k2.5`, `glm-5` (계정 등급에 따라 `kimi-k2.5`는 graceful skip 가능) |
+| Kiro 모델 | `claude-opus-4.8`, `kimi-k2.5`, `glm-5` (계정 등급에 따라 `kimi-k2.5`는 graceful skip 가능) |
 | 러너 이미지 소유 | **이 repo** (`docker/actions-runner-claude/` + 빌드 워크플로 + ECR TF) |
 | 오케스트레이션 | **repo 스크립트** (`scripts/pr-review/`), 인라인 YAML 아님 |
 | 게이트 의미 | 현행 유지 — fail-closed (VERDICT 없으면 FAIL) |
