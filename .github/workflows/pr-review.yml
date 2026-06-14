@@ -26,7 +26,7 @@ jobs:
       # 핵심: model id 를 In-Region 으로 — `anthropic.claude-opus-4-8` (global.* 아님).
       # gpt-5.5(bedrock-mantle)는 In-Region 만 지원(global/geo X)이라 전체를 In-Region 으로 맞춤.
       # 노드 IAM(ci_runner, bedrock Resource=*) 으로 SigV4 호출.
-      ANTHROPIC_MODEL: anthropic.claude-opus-4-8
+      ANTHROPIC_MODEL: us.anthropic.claude-opus-4-8
       CLAUDE_CODE_USE_BEDROCK: 1
       ANTHROPIC_BEDROCK_BASE_URL: https://bedrock-runtime.us-east-1.amazonaws.com
       AWS_REGION: us-east-1
