@@ -46,6 +46,10 @@ jobs:
             npm install -g @anthropic-ai/claude-code
           fi
           claude --version
+          # 패널 CLI 는 이미지에 baking 되어 있어야 한다. 부재 시 graceful skip(비차단).
+          for c in codex kiro-cli; do
+            command -v "$c" >/dev/null 2>&1 || echo "::warning::$c not found on runner (image needs rebuild)"
+          done
 
       - name: Get PR diff (with project-specific filters)
         env:
@@ -73,63 +77,30 @@ jobs:
           echo "total_lines=$TOTAL_LINES" >> "$GITHUB_ENV"
           echo "Diff: $TOTAL_LINES lines (raw $RAW, filtered $((RAW - TOTAL_LINES)))"
 
-      - name: Review with Claude Code (Bedrock Opus 4.8)
-        env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
+      - name: Build panel prompt
         run: |
           set -euo pipefail
           MAX_LINES=3000
-          TRUNCATED=""
-          if [ "${total_lines:-0}" -gt "$MAX_LINES" ]; then
-            TRUNCATED="WARNING: Diff was ${total_lines} lines; only the first ${MAX_LINES} were reviewed."
-          fi
           head -"$MAX_LINES" /tmp/pr-diff.txt > /tmp/pr-diff-truncated.txt
-
-          cat <<PROMPT_EOF > /tmp/prompt.txt
-          You are reviewing PR #${PR_NUMBER}: ${PR_TITLE}
-          ${TRUNCATED:+
-          ${TRUNCATED}}
-
-          Read CLAUDE.md for project context. Then review the diff provided via stdin.
-
-          Provide:
-          1. **Summary** — what this PR does (2-3 sentences in Korean)
-          2. **Issues** — bugs, security risks, logic errors (CRITICAL/MAJOR/MINOR)
-          3. **Suggestions** — improvements
-          4. **Verdict** — LGTM / Changes Requested
-
-          Project-specific rules (AWS-Demo-Platform):
-          - Read CLAUDE.md + docs/architecture.md + .claude/skills/code-review/SKILL.md for conventions
-          - Platform repo: Terraform + Kustomize K8s + ArgoCD App-of-Apps + future Next.js dashboard
-          - Check: CloudFront-only ingress (no public ALB/NLB, no K8s Ingress — TGB pattern)
-          - Check: Internal ALB SG accepts only CF VPC Origin source SG + 10.0.0.0/8
-          - Check: ACM cert uses `data "aws_acm_certificate"` for `*.atomai.click` (no new cert)
-          - Check: HPA-2 demo on/off pattern (min=max=1, not replicas=0)
-          - Check: ArgoCD HPA-2 cluster-wide ignoreDifferences in argocd-cm
-          - Check: Atlantis deployment retains `--write-git-creds` flag (GitHub App auth)
-          - Check: ExternalSecret uses `external-secrets.io/v1` (v1beta1 deprecated)
-          - Check: Cross-account IAM trust enforces ExternalId from Secrets Manager
-          - Check: kube context safety (mall-apne2-mgmt vs spokes az-a/az-c — full EKS ARN)
-          - Check: Terraform 1.9.8 pin (no `use_lockfile` — TF 1.10+ syntax)
-          - Check: Naming convention `demo-platform-*` for resources, `/demo-platform/*` for Secrets Manager
-          - Check: New ADR has Mermaid diagram + bilingual (EN/KR) structure per template
-          - 한국어 + 영문 기술 용어 혼용 가능. 간결하게.
-          - Output ONLY the review markdown, no preamble.
-          - IMPORTANT: The very last line of your output MUST be exactly one of:
-            VERDICT: PASS
-            VERDICT: FAIL
-          Use FAIL if there are any CRITICAL or MAJOR issues. Use PASS otherwise.
+          cat <<'PROMPT_EOF' > /tmp/panel-prompt.txt
+          Review the diff provided via stdin for bugs, security risks, logic errors,
+          and convention violations. Output concise findings grouped CRITICAL/MAJOR/MINOR.
+          DO NOT output a VERDICT line — that is the chair's job.
+          한국어+영문 기술용어 혼용 가능.
           PROMPT_EOF
 
-          cat /tmp/pr-diff-truncated.txt | claude -p "$(cat /tmp/prompt.txt)" --output-format text > /tmp/review.md
-
-          if [ ! -s /tmp/review.md ]; then
-            echo "ERROR: review output is empty" >&2
-            echo "리뷰 생성 실패 — Claude CLI가 빈 응답을 반환했습니다." > /tmp/review.md
-            echo "VERDICT: FAIL" >> /tmp/review.md
-          fi
-          echo "Review generated: $(wc -c < /tmp/review.md) bytes"
+      - name: Run panel + synthesize (Codex + Kiro x3 -> Claude chair)
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PANEL_TIMEOUT: "300"
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/pr-review
+          bash scripts/pr-review/run-panel.sh /tmp/pr-diff-truncated.txt /tmp/panel-prompt.txt /tmp/pr-review
+          bash scripts/pr-review/synthesize.sh /tmp/pr-diff-truncated.txt /tmp/pr-review \
+            "$PR_NUMBER" "$PR_TITLE" /tmp/review.md
+          echo "panel_responded=$(tr '\n' ' ' < /tmp/pr-review/responded.txt 2>/dev/null)" >> "$GITHUB_ENV"
 
       - name: Check for blocking issues
         id: gate
@@ -163,7 +134,9 @@ jobs:
           sed '$ { /^VERDICT:/d }' /tmp/review.md > /tmp/review-clean.md
           {
             echo "$MARKER"
-            echo "## 🤖 AI Code Review (Claude Opus 4.8 on Bedrock)"
+            echo "## 🤖 AI Code Review (Claude Opus 4.8 chair · Codex + Kiro panel)"
+            echo ""
+            echo "_Panel: Claude(chair) · ${panel_responded:-solo}_"
             echo ""
             echo "$STATUS_BADGE"
             echo ""
