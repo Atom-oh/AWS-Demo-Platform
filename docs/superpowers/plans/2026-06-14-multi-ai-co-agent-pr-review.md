@@ -270,10 +270,15 @@ git commit -m "feat(runner-image): ECR repo TF + ARM64 build workflow"
 
 ## Phase 2 — IAM (Codex → Bedrock us-east-2)
 
-### Task 4: 러너 노드 역할에 us-east-2 Bedrock 권한
+> **실측 결과: 변경 불필요 (no-op).** 러너 노드 역할 `aws_iam_role.ci_runner` 의
+> `ci_runner_bedrock` 인라인 정책(`infra/eks-mgmt/main.tf`)이 이미
+> `bedrock:InvokeModel* … Resource = "*"`(전 리전)이라 Codex 의 us-east-2
+> `openai.gpt-5.5` 호출이 이미 허용된다. ADR-007 과 일치. 아래 Task 4 는
+> **검증만** 수행하고 정책은 추가하지 않는다(이 PR 에 IAM 변경 없음).
 
-**Files:**
-- Modify: Task 0.6에서 확정한 노드 역할 정책 파일(예: `infra/eks-mgmt/*.tf` 또는 별도 정책)
+### Task 4: 러너 노드 역할 Bedrock 권한 — 검증(no-op)
+
+**Files:** 없음(검증). (정책이 `Resource="*"` 가 아니라고 판명되면, 그때만 us-east-2 statement 추가.)
 
 - [ ] **Step 1: 현행 Bedrock 정책 확인**
 

@@ -27,10 +27,11 @@ jobs:
       - name: Build & push (native ARM64)
         run: |
           set -euo pipefail
-          SHA="${GITHUB_SHA::12}"
+          # 태그는 `sha-<sha>` 컨벤션(backend-ci 와 동일, ECR lifecycle tagPrefix 'sha' 매칭).
+          TAG="sha-${GITHUB_SHA::12}"
           docker build --platform=linux/arm64 \
             -t "$ECR_REGISTRY/$REPO:latest" \
-            -t "$ECR_REGISTRY/$REPO:$SHA" \
+            -t "$ECR_REGISTRY/$REPO:$TAG" \
             docker/actions-runner-claude
           docker push "$ECR_REGISTRY/$REPO:latest"
-          docker push "$ECR_REGISTRY/$REPO:$SHA"
+          docker push "$ECR_REGISTRY/$REPO:$TAG"
