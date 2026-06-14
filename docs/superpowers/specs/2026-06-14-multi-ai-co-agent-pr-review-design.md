@@ -58,6 +58,7 @@
   [model_providers.amazon-bedrock.aws]
   region = "us-east-2"
   ```
+  - **비대화형 강화**: `codex exec`는 헤드리스라 TUI trust 다이얼로그가 뜨지 않지만, first-run 승인 가능성까지 제거하기 위해 config.toml에 `approval_policy = "never"`(+ 필요 시 프로젝트 trust 항목)를 추가한다. 정확한 키는 `codex` 빌드 버전에서 확인(§9).
 - **검증**: 이미지 빌드 후 `codex --version`, `kiro-cli --version`, `kiro-cli --list-models`(모델 가용성)로 스모크 테스트.
 
 **`.github/workflows/runner-image.yml`** (신규)
@@ -102,6 +103,7 @@
 - 입력: diff 파일 경로, 패널 프롬프트 파일 경로, 출력 디렉터리.
 - co-agent `ai-cli-adapters` 패턴: 각 패널을 백그라운드 서브프로세스 + `timeout`으로 병렬 실행, 슬롯 파일(`codex.md`, `kiro-opus.md`, `kiro-kimi.md`, `kiro-glm.md`)에 기록. 실패/타임아웃/바이너리 부재 시 `[skip] <panel>` 로깅 후 빈 슬롯.
 - 바이너리 존재 검사: `command -v codex`, `command -v kiro-cli`.
+- **no-hang 보장**: 각 패널 호출은 ① 비대화형 플래그(Kiro `--no-interactive --trust-tools=read,grep`, Codex `exec -s read-only`) ② `timeout` 백스톱 ③ stdin을 `/dev/null` 또는 diff 파이프로만 연결(TTY 입력 대기 차단)로 감싼다. trust/승인 프롬프트가 발생할 상황이면 hang이 아니라 timeout→`[skip]`으로 떨어진다.
 - 출력: 응답한 패널 목록(`responded.txt`)을 종합 단계에 전달.
 
 **`scripts/pr-review/synthesize.sh`** (신규 또는 워크플로 인라인)
@@ -142,6 +144,7 @@ pull_request_target
 
 - **fail-closed 게이트**: `VERDICT:` 라인이 없으면 FAIL(현행 유지).
 - **패널 graceful skip**: 개별 패널 실패가 전체 잡을 실패시키지 않음. 의장 종합은 응답분으로 진행.
+- **no-hang 불변식**: 어떤 패널도 trust/승인/입력 프롬프트로 멈추지 않음 — 비대화형 플래그 + `timeout` + stdin 격리로 보장(§4.3).
 - **패널 전원 실패**: Claude 단독 리뷰로 강등 → 현행 동작과 동일하게 항상 리뷰는 생성됨.
 - **코멘트 upsert 불변식**: `<!-- aws-demo-platform-pr-review -->` marker, PATCH 우선.
 - **concurrency**: `pr-review-${{ PR번호 }}`, `cancel-in-progress: true` 유지.
@@ -171,6 +174,7 @@ pull_request_target
 - 러너 노드 IAM 역할의 실제 정의 위치(이 repo vs mra).
 - `infra/ecr`에서 기존 `actions-runner-claude` 레포의 TF import 여부.
 - `kiro-cli`의 모델 ID 정확성(`glm-5` vs `glm-4.6` 등) — `kiro-cli --list-models`로 확정.
+- `codex exec`의 비대화형 승인 키 정확성(`approval_policy = "never"` 등) 및 프로젝트 trust 필요 여부 — 라이브 검증 시 프롬프트 hang 없는지 확인.
 
 ## 10. 관련 문서
 
