@@ -1,0 +1,85 @@
+---
+# Internal NLB for ClickHouse — workload cluster OTel Collectors connect here
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse-nlb
+  namespace: observability
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "external"
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internal"
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+spec:
+  # Internal observability fan-in only: AWS LBC provisions a managed frontend SG
+  # that allows just the hub/spoke RFC1918 range (platform convention).
+  loadBalancerSourceRanges:
+    - "10.0.0.0/8"
+  type: LoadBalancer
+  ports:
+    - name: tcp
+      port: 9000
+      targetPort: 9000
+      protocol: TCP
+    - name: http
+      port: 8123
+      targetPort: 8123
+      protocol: TCP
+  selector:
+    clickhouse.altinity.com/chi: clickhouse
+    clickhouse.altinity.com/cluster: otel
+---
+# Internal NLB for Tempo — workload cluster OTel Collectors connect here
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo-nlb
+  namespace: observability
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "external"
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internal"
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+spec:
+  # Internal observability fan-in only: AWS LBC provisions a managed frontend SG
+  # that allows just the hub/spoke RFC1918 range (platform convention).
+  loadBalancerSourceRanges:
+    - "10.0.0.0/8"
+  type: LoadBalancer
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+      protocol: TCP
+    - name: http
+      port: 3200
+      targetPort: 3200
+      protocol: TCP
+  selector:
+    app: tempo
+---
+# Internal NLB for Prometheus — workload Prometheus agents remote-write here
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-nlb
+  namespace: monitoring
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "external"
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internal"
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+spec:
+  # Internal observability fan-in only: AWS LBC provisions a managed frontend SG
+  # that allows just the hub/spoke RFC1918 range (platform convention).
+  loadBalancerSourceRanges:
+    - "10.0.0.0/8"
+  type: LoadBalancer
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: prometheus
+    operator.prometheus.io/name: prometheus-mall-apne2-mgmt-prometheus

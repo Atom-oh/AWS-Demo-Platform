@@ -1,0 +1,204 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo-config
+  namespace: observability
+  labels:
+    app: tempo
+data:
+  tempo.yaml: |
+    stream_over_http_enabled: true
+    server:
+      http_listen_port: 3200
+      grpc_listen_port: 9095
+
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+            http:
+              endpoint: 0.0.0.0:4318
+
+    ingester:
+      max_block_duration: 5m
+
+    compactor:
+      compaction:
+        block_retention: 720h    # 30 days
+
+    metrics_generator:
+      registry:
+        external_labels:
+          source: tempo
+          cluster: mall-cluster
+      storage:
+        path: /var/tempo/generator/wal
+        remote_write:
+          - url: http://k8s-monitori-promethe-0fad301b35-bd8824e1caa3e556.elb.ap-northeast-2.amazonaws.com:9090/api/v1/write
+            send_exemplars: true
+
+    storage:
+      trace:
+        backend: s3
+        s3:
+          bucket: ${TEMPO_S3_BUCKET}
+          endpoint: s3.dualstack.${AWS_REGION}.amazonaws.com
+          region: ${AWS_REGION}
+          # IRSA provides credentials automatically
+        wal:
+          path: /var/tempo/wal
+        local:
+          path: /var/tempo/blocks
+
+    overrides:
+      defaults:
+        metrics_generator:
+          processors:
+            - service-graphs
+            - span-metrics
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tempo
+  namespace: observability
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::180294183052:role/production-tempo-ap-northeast-2-mgmt"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo
+  namespace: observability
+  labels:
+    app: tempo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tempo
+  template:
+    metadata:
+      labels:
+        app: tempo
+    spec:
+      serviceAccountName: tempo
+      tolerations:
+        - key: node-role
+          value: system-critical
+          effect: NoSchedule
+      nodeSelector:
+        role: system
+      containers:
+        - name: tempo
+          image: grafana/tempo:2.7.2
+          args:
+            - -config.file=/etc/tempo/tempo.yaml
+            - -config.expand-env=true
+          ports:
+            - name: http
+              containerPort: 3200
+              protocol: TCP
+            - name: grpc
+              containerPort: 9095
+              protocol: TCP
+            - name: otlp-grpc
+              containerPort: 4317
+              protocol: TCP
+            - name: otlp-http
+              containerPort: 4318
+              protocol: TCP
+          env:
+            - name: AWS_REGION
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.annotations['region.kubernetes.io/name']
+            - name: TEMPO_S3_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: tempo-region-config
+                  key: TEMPO_S3_BUCKET
+                  optional: true
+          envFrom:
+            - configMapRef:
+                name: region-config
+                optional: true
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          volumeMounts:
+            - name: config
+              mountPath: /etc/tempo
+              readOnly: true
+            - name: tempo-data
+              mountPath: /var/tempo
+      volumes:
+        - name: config
+          configMap:
+            name: tempo-config
+        - name: tempo-data
+          emptyDir:
+            sizeLimit: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo
+  namespace: observability
+  labels:
+    app: tempo
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3200
+      targetPort: http
+      protocol: TCP
+    - name: grpc
+      port: 9095
+      targetPort: grpc
+      protocol: TCP
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+      protocol: TCP
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+      protocol: TCP
+  selector:
+    app: tempo
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: tempo
+  namespace: observability
+  labels:
+    app: tempo
+spec:
+  selector:
+    matchLabels:
+      app: tempo
+  endpoints:
+    - port: http
+      interval: 30s
+      path: /metrics
