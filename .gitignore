@@ -47,3 +47,4 @@ __pycache__/
 
 # IDE & misc
 *.log
+.claude/scheduled_tasks.lock
