@@ -4,6 +4,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { StatStrip } from '@/components/StatStrip';
 import { FacetSidebar, type Filters } from '@/components/FacetSidebar';
 import { ProjectCard } from '@/components/ProjectCard';
+import { DetailDrawer } from '@/components/DetailDrawer';
 import { LoginGate } from '@/components/LoginGate';
 import { useAuth } from '@/components/AuthProvider';
 import { authEnabled } from '@/lib/auth-config';
@@ -14,12 +15,17 @@ function DashboardInner() {
   const [filters, setFilters] = useState<Filters>({ cat: null, acct: null, status: null });
   const [q, setQ] = useState('');
   const [toast, setToast] = useState<{ msg: string; err?: boolean } | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
 
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 3200);
     return () => clearTimeout(t);
   }, [toast]);
+
+  useEffect(() => {
+    if (selected && !rows.some((r) => r.repo === selected)) setSelected(null);
+  }, [rows, selected]);
 
   const visible = useMemo(
     () =>
@@ -82,12 +88,22 @@ function DashboardInner() {
               <div className="empty">조건에 맞는 프로젝트가 없습니다.</div>
             )}
             {visible.map((r) => (
-              <ProjectCard key={r.repo} row={r} onToggle={onToggle} />
+              <ProjectCard key={r.repo} row={r} onToggle={onToggle} onOpen={setSelected} />
             ))}
           </div>
         </main>
       </div>
       {toast && <div className={`toast show${toast.err ? ' err' : ''}`}>{toast.msg}</div>}
+      {selected && (() => {
+        const sel = rows.find((r) => r.repo === selected);
+        return sel ? (
+          <DetailDrawer
+            row={sel}
+            onClose={() => setSelected(null)}
+            onToggle={onToggle}
+          />
+        ) : null;
+      })()}
     </>
   );
 }

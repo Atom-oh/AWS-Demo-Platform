@@ -18,16 +18,29 @@ const LABEL: Record<string, string> = {
 export function ProjectCard({
   row,
   onToggle,
+  onOpen,
 }: {
   row: ProjectRow;
   onToggle: (repo: string, op: 'turn_on' | 'turn_off') => void;
+  onOpen: (repo: string) => void;
 }) {
   const pr = row.project;
   const cat = pr?.display?.category;
   const demo = pr?.urls?.demo;
   const st = row.status;
   return (
-    <div className="card">
+    <div
+      className="card"
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpen(row.repo)}
+      onKeyDown={(e) => {
+        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
+          onOpen(row.repo);
+        }
+      }}
+    >
       <div className="row">
         <h2>{pr?.name ?? row.name}</h2>
         <span className={`pill ${st}`}>{st}</span>
@@ -51,12 +64,12 @@ export function ProjectCard({
       </div>
       <footer>
         {st === 'on' && (
-          <button className="btn on" onClick={() => onToggle(row.repo, 'turn_off')}>
+          <button className="btn on" onClick={(e) => { e.stopPropagation(); onToggle(row.repo, 'turn_off'); }}>
             Turn off
           </button>
         )}
         {st === 'off' && (
-          <button className="btn off" onClick={() => onToggle(row.repo, 'turn_on')}>
+          <button className="btn off" onClick={(e) => { e.stopPropagation(); onToggle(row.repo, 'turn_on'); }}>
             Turn on
           </button>
         )}
@@ -72,7 +85,7 @@ export function ProjectCard({
           </button>
         )}
         {demo ? (
-          <a className="btn link" href={demo} target="_blank" rel="noopener noreferrer">
+          <a className="btn link" href={demo} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
             데모 열기 ↗
           </a>
         ) : (
