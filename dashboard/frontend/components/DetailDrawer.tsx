@@ -49,6 +49,7 @@ export function DetailDrawer({
   const closeRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const mountedRef = useRef(true);
   const [owner, name] = row.repo.split('/');
   const pr = row.project;
 
@@ -56,11 +57,13 @@ export function DetailDrawer({
     setHistErr(null);
     try {
       const { items } = await getHistory(owner, name);
-      setHistory(items);
+      if (mountedRef.current) setHistory(items);
     } catch (e) {
-      setHistErr((e as Error).message);
+      if (mountedRef.current) setHistErr((e as Error).message);
     }
   }, [owner, name]);
+
+  useEffect(() => () => { mountedRef.current = false; }, []);
 
   useEffect(() => {
     let alive = true;

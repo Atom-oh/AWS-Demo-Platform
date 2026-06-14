@@ -35,7 +35,7 @@ export function ProjectCard({
       tabIndex={0}
       onClick={() => onOpen(row.repo)}
       onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
+        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
           e.preventDefault();
           onOpen(row.repo);
         }
