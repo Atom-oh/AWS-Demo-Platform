@@ -3,3 +3,4 @@ kind: Kustomization
 namespace: actions-runner-system
 resources:
   - ai-keys-externalsecret.yaml
+  - claude-runner-sa.yaml
