@@ -1,0 +1,35 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: clickhouse
+  namespace: argocd
+spec:
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            cluster-name: mall-apne2-mgmt
+  template:
+    metadata:
+      name: 'clickhouse-{{name}}'
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/Atom-oh/AWS-Demo-Platform
+        targetRevision: main
+        path: k8s/system/clickhouse-mgmt
+      destination:
+        server: '{{server}}'
+        namespace: observability
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
