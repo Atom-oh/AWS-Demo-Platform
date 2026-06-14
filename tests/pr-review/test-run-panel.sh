@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
-# run-panel.sh 단위 테스트. 실제 CLI 대신 PATH 모킹으로 (a)전원응답 (b)일부skip (c)전원실패 검증.
-set -uo pipefail
-SCRIPT="$(cd "$(dirname "$0")/../../scripts/pr-review" && pwd)/run-panel.sh"
-fail=0
+# run-panel.sh 단위 테스트. harness(run-all.sh 가 source) + standalone 모두 지원.
+# 실제 CLI 대신 PATH 모킹으로 (a)전원응답 (b)일부skip (c)전원실패 검증.
+# 주의: harness 가 이 파일을 source 하므로 set -e/-u 나 exit 로 셸을 오염/중단하지 않는다.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT="$(cd "$HERE/../../scripts/pr-review" && pwd)/run-panel.sh"
+
+# standalone 실행 시 harness 의 pass/fail 가 없으므로 폴백 정의 + 종료코드 추적.
+if ! declare -F pass >/dev/null 2>&1; then
+  _t_fail=0
+  pass() { echo "  OK $1"; }
+  fail() { echo "  FAIL $1 -> ${2:-}"; _t_fail=1; }
+fi
+
 mkfake() { # $1 binname, $2 exitcode, $3 output
   cat > "$BIN/$1" <<EOF
 #!/usr/bin/env bash
@@ -17,20 +26,27 @@ setup() { WORK=$(mktemp -d); BIN=$(mktemp -d); export PATH="$BIN:$PATH"
 # (a) 전원 응답
 setup; mkfake codex 0 "codex-finding"; mkfake kiro-cli 0 "kiro-finding"
 "$SCRIPT" "$WORK/diff.txt" "$WORK/prompt.txt" "$WORK" >/dev/null 2>&1
-for f in codex kiro-opus kiro-kimi kiro-glm; do
-  [ -s "$WORK/slot/$f.md" ] || { echo "FAIL(a): $f.md empty"; fail=1; }
-done
-[ "$(wc -l < "$WORK/responded.txt")" -eq 4 ] || { echo "FAIL(a): responded != 4"; fail=1; }
+allok=1
+for f in codex kiro-opus kiro-kimi kiro-glm; do [ -s "$WORK/slot/$f.md" ] || allok=0; done
+[ "$allok" = 1 ] && pass "run-panel (a) all slots filled" || fail "run-panel (a) all slots filled" "a slot is empty"
+[ "$(wc -l < "$WORK/responded.txt" 2>/dev/null || echo 0)" = 4 ] \
+  && pass "run-panel (a) responded=4" || fail "run-panel (a) responded=4" "responded != 4"
 
 # (b) kiro 전체 실패(codex만 응답)
 setup; mkfake codex 0 "codex-finding"; mkfake kiro-cli 1 ""
 "$SCRIPT" "$WORK/diff.txt" "$WORK/prompt.txt" "$WORK" >/dev/null 2>&1
-grep -q "codex" "$WORK/responded.txt" || { echo "FAIL(b): codex missing"; fail=1; }
-grep -q "kiro" "$WORK/responded.txt" && { echo "FAIL(b): kiro should skip"; fail=1; }
+grep -q codex "$WORK/responded.txt" 2>/dev/null \
+  && pass "run-panel (b) codex responded" || fail "run-panel (b) codex responded" "codex missing"
+grep -q kiro "$WORK/responded.txt" 2>/dev/null \
+  && fail "run-panel (b) kiro skipped" "kiro should be absent" || pass "run-panel (b) kiro skipped"
 
-# (c) 전원 실패 → responded 비어야 함 (결정론적: 모든 모킹 exit 1)
+# (c) 전원 실패 → responded 비어야 함
 setup; mkfake codex 1 ""; mkfake kiro-cli 1 ""
 "$SCRIPT" "$WORK/diff.txt" "$WORK/prompt.txt" "$WORK" >/dev/null 2>&1
-[ -f "$WORK/responded.txt" ] && [ ! -s "$WORK/responded.txt" ] || { echo "FAIL(c): responded should be empty"; fail=1; }
+{ [ -f "$WORK/responded.txt" ] && [ ! -s "$WORK/responded.txt" ]; } \
+  && pass "run-panel (c) responded empty" || fail "run-panel (c) responded empty" "responded not empty"
 
-[ "$fail" -eq 0 ] && echo "PASS: test-run-panel" || exit 1
+# standalone 종료코드 (harness 에서는 _t_fail 미정의라 건너뜀)
+if [ "${_t_fail+set}" = set ]; then
+  [ "$_t_fail" = 0 ] && echo "PASS: test-run-panel" || exit 1
+fi
