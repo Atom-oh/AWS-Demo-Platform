@@ -46,6 +46,13 @@ spec:
                   - name: runner
                     image: 180294183052.dkr.ecr.ap-northeast-2.amazonaws.com/actions-runner-claude:latest
                     command: ["/home/runner/run.sh"]
+                    env:
+                      # PR review 패널의 Kiro CLI 인증 (ExternalSecret kiro-api-key).
+                      - name: KIRO_API_KEY
+                        valueFrom:
+                          secretKeyRef:
+                            name: kiro-api-key
+                            key: KIRO_API_KEY
                     resources:
                       requests:
                         cpu: "1800m"

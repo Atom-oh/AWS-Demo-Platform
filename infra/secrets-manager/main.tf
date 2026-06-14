@@ -15,6 +15,8 @@ locals {
     "/demo-platform/argocd/admin-token",
     "/demo-platform/dev/cognito/user-pool-id",
     "/demo-platform/dev/cognito/app-client-id",
+    # PR review 패널: Kiro CLI API key (plain string). 값은 out-of-band 주입.
+    "/demo-platform/kiro/api-key",
   ]
 }
 

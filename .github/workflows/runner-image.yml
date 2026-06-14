@@ -1,0 +1,36 @@
+name: Build Runner Image
+# actions-runner-claude 이미지(claude + codex + kiro-cli)를 이 repo 에서 빌드해 ECR push.
+# 네이티브 ARM64 빌드(에뮬레이션 없음), OIDC -> ECR (ADR-003 패턴).
+
+on:
+  push:
+    branches: [main]
+    paths: ['docker/actions-runner-claude/**']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: aws-demo-platform-arm
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      ECR_REGISTRY: 180294183052.dkr.ecr.ap-northeast-2.amazonaws.com
+      REPO: actions-runner-claude
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::180294183052:role/demo-platform-gha-ecr-push
+          aws-region: ap-northeast-2
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build & push (native ARM64)
+        run: |
+          set -euo pipefail
+          SHA="${GITHUB_SHA::12}"
+          docker build --platform=linux/arm64 \
+            -t "$ECR_REGISTRY/$REPO:latest" \
+            -t "$ECR_REGISTRY/$REPO:$SHA" \
+            docker/actions-runner-claude
+          docker push "$ECR_REGISTRY/$REPO:latest"
+          docker push "$ECR_REGISTRY/$REPO:$SHA"

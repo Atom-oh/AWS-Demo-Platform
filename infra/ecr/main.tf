@@ -6,7 +6,8 @@
 
 locals {
   # api + worker (Stage 2) and frontend (Stage 3 Next.js standalone image).
-  repos = ["demo-platform/api", "demo-platform/worker", "demo-platform/frontend"]
+  # actions-runner-claude: self-hosted PR-review runner image (codex + kiro-cli + claude).
+  repos = ["demo-platform/api", "demo-platform/worker", "demo-platform/frontend", "actions-runner-claude"]
 }
 
 resource "aws_ecr_repository" "this" {
