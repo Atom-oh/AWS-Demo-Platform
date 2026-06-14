@@ -36,8 +36,11 @@ IMPORTANT: 마지막 줄은 정확히 하나:
 CRITICAL/MAJOR 있으면 FAIL, 아니면 PASS.
 
 === PANEL REVIEWS ===
-${PANEL}
 PROMPT_EOF
+
+# 패널 원문(${PANEL})은 heredoc 밖에서 append: 패널 출력에 'PROMPT_EOF' 단독 라인이
+# 있어도 heredoc 가 조기 종료되지 않도록 (m3).
+printf '%s\n' "$PANEL" >> "$WORK/synth-prompt.txt"
 
 # claude 실패해도 fallback 이 돌도록 || true (set -e 우회)
 cat "$DIFF" | claude -p "$(cat "$WORK/synth-prompt.txt")" --output-format text > "$OUT" || true
