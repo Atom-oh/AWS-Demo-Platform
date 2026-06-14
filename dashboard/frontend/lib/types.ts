@@ -13,7 +13,19 @@ export interface Project {
   account: string;
   display?: { category?: string };
   resources: ResourceRef[];
-  urls?: { demo?: string };
+  urls?: {
+    demo?: string;
+    code_server?: { mode: 'explicit'; url: string } | { mode: 'ec2-tag'; tag: string };
+  };
+}
+
+export interface HistoryRecord {
+  action: string;
+  actor: string;
+  account: string;
+  result: 'success' | 'partial' | 'failure';
+  details?: Record<string, unknown>;
+  ts: string; // ISO timestamp (mapped from the record sk by the api)
 }
 
 export interface ProjectListItem {
