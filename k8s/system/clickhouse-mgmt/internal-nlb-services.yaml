@@ -10,9 +10,11 @@ metadata:
     service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
     service.beta.kubernetes.io/aws-load-balancer-scheme: "internal"
     service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
-    # SG from shared remote_state: internal_observability_nlb_security_group_id (data.terraform_remote_state.shared)
-    service.beta.kubernetes.io/aws-load-balancer-security-groups: "sg-0613a5ecf8009daff"
 spec:
+  # Internal observability fan-in only: AWS LBC provisions a managed frontend SG
+  # that allows just the hub/spoke RFC1918 range (platform convention).
+  loadBalancerSourceRanges:
+    - "10.0.0.0/8"
   type: LoadBalancer
   ports:
     - name: tcp
@@ -38,9 +40,11 @@ metadata:
     service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
     service.beta.kubernetes.io/aws-load-balancer-scheme: "internal"
     service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
-    # SG from shared remote_state: internal_observability_nlb_security_group_id (data.terraform_remote_state.shared)
-    service.beta.kubernetes.io/aws-load-balancer-security-groups: "sg-0613a5ecf8009daff"
 spec:
+  # Internal observability fan-in only: AWS LBC provisions a managed frontend SG
+  # that allows just the hub/spoke RFC1918 range (platform convention).
+  loadBalancerSourceRanges:
+    - "10.0.0.0/8"
   type: LoadBalancer
   ports:
     - name: otlp-grpc
@@ -65,9 +69,11 @@ metadata:
     service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
     service.beta.kubernetes.io/aws-load-balancer-scheme: "internal"
     service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
-    # SG from shared remote_state: internal_observability_nlb_security_group_id (data.terraform_remote_state.shared)
-    service.beta.kubernetes.io/aws-load-balancer-security-groups: "sg-0613a5ecf8009daff"
 spec:
+  # Internal observability fan-in only: AWS LBC provisions a managed frontend SG
+  # that allows just the hub/spoke RFC1918 range (platform convention).
+  loadBalancerSourceRanges:
+    - "10.0.0.0/8"
   type: LoadBalancer
   ports:
     - name: http

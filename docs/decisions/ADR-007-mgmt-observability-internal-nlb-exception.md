@@ -17,7 +17,9 @@ The demo platform's ingress convention is CloudFront → VPC Origin → Internal
 
 However, the hub cluster (`mall-apne2-mgmt`) hosts the observability backends (Grafana Tempo, ClickHouse, Prometheus) that the spoke clusters (`mall-apne2-az-a`, `mall-apne2-az-c`) push into: spoke OTel Collectors send traces/logs to ClickHouse (native TCP :9000) and Tempo (OTLP gRPC :4317), and workload Prometheus agents remote-write to the hub Prometheus (:9090). This is an **L4 cross-cluster fan-in**, not L7 HTTP request ingress. ClickHouse's native TCP protocol in particular cannot be terminated by an L7 ALB.
 
-The EKS clusters are **reused** from `multi-region-architecture` — the three internal NLBs (`clickhouse-nlb`, `tempo-nlb`, `prometheus-nlb`, all `scheme=internal`, restricted to SG `sg-0613a5ecf8009daff`) already exist and carry live traffic. ArgoCD syncs these targets with `prune: true`, so dropping them from the migrated target set would **delete the live NLBs** and break the observability pipeline.
+The EKS clusters are **reused** from `multi-region-architecture` — the three internal NLBs (`clickhouse-nlb`, `tempo-nlb`, `prometheus-nlb`, all `scheme=internal`) already exist and carry live traffic. ArgoCD syncs these targets with `prune: true`, so dropping them from the migrated target set would **delete the live NLBs** and break the observability pipeline.
+
+Source-range hardening: rather than depend on a hardcoded externally-managed SG (`sg-0613a5ecf8009daff` from the mall's shared remote_state), each NLB sets `spec.loadBalancerSourceRanges: ["10.0.0.0/8"]`, so the AWS Load Balancer Controller provisions a managed frontend SG that admits only the hub/spoke RFC1918 range — matching the platform convention ("every LB SG accepts only the CF VPC Origin SG + 10.0.0.0/8"). These NLBs sit behind no CloudFront origin (direct spoke→hub), so 10.0.0.0/8 is the sole allowed source.
 
 ## Options Considered
 
@@ -34,7 +36,7 @@ The EKS clusters are **reused** from `multi-region-architecture` — the three i
 - **Cons**: Spoke clusters could no longer ship telemetry to the hub backends, gutting centralized observability. Rejected — defeats the purpose of the shared hub.
 
 ## Decision
-Keep the three internal NLBs in `k8s/system/clickhouse-mgmt/internal-nlb-services.yaml` as an **explicit, scoped exception** to the no-NLB convention. The exception is limited to internal (`scheme=internal`), SG-restricted (`sg-0613a5ecf8009daff`) data-plane fan-in for observability. The platform's bans on **public** load balancers and on Kubernetes Ingress remain fully in force; external/admin ingress continues to use CloudFront → ALB → TGB.
+Keep the three internal NLBs in `k8s/system/clickhouse-mgmt/internal-nlb-services.yaml` as an **explicit, scoped exception** to the no-NLB convention. The exception is limited to internal (`scheme=internal`), source-range-restricted (`loadBalancerSourceRanges: 10.0.0.0/8`, managed SG) data-plane fan-in for observability. The platform's bans on **public** load balancers and on Kubernetes Ingress remain fully in force; external/admin ingress continues to use CloudFront → ALB → TGB.
 
 ## Consequences
 
@@ -65,7 +67,9 @@ Keep the three internal NLBs in `k8s/system/clickhouse-mgmt/internal-nlb-service
 
 그러나 hub 클러스터(`mall-apne2-mgmt`)는 spoke 클러스터(`mall-apne2-az-a`, `mall-apne2-az-c`)가 push하는 관측 백엔드(Grafana Tempo, ClickHouse, Prometheus)를 호스팅한다. spoke OTel Collector는 ClickHouse(native TCP :9000)와 Tempo(OTLP gRPC :4317)로 trace/log를 보내고, workload Prometheus는 hub Prometheus(:9090)로 remote-write 한다. 이는 L7 HTTP 요청 ingress가 아니라 **L4 클러스터 간 fan-in**이다. 특히 ClickHouse native TCP는 L7 ALB로 종단할 수 없다.
 
-EKS 클러스터는 `multi-region-architecture`와 **재사용**된다 — internal NLB 3개(`clickhouse-nlb`, `tempo-nlb`, `prometheus-nlb`, 전부 `scheme=internal`, SG `sg-0613a5ecf8009daff`로 제한)는 이미 존재하며 live 트래픽을 처리한다. ArgoCD는 이 타깃을 `prune: true`로 동기화하므로, 마이그레이션 타깃에서 빼면 **live NLB가 삭제**되어 관측 파이프라인이 끊긴다.
+EKS 클러스터는 `multi-region-architecture`와 **재사용**된다 — internal NLB 3개(`clickhouse-nlb`, `tempo-nlb`, `prometheus-nlb`, 전부 `scheme=internal`)는 이미 존재하며 live 트래픽을 처리한다. ArgoCD는 이 타깃을 `prune: true`로 동기화하므로, 마이그레이션 타깃에서 빼면 **live NLB가 삭제**되어 관측 파이프라인이 끊긴다.
+
+소스 범위 강화: mall의 shared remote_state가 만든 외부 SG(`sg-0613a5ecf8009daff`)에 의존하는 대신, 각 NLB는 `spec.loadBalancerSourceRanges: ["10.0.0.0/8"]`을 지정한다. 그러면 AWS Load Balancer Controller가 hub/spoke RFC1918 범위만 허용하는 managed 프런트엔드 SG를 생성한다 — 플랫폼 규약("모든 LB SG는 CF VPC Origin SG + 10.0.0.0/8만 허용")과 일치. 이 NLB들은 CloudFront origin 뒤가 아니라(spoke→hub 직접) 10.0.0.0/8이 유일한 허용 소스다.
 
 ## 검토한 옵션
 
@@ -82,7 +86,7 @@ EKS 클러스터는 `multi-region-architecture`와 **재사용**된다 — inter
 - **단점**: spoke가 hub 백엔드로 텔레메트리를 보낼 수 없어 중앙 관측이 무력화됨. 공유 hub의 목적에 반하므로 기각.
 
 ## 결정
-`k8s/system/clickhouse-mgmt/internal-nlb-services.yaml`의 internal NLB 3개를 no-NLB 규약의 **명시적·한정적 예외**로 유지한다. 예외는 관측용 internal(`scheme=internal`)·SG 제한(`sg-0613a5ecf8009daff`) 데이터플레인 fan-in에 국한된다. **public** 로드밸런서 금지와 Kubernetes Ingress 금지는 그대로 유효하며, 외부/관리자 ingress는 CloudFront → ALB → TGB를 계속 사용한다.
+`k8s/system/clickhouse-mgmt/internal-nlb-services.yaml`의 internal NLB 3개를 no-NLB 규약의 **명시적·한정적 예외**로 유지한다. 예외는 관측용 internal(`scheme=internal`)·소스 범위 제한(`loadBalancerSourceRanges: 10.0.0.0/8`, managed SG) 데이터플레인 fan-in에 국한된다. **public** 로드밸런서 금지와 Kubernetes Ingress 금지는 그대로 유효하며, 외부/관리자 ingress는 CloudFront → ALB → TGB를 계속 사용한다.
 
 ## 영향
 
