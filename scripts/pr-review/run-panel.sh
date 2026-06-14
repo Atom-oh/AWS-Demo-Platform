@@ -24,11 +24,18 @@ for m in "${KIRO_MODELS[@]}"; do
         > "$SLOT/$tag.md" 2>"$SLOT/$tag.err" </dev/null || true ) &
   else echo "[skip] $tag (binary absent)" >&2; : > "$SLOT/$tag.md"; fi
 done
+
+# Antigravity (agy). best-effort: ANTIGRAVITY_API_KEY 는 free tier(rate-limited) 라
+# 429/쿼터 초과 시 graceful skip. (agy 플래그는 Phase 0 에서 확정)
+if command -v agy >/dev/null 2>&1; then
+  ( cat "$DIFF" | timeout "$T" agy -p "$PROMPT" > "$SLOT/antigravity.md" 2>"$SLOT/antigravity.err" </dev/null || true ) &
+else echo "[skip] antigravity (binary absent)" >&2; : > "$SLOT/antigravity.md"; fi
 wait
 
 # 결과 집계
-record_result "$SLOT/codex.md"     "codex"     "$RESP"
-record_result "$SLOT/kiro-opus.md" "kiro-opus" "$RESP"
-record_result "$SLOT/kiro-kimi.md" "kiro-kimi" "$RESP"
-record_result "$SLOT/kiro-glm.md"  "kiro-glm"  "$RESP"
+record_result "$SLOT/codex.md"       "codex"       "$RESP"
+record_result "$SLOT/kiro-opus.md"   "kiro-opus"   "$RESP"
+record_result "$SLOT/kiro-kimi.md"   "kiro-kimi"   "$RESP"
+record_result "$SLOT/kiro-glm.md"    "kiro-glm"    "$RESP"
+record_result "$SLOT/antigravity.md" "antigravity" "$RESP"
 echo "Panel responded: $(tr '\n' ' ' < "$RESP")"

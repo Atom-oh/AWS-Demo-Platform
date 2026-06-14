@@ -47,12 +47,17 @@ spec:
                     image: 180294183052.dkr.ecr.ap-northeast-2.amazonaws.com/actions-runner-claude:latest
                     command: ["/home/runner/run.sh"]
                     env:
-                      # PR review 패널의 Kiro CLI 인증 (ExternalSecret kiro-api-key).
+                      # PR review 패널 AI CLI 인증 (ExternalSecret ai-panel-keys <- actions/AI-key).
                       - name: KIRO_API_KEY
                         valueFrom:
                           secretKeyRef:
-                            name: kiro-api-key
+                            name: ai-panel-keys
                             key: KIRO_API_KEY
+                      - name: ANTIGRAVITY_API_KEY
+                        valueFrom:
+                          secretKeyRef:
+                            name: ai-panel-keys
+                            key: ANTIGRAVITY_API_KEY
                     resources:
                       requests:
                         cpu: "1800m"
