@@ -80,6 +80,7 @@ resource "aws_ecs_task_definition" "api" {
         # Lifecycle Controller deps — api now serves /api/* (not just /health):
         { name = "DDB_TABLE_STATE", value = "demo-platform-state-dev" },
         { name = "DDB_TABLE_JOBS", value = "demo-platform-jobs-dev" },
+        { name = "DDB_TABLE_HISTORY", value = "demo-platform-history-dev" },
         { name = "SQS_QUEUE_URL", value = local.sqs_queue_url },
         { name = "PROJECTS_DIR", value = "/app/projects" },
         { name = "ADMIN_USERNAMES", value = "atomoh" },
