@@ -3,7 +3,7 @@ import { SQSClient } from '@aws-sdk/client-sqs';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import type { Project, Account } from '@demo-platform/shared';
-import { createLogger, makeClient, StateClient, JobsClient } from '@demo-platform/shared';
+import { createLogger, makeClient, StateClient, JobsClient, HistoryClient } from '@demo-platform/shared';
 import { registerHealth } from './routes/health.js';
 import {
   registerJwtCognito,
@@ -15,6 +15,7 @@ import { registerErrorHandler } from './middleware/error-handler.js';
 import { registerProjects } from './routes/projects.js';
 import { registerActions } from './routes/actions.js';
 import { registerJobs } from './routes/jobs.js';
+import { registerHistory } from './routes/history.js';
 
 export interface BuildServerOpts {
   skipJwt?: boolean;
@@ -23,6 +24,7 @@ export interface BuildServerOpts {
   accounts?: Record<string, Account>;
   stateClient?: StateClient;
   jobsClient?: JobsClient;
+  historyClient?: HistoryClient;
   sqsClient?: SQSClient;
   queueUrl?: string;
   adminUsernames?: string[];
@@ -51,6 +53,9 @@ export async function buildServer(opts: BuildServerOpts = {}): Promise<FastifyIn
         sqsClient: opts.sqsClient,
         queueUrl: opts.queueUrl,
       });
+    }
+    if (opts.historyClient) {
+      await registerHistory(app, { projects: opts.projects, historyClient: opts.historyClient });
     }
   }
 
@@ -85,6 +90,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       const doc = DynamoDBDocumentClient.from(makeClient(DynamoDBClient, { region }));
       const stateClient = new StateClient({ doc, tableName: requireEnv('DDB_TABLE_STATE') });
       const jobsClient = new JobsClient({ doc, tableName: requireEnv('DDB_TABLE_JOBS') });
+      const historyClient = new HistoryClient({ doc, tableName: requireEnv('DDB_TABLE_HISTORY') });
       const sqsClient = makeClient(SQSClient, { region });
       const queueUrl = requireEnv('SQS_QUEUE_URL');
 
@@ -108,6 +114,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         projects,
         stateClient,
         jobsClient,
+        historyClient,
         sqsClient,
         queueUrl,
       });
