@@ -47,6 +47,21 @@ spec:
                   - name: runner
                     image: 180294183052.dkr.ecr.ap-northeast-2.amazonaws.com/actions-runner-claude:latest
                     command: ["/home/runner/run.sh"]
+                    env:
+                      # PR review 패널 AI CLI 인증 (ExternalSecret ai-panel-keys <- /demo-platform/actions/AI-key).
+                      # optional: true — 키/Secret 부재가 러너 fleet 기동을 막지 않게(해당 패널 graceful skip).
+                      - name: KIRO_API_KEY
+                        valueFrom:
+                          secretKeyRef:
+                            name: ai-panel-keys
+                            key: KIRO_API_KEY
+                            optional: true
+                      - name: ANTIGRAVITY_API_KEY
+                        valueFrom:
+                          secretKeyRef:
+                            name: ai-panel-keys
+                            key: ANTIGRAVITY_API_KEY
+                            optional: true
                     resources:
                       requests:
                         cpu: "1800m"
