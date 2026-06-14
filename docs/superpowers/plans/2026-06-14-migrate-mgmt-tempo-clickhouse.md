@@ -14,6 +14,7 @@
 - 이 repo `infra/eks-mgmt`(main)가 tempo S3 버킷/IRSA role을 소스 appset 값과 **정확히 같은 이름**으로 생성(`environment=production`, `region=ap-northeast-2`, `name_suffix=-mgmt`). 신규 Terraform 불필요.
 - 소스 `appset-tempo`의 kustomize 패치 중 ConfigMap `tempo-config` `/data/TEMPO_S3_BUCKET`·`/data/AWS_REGION` replace는 **해당 키가 존재하지 않아** kustomize build를 깨뜨린다. tempo는 `-config.expand-env=true` + 컨테이너 env(Deployment 패치가 주입)로 `${TEMPO_S3_BUCKET}`/`${AWS_REGION}`를 해석하므로, 이 깨진 ConfigMap 패치는 **의도적으로 드롭**한다(이 repo가 manifest를 소유하므로 정당한 적응; 동작 동일).
 - `clickhouse-installation.yaml`의 `default/networks/ip: 0.0.0.0/0`은 SG 인그레스가 아니라 **ClickHouse 유저 네트워크 ACL**(internal-only NLB 뒤, in-cluster)이며 기존 live 설정의 충실 복제다 — 보안 게이트 false-positive 아님.
+- tempo.yaml의 Deployment env에 있는 `tempo-region-config`/`region-config` ConfigMap 참조는 **둘 다 `optional: true`** 이므로 ConfigMap이 없어도 Pod는 실패하지 않는다(env가 미설정될 뿐). 또한 배포 시 `appset-tempo`의 Deployment 패치가 `containers[0].env`를 리터럴 `AWS_REGION`/`TEMPO_S3_BUCKET`로 **통째 교체**하므로 이 optional 참조는 런타임에 사라진다 — 별도 ConfigMap 생성 불필요.
 
 ---
 
@@ -469,7 +470,7 @@ metadata:
     service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
     service.beta.kubernetes.io/aws-load-balancer-scheme: "internal"
     service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
-    # SG ID from: terraform output internal_observability_nlb_security_group_id
+    # SG from shared remote_state: internal_observability_nlb_security_group_id (data.terraform_remote_state.shared)
     service.beta.kubernetes.io/aws-load-balancer-security-groups: "sg-0613a5ecf8009daff"
 spec:
   type: LoadBalancer
@@ -497,7 +498,7 @@ metadata:
     service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
     service.beta.kubernetes.io/aws-load-balancer-scheme: "internal"
     service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
-    # SG ID from: terraform output internal_observability_nlb_security_group_id
+    # SG from shared remote_state: internal_observability_nlb_security_group_id (data.terraform_remote_state.shared)
     service.beta.kubernetes.io/aws-load-balancer-security-groups: "sg-0613a5ecf8009daff"
 spec:
   type: LoadBalancer
@@ -524,7 +525,7 @@ metadata:
     service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
     service.beta.kubernetes.io/aws-load-balancer-scheme: "internal"
     service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
-    # SG ID from: terraform output internal_observability_nlb_security_group_id
+    # SG from shared remote_state: internal_observability_nlb_security_group_id (data.terraform_remote_state.shared)
     service.beta.kubernetes.io/aws-load-balancer-security-groups: "sg-0613a5ecf8009daff"
 spec:
   type: LoadBalancer
@@ -537,6 +538,8 @@ spec:
     app.kubernetes.io/name: prometheus
     operator.prometheus.io/name: prometheus-mall-apne2-mgmt-prometheus
 ```
+
+> **선행조건 노트:** `prometheus-nlb`는 `namespace: monitoring`에 생성되며, 그 selector `operator.prometheus.io/name: prometheus-mall-apne2-mgmt-prometheus`는 기존 `appset-helm-prometheus-mgmt`(release `prometheus-mall-apne2-mgmt`)가 만드는 Prometheus와 일치한다. `monitoring` 네임스페이스는 그 appset이 이미 소유(재사용 클러스터에 존재). `appset-clickhouse`는 `CreateNamespace=true`로 `observability`만 만들므로, `monitoring`은 선행 존재가 전제 — 재사용 클러스터에서 충족됨(추가 조치 불필요).
 
 - [ ] **Step 4: `k8s/system/clickhouse-mgmt/kustomization.yaml` 작성**
 
@@ -771,7 +774,7 @@ Expected: ADR 섹션 구조 확인(Status/Context/Decision/Consequences 등)
 
 - [ ] **Step 2: `docs/decisions/ADR-007-mgmt-observability-internal-nlb-exception.md` 작성** (템플릿 구조에 맞춤)
 
-내용 요지(템플릿 섹션에 채움):
+`docs/decisions/.template.md`는 **EN/KO 양어**이며 헤딩이 `Status / Context / Options Considered / Decision / Consequences / References`이다. ADR-001~006과 일관되도록 **모든 헤딩을 EN·KO 양쪽 모두** 채운다(특히 `Options Considered`에 대안 3개: ① internal NLB 유지(채택) ② TGB→ALB로 전환 ③ in-cluster ClusterIP만 사용·spoke 수집 포기 — 각 trade-off 명시). 내용 요지(각 섹션에 반영):
 - **Status**: Accepted (2026-06-14)
 - **Context**: 데모 플랫폼 규약은 CloudFront→ALB→TGB만 허용하고 NLB/Ingress 금지. 그러나 hub(`mall-apne2-mgmt`)에는 spoke(az-a/az-c) otel-collector가 trace/log를 push하고 workload Prometheus가 remote-write하는 cross-cluster fan-in이 존재. ClickHouse native TCP(:9000)는 L7 ALB로 종단 불가, Tempo OTLP/Prometheus remote-write도 L4 종단이 적합. EKS 클러스터는 `multi-region-architecture`와 재사용되며 해당 internal NLB 3개(clickhouse-nlb/tempo-nlb/prometheus-nlb)가 이미 live. ArgoCD `prune: true`이므로 타깃에서 빼면 live NLB가 삭제되어 관측 파이프라인이 끊김.
 - **Decision**: `k8s/system/clickhouse-mgmt/internal-nlb-services.yaml`의 internal NLB 3개를 "no-NLB" 규약의 **명시적 예외**로 유지. scheme=internal, SG `sg-0613a5ecf8009daff`로 제한. 외부 노출(public ALB/NLB) 및 Kubernetes Ingress 금지 규약은 그대로 유효.
@@ -801,13 +804,20 @@ git commit -m "docs(adr): record internal NLB exception for mgmt observability f
 - `system/clickhouse-mgmt/` — Altinity ClickHouseInstallation(otel 스키마, gp3 100Gi) + internal NLB 3개(spoke→hub fan-in, ADR-007 예외). `appset-clickhouse`가 mgmt에만 배포. operator는 `appset-helm-clickhouse-operator`.
 ```
 
-- [ ] **Step 2: `docs/architecture.md`에 tempo/clickhouse 타깃 반영**
+- [ ] **Step 2: `docs/architecture.md`에 tempo/clickhouse 타깃 반영** (EN + KO 미러 양쪽)
 
-`docs/architecture.md`에서 GitOps 시스템 Application 목록 또는 관측(observability) 관련 섹션을 찾아, `appset-tempo`(observability ns, mgmt) 및 `appset-clickhouse`(observability ns, mgmt) 항목을 기존 형식에 맞춰 추가. (영문/한글 섹션 모두 존재하면 양쪽에 반영.)
+(B-1) "Processing / Control Layer"의 hub 불릿에 `tempo`를 추가 — 현재 `clickhouse-mgmt, prometheus, grafana, github self-hosted runners` 목록에 `tempo`를 포함:
+- EN: `clickhouse-mgmt, tempo, prometheus, grafana, github self-hosted runners`로 수정
+- KO: `clickhouse-mgmt, tempo, prometheus, grafana, github self-hosted runner`로 수정
 
-Run(섹션 위치 파악): `grep -nE 'appset|observability|otel-collector|clickhouse-operator|GitOps' docs/architecture.md | head`
-편집 후 변경 확인: `grep -nE 'appset-tempo|appset-clickhouse' docs/architecture.md`
-Expected: 두 항목이 추가됨.
+(B-2) "Storage Layer"(EN)와 "Storage Layer"(KO 섹션, 동일 제목) 각각에 관측 백엔드 불릿을 추가:
+- EN (Storage Layer 목록에 추가):
+  `- **Observability backends (hub)** — ClickHouse (otel traces/logs, Altinity CHI in `observability` ns) and Grafana Tempo (S3-backed traces) deployed as ArgoCD ApplicationSets `appset-clickhouse` / `appset-tempo` (mgmt-only). Spoke OTel Collectors fan in via internal NLBs (ADR-007).`
+- KO ("Storage Layer" 목록에 추가):
+  `- **관측 백엔드 (hub)** — ClickHouse(otel trace/log, `observability` ns의 Altinity CHI)와 Grafana Tempo(S3 기반 trace)를 ArgoCD ApplicationSet `appset-clickhouse` / `appset-tempo`(mgmt 전용)로 배포. spoke OTel Collector는 internal NLB로 fan-in(ADR-007).`
+
+편집 후 확인: `grep -nE 'appset-tempo|appset-clickhouse|Tempo' docs/architecture.md`
+Expected: EN/KO 양쪽에 백엔드 불릿 + hub 불릿의 `tempo`가 보임.
 
 - [ ] **Step 3: 전체 매니페스트 재검증**
 
