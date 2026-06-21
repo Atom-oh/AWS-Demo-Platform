@@ -40,6 +40,10 @@ spec:
                   node-pool: platform
             template:
               spec:
+                # AWS 자격증명(Bedrock) 수령용 공유 SA. EKS Pod Identity Association
+                # claude-runner -> mall-apne2-mgmt-ci-runner. 누락 시 Pod 이 default SA 로
+                # 떠서 Codex/Claude(chair) 의 Bedrock 호출이 "Could not load credentials" 로 실패한다.
+                serviceAccountName: claude-runner
                 nodeSelector:
                   kubernetes.io/arch: arm64
                 containers:
