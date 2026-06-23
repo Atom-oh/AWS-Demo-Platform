@@ -134,7 +134,20 @@ projects:
     apply_requirements:
       - mergeable
 
-# eks-mgmt is intentionally NOT registered. It's a cross-repo state
-# reference (the actual EKS cluster is owned by multi-region-architecture
-# repo). Atlantis would attempt to refresh tempo-storage S3 + EKS OIDC
-# data sources owned by the other repo, which would fail and add no value.
+  # eks-mgmt — hub cluster + CI runner IAM (claude-runner Pod Identity).
+  # ⚠️ CAUTION: this module's state (production/ap-northeast-2/eks-mgmt) is shared
+  # with the multi-region-architecture repo, and it refreshes tempo-storage S3 +
+  # EKS OIDC data sources. AtlantisIRSARole must be able to read those, and
+  # multi-region-architecture must NOT concurrently apply the same state, or
+  # plans/applies will fail or fight (split-brain). Registered per request so the
+  # ci_runner / Pod Identity changes can be applied via Atlantis.
+  - name: eks-mgmt
+    dir: infra/eks-mgmt
+    terraform_version: v1.9.6
+    autoplan:
+      enabled: true
+      when_modified:
+        - "*.tf"
+        - "../../atlantis.yaml"
+    apply_requirements:
+      - mergeable
