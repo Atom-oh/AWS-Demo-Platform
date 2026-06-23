@@ -215,3 +215,38 @@ See `docs/superpowers/specs/2026-06-23-runner-weekly-rebuild-plugins-design.md`.
 - **러너 자격증명 수정** — 러너 파드는 공유 `claude-runner` SA 사용하나 `runner_service_accounts`
   목록에 없어 Pod Identity Association 부재 → `ci_runner` 역할 미수령, 노드 역할엔 Bedrock 없음 →
   codex(gpt-5.5=bedrock-mantle 필수) 실패. 목록에 `claude-runner` 추가로 수정.
+
+---
+
+## Update (2026-06-23b) — plugins used in-review: Claude self-review panelist / 리뷰에서 플러그인 활용
+
+Baking plugins into the image is inert unless the review pipeline uses them. Wired
+them in so the panel actually exercises the plugins:
+
+- **Panel = Codex(exec) + Kiro×3 (opus/kimi/glm) + a Claude self-review (new) → Claude chair.**
+- **Claude self-review** (`run-panel.sh`): an independent `claude -p` review on the
+  plugin-equipped runner, applying the code-review methodology and using read-only tools
+  (gh pr diff/view·search, Read/Grep/Glob, github MCP read tools) to pull context beyond
+  the truncated diff. Findings only — no comment, no VERDICT. Slot `claude-self.md` feeds
+  the chair like any other panelist.
+- **Claude chair** (`synthesize.sh`): synthesis + VERDICT, with the same read-only tools
+  allowed to verify panel disagreements.
+- **Auth**: the review job token (`github.token`) → `GH_TOKEN` (gh) + `GITHUB_PERSONAL_ACCESS_TOKEN`
+  (github MCP). Job-scoped, not a pod-wide PAT.
+- **Security**: in the `pull_request_target` write context, tools are a read-only allowlist —
+  `gh api` / `gh pr comment` are NOT allowed, so the panel/chair cannot mutate or comment
+  (only the existing single upsert step posts).
+- **Honest scope**: the `codex` plugin overlaps `codex exec`, and the `github` plugin overlaps
+  `gh`; in the headless panel their unique value is the code-review methodology (self-review)
+  and interactive `claude` use on the runner. The `/code-review` slash command itself self-comments
+  and self-fetches, so its methodology is applied in the self-review rather than invoked verbatim.
+- **Verify**: exact github-MCP tool names on the runner (`mcp__github__*` prefix) and headless
+  `--allowedTools` tool execution.
+
+플러그인은 리뷰가 실제로 호출해야 의미가 있다. 패널 = Codex + Kiro×3 + **Claude 셀프리뷰** → Claude 의장.
+셀프리뷰는 플러그인 컨테이너에서 code-review 방법론 + read-only 도구(gh·Read·github MCP)로 맥락을
+확인하고 findings 만 출력(코멘트/VERDICT 금지). 인증은 잡-스코프 토큰. `pull_request_target` 쓰기
+컨텍스트라 도구는 read-only allowlist 만(`gh api`/코멘트 불가). codex/github 플러그인은 `codex exec`/`gh`
+와 중복 → 고유 가치는 code-review 방법론·인터랙티브 사용.
+
+See `docs/superpowers/specs/2026-06-23-runner-weekly-rebuild-plugins-design.md`.

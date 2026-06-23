@@ -110,8 +110,8 @@ RUN CODEX_PLUGIN="$(find /home/runner/.claude -type d -path '*plugins*/codex' | 
 
 ## 범위(Scope)
 
-- **In**: 플러그인 베이킹 + codex 구성, 주간 cron, Kiro v3 패널 전환, 죽은 agy 제거, 문서.
-- **Out**: 패널/의장 스크립트를 플러그인 기반으로 재작성하지 않음. 기존 헤드리스 호출(`codex exec`, `kiro-cli chat`, `claude -p` 의장)은 Kiro v3 전환을 제외하고 그대로 유지. 플러그인은 러너의 인터랙티브 `claude` 사용에 노출됨.
+- **In**: 플러그인 베이킹 + codex 구성, 주간 cron, Kiro v3 패널 전환, 죽은 agy 제거, 문서. **리뷰에서 플러그인 활용**(2026-06-23b): 패널에 Claude 셀프리뷰 추가(code-review 방법론 + read-only github 맥락 도구) + 의장 검증용 read-only 도구 + 잡-스코프 토큰. ADR-007 Update(2026-06-23b).
+- **Out**: codex/kiro 의 CLI 직접 호출(`codex exec`/`kiro-cli --v3 chat`)을 플러그인 슬래시커맨드로 대체하지 않음. `/code-review` 슬래시커맨드는 자체 코멘트/fetch 라 그대로 쓰지 않고 방법론만 적용. codex/github 플러그인은 `codex exec`/`gh` 와 중복 → 고유 가치는 code-review 방법론·인터랙티브 사용.
 
 ## 미해결/검증 항목
 

@@ -43,8 +43,25 @@ for entry in "${KIRO_MODELS[@]}"; do
   else echo "[skip] $tag (binary absent)" >&2; : > "$SLOT/$tag.md"; fi
 done
 
-# NOTE: Antigravity(agy) 는 제거됨 — OAuth 인터랙티브 로그인 전용(API 키 인증 모드 없음)
-# 이라 헤드리스 CI 에서 인증 불가. 패널 = Codex + Kiro x3 → Claude 의장.
+# Claude 셀프리뷰 패널리스트 — 플러그인 장착 컨테이너에서 독립 리뷰(의장과 별개 voice).
+#   code-review 플러그인 방법론(큰 버그/로직/CLAUDE.md 위반 집중, nitpick·린터-검출·기존이슈 제외)을
+#   적용하고, gh(읽기전용)/Read/Grep(가능 시 github MCP read 툴)로 diff 너머 맥락을 직접 가져온다.
+#   findings 만 출력 — 코멘트/VERDICT 금지(의장 몫). 도구는 read-only allowlist 로만 허용.
+# NOTE: Antigravity(agy) 는 제거됨 — OAuth 인터랙티브 전용이라 헤드리스 CI 에서 인증 불가.
+# 패널 = Codex + Kiro x3 + Claude 셀프리뷰 → Claude 의장.
+if command -v claude >/dev/null 2>&1; then
+  CLAUDE_SELF_PROMPT="$PROMPT
+
+[Claude 셀프리뷰 — 플러그인이 설치된 러너에서 실행됨]
+- 필요하면 read-only 도구(gh pr diff/view·gh search, Read/Grep/Glob, 가능 시 github MCP)로
+  변경 너머의 파일·PR 맥락을 직접 확인하라.
+- code-review 방법론: 큰 버그·로직 오류·보안·CLAUDE.md 위반에 집중. 사소한 nitpick, 린터/타입체커가
+  잡을 것, 기존(pre-existing) 이슈, PR 이 수정하지 않은 줄의 문제는 제외. false positive 는 버려라.
+- findings 만 CRITICAL/MAJOR/MINOR 로 출력. 어떤 GitHub 코멘트도 게시하지 말고 VERDICT 도 출력하지 마라."
+  ( try_panel "$SLOT/claude-self.md" "$SLOT/claude-self.err" \
+      timeout "$T" claude -p "$CLAUDE_SELF_PROMPT" --output-format text \
+        --allowedTools "Read Grep Glob Bash(gh pr diff:*) Bash(gh pr view:*) Bash(gh search:*) Bash(gh issue view:*) mcp__github__get_file_contents mcp__github__search_code mcp__github__get_pull_request mcp__github__list_commits" ) &
+else echo "[skip] claude-self (binary absent)" >&2; : > "$SLOT/claude-self.md"; fi
 wait
 
 # 결과 집계 (KIRO_MODELS 와 동일 소스에서 tag 파생 → 하드코딩 불일치 방지)
@@ -52,6 +69,7 @@ record_result "$SLOT/codex.md" "codex" "$RESP"
 for entry in "${KIRO_MODELS[@]}"; do
   tag="${entry##*:}"; record_result "$SLOT/$tag.md" "$tag" "$RESP"
 done
+record_result "$SLOT/claude-self.md" "claude-self" "$RESP"
 echo "Panel responded: $(tr '\n' ' ' < "$RESP")"
 
 # skip 원인 노출: 빈 슬롯인데 stderr 가 있으면 stderr 의 끝(실제 에러)을 로그에 찍는다.

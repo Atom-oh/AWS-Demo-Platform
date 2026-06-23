@@ -96,11 +96,16 @@ jobs:
             echo "panel_truncated=1" >> "$GITHUB_ENV"
           fi
 
-      - name: Run panel + synthesize (Codex + Kiro x3 -> Claude chair)
+      - name: Run panel + synthesize (Codex + Kiro x3 + Claude self-review -> Claude chair)
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PANEL_TIMEOUT: "300"
+          # Claude 셀프리뷰/의장이 read-only 로 PR·repo 맥락을 가져올 때 쓰는 토큰.
+          # GH_TOKEN: gh CLI 인증. GITHUB_PERSONAL_ACCESS_TOKEN: github 플러그인(MCP) 인증.
+          # 둘 다 잡-스코프 토큰(pull-requests: write, contents: read) — pod-wide PAT 아님.
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_PERSONAL_ACCESS_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/pr-review
@@ -141,7 +146,7 @@ jobs:
           sed '$ { /^VERDICT:/d }' /tmp/review.md > /tmp/review-clean.md
           {
             echo "$MARKER"
-            echo "## 🤖 AI Code Review (Claude Opus 4.8 chair · Codex + Kiro panel)"
+            echo "## 🤖 AI Code Review (Claude Opus 4.8 chair · Codex + Kiro + Claude self-review panel)"
             echo ""
             echo "_Panel: Claude(chair) · ${panel_responded:-solo}_"
             [ "${panel_truncated:-0}" = "1" ] && echo "_⚠️ diff truncated to first 3000 lines — review is partial._"
