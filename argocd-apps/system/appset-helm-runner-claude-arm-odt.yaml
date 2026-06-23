@@ -56,12 +56,6 @@ spec:
                             name: ai-panel-keys
                             key: KIRO_API_KEY
                             optional: true
-                      - name: ANTIGRAVITY_API_KEY
-                        valueFrom:
-                          secretKeyRef:
-                            name: ai-panel-keys
-                            key: ANTIGRAVITY_API_KEY
-                            optional: true
                     resources:
                       requests:
                         cpu: "1800m"

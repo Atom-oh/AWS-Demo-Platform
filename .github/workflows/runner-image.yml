@@ -1,12 +1,19 @@
 name: Build Runner Image
-# actions-runner-claude 이미지(claude + codex + kiro-cli + agy)를 이 repo 에서 빌드해 ECR push.
-# 네이티브 ARM64 빌드(에뮬레이션 없음), OIDC -> ECR (ADR-003 패턴).
+# actions-runner-claude 이미지(공식 ARC 러너 ghcr.io/actions/actions-runner 베이스 + gh/aws/node +
+# claude-code + 베이킹된 Codex/code-review/github 플러그인 + codex/kiro-cli)를 이 repo 에서 빌드해
+# ECR push. 네이티브 ARM64 빌드(에뮬레이션 없음), OIDC -> ECR (ADR-003 패턴).
+# NOTE: FROM 은 자기 출력(:latest)이 아니라 ECR pull-through cache(ghcr) 경유 upstream 공식 이미지
+#   → 주간 빌드 재귀-스택 없음. runner agent/OS/.NET 은 upstream 위임.
 
 on:
-  # Phase 0 (codex/kiro-cli/agy 설치 명령·플래그·base digest) 확정 전까지 자동 빌드 비활성.
-  # Dockerfile 의 미검증 `curl|sh` 가 `RUN ... --version` 에서 실패해 파이프라인이 red
-  # 되는 것을 막는다. Phase 0 검증 후 push(paths: docker/actions-runner-claude/**) 복구.
+  # 수동 트리거.
   workflow_dispatch:
+  # 주간 재빌드 — 베이스 이미지/CLI/플러그인 최신 상태 유지.
+  # best-effort: `docker push` 는 build 성공 후에만 실행되므로, 미검증 `curl|sh` 설치가 깨지면
+  # 빌드 단계에서 실패하고 push 에 도달하지 않는다 → ECR 의 live `:latest` 는 손대지 않으며
+  # 동작 중인 러너는 영향 없음. cron 은 default branch(main)에서만 발화.
+  schedule:
+    - cron: "0 18 * * 6"   # 토 18:00 UTC = 일 03:00 KST
 
 jobs:
   build:
