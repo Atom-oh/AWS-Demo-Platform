@@ -83,3 +83,5 @@ resource "aws_iam_role_policy" "gha_ecr_push" {
   role   = aws_iam_role.gha_ecr_push.id
   policy = data.aws_iam_policy_document.gha_ecr_push.json
 }
+
+# apply: post-#38 runner infra (Atlantis). See PR body for sequence.

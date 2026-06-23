@@ -33,3 +33,5 @@ resource "aws_ecr_pull_through_cache_rule" "ghcr" {
   upstream_registry_url = "ghcr.io"
   credential_arn        = aws_secretsmanager_secret.ghcr_pull_through.arn
 }
+
+# apply: post-#38 runner infra (Atlantis). See PR body for sequence.

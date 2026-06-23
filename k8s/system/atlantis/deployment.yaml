@@ -50,8 +50,10 @@ spec:
             - { name: secrets, mountPath: /secrets, readOnly: true }
             - { name: data, mountPath: /atlantis-data }
           resources:
-            requests: { cpu: 200m, memory: 512Mi }
-            limits:   { cpu: 1000m, memory: 2Gi }
+            # AWS provider v6 schema load + large modules (eks-mgmt) spike memory;
+            # 2Gi OOM-killed the provider during plan (plugin handshake failed).
+            requests: { cpu: 200m, memory: 1Gi }
+            limits:   { cpu: 1000m, memory: 4Gi }
       volumes:
         - name: repos
           configMap: { name: atlantis-config }

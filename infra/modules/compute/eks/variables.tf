@@ -26,7 +26,7 @@ variable "cluster_name" {
 variable "cluster_version" {
   description = "Kubernetes version for the EKS cluster"
   type        = string
-  default     = "1.35"
+  default     = "1.36"
 }
 
 variable "vpc_id" {
@@ -100,7 +100,7 @@ variable "bootstrap_node_max_size" {
 }
 
 variable "addon_versions" {
-  description = "EKS addon versions. Defaults are latest for EKS 1.35."
+  description = "EKS addon versions. Defaults match the live EKS 1.36 cluster."
   type = object({
     vpc_cni                = string
     coredns                = string
