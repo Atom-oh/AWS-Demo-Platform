@@ -73,7 +73,7 @@ data "aws_iam_policy_document" "gha_ecr_push" {
       "ecr:GetDownloadUrlForLayer",
     ]
     resources = [
-      "arn:aws:ecr:${local.region}:${local.account_id}:repository/ghcr/*",
+      "arn:aws:ecr:${local.region}:${local.account_id}:repository/ghcr/actions/*",
     ]
   }
 }

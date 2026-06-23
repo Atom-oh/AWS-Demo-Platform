@@ -19,13 +19,12 @@ resource "aws_secretsmanager_secret" "ghcr_pull_through" {
 }
 
 # ⚠️ apply 순서 의존성: ECR 는 PTC 규칙 생성 시 자격증명을 upstream(ghcr)에 실제로 검증한다.
-#   따라서 아래 규칙 apply 전에 PAT 값이 먼저 들어가 있어야 한다. 권장 절차:
-#     1) 이 시크릿 슬롯만 먼저 apply (또는 동명 시크릿을 수동 생성).
+#   따라서 규칙은 기본 비활성이다. 권장 절차:
+#     1) 표준 atlantis apply 로 이 시크릿 슬롯만 생성한다.
 #     2) 값 주입:
 #        aws secretsmanager put-secret-value --secret-id ecr-pullthroughcache/ghcr \
 #          --secret-string '{"username":"<github-user>","accessToken":"<PAT read:packages>"}'
-#     3) 그 다음 PTC 규칙 apply.
-#   (한 번의 atlantis apply 로 둘 다 생성하면 값 미존재로 규칙 생성이 실패할 수 있다.)
+#     3) `enable_ghcr_pull_through_cache_rule=true` 를 후속 apply 에서 켜고 PTC 규칙을 생성한다.
 
 resource "aws_ecr_pull_through_cache_rule" "ghcr" {
   count = var.enable_ghcr_pull_through_cache_rule ? 1 : 0

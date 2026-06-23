@@ -9,8 +9,8 @@
 
 `actions-runner-claude` 이미지는 PR 리뷰 패널(Codex + Kiro x3 + Claude 의장)을 구동하는 self-hosted GHA 러너 이미지다. 현재:
 
-- `runner-image.yml` 은 `workflow_dispatch` 만 트리거 — 자동 빌드는 의도적으로 비활성(미검증 `curl|sh` 설치가 빌드를 red 시키는 것을 막기 위함).
-- Dockerfile 은 베이스 이미지 위에 `codex` / `kiro-cli` 를 `curl|sh` 로 설치. `agy` 는 헤드리스 API-key 인증이 동작하지 않아 패널과 이미지에서 제거한다.
+- 기존 `runner-image.yml` 은 `workflow_dispatch` 만 트리거 — 자동 빌드는 의도적으로 비활성(미검증 설치가 빌드를 red 시키는 것을 막기 위함).
+- 기존 Dockerfile 은 베이스 이미지 위에 `codex` / `kiro-cli` 를 설치했고, `agy` 는 헤드리스 API-key 인증이 동작하지 않아 패널과 이미지에서 제거한다.
 - 모든 12개 러너 스케일셋이 `actions-runner-claude:latest` 를 참조 → `:latest` 재푸시가 신규 ephemeral 러너 파드에 자동 전파.
 
 ## 목표
@@ -29,13 +29,13 @@
 - 베이스 미갱신 — `FROM` 이 외부 upstream 이 아닌 자기 출력이라 base OS/claude-code 가 영구 고정(로컬 claude 는 이미 2.1.186).
 - 오염 누적 — 깨진 주간 빌드를 다음 주 `FROM` 이 물려받아 clean recovery 불가.
 
-**수정**: `FROM` 을 **공식 ARC 러너 컨테이너 `ghcr.io/actions/actions-runner`**(Ubuntu 24.04 + .NET + runner agent), **ECR pull-through cache(prefix `ghcr`) 경유**로 전환. upstream 이미지라 self-reference 없음 + runner agent/OS/.NET 은 upstream 에 위임(직접 구성 안 함). 베이스에 sudo/git/curl/jq/unzip/docker-cli/runner(uid 1001)/run.sh 포함 → 여기선 gh/aws/node/**claude-code**/codex/kiro-cli/플러그인만 설치.
+**수정**: `FROM` 을 **공식 ARC 러너 컨테이너 `ghcr.io/actions/actions-runner`**(Ubuntu 24.04 + .NET + runner agent)로 전환. upstream 이미지라 self-reference 없음 + runner agent/OS/.NET 은 upstream 에 위임(직접 구성 안 함). 베이스에 sudo/git/curl/jq/unzip/docker-cli/runner(uid 1001)/run.sh 포함 → 여기선 gh/aws/node/**claude-code**/codex/kiro-cli/플러그인만 설치. ECR pull-through cache(prefix `ghcr`)는 rule/PAT 준비 후 build-arg로 전환 가능한 선택지로 유지한다.
 
 > AL2023 from-scratch 안도 검토했으나, runner agent 를 직접 구성(`installdependencies.sh` Ubuntu 기준)하는 리스크가 커서 공식 컨테이너 베이스로 결정. `actions/runner-images`(VM 이미지, 수십 GB)는 컨테이너가 아니라 베이스로 쓸 수 없다.
 
 **인프라 추가**:
-- `infra/ecr/pull-through-cache.tf` — ghcr PTC 규칙 + 자격증명 슬롯(`ecr-pullthroughcache/ghcr`, GitHub PAT read:packages, 값 수동 주입).
-- `infra/iam/gha-ecr-push-role.tf` — `actions-runner-claude` push 권한(누락돼 있던 잠복 버그) + `ghcr/*` PTC import 권한 추가.
+- `infra/ecr/pull-through-cache.tf` — 자격증명 슬롯(`ecr-pullthroughcache/ghcr`, GitHub PAT read:packages, 값 수동 주입) + 명시적으로 켜는 ghcr PTC 규칙. 기본 apply 는 슬롯만 만들고, PAT 값 주입 후 `enable_ghcr_pull_through_cache_rule=true` 후속 apply 로 규칙을 만든다.
+- `infra/iam/gha-ecr-push-role.tf` — `actions-runner-claude` push 권한(누락돼 있던 잠복 버그) + `ghcr/actions/*` PTC import 권한 추가.
 
 **검증 항목**: PTC 자격증명 동작, 빌드 역할 권한, `kiro-cli --v3` 플래그 — `workflow_dispatch` 1회 빌드 + 러너 등록으로 검증.
 
@@ -52,6 +52,7 @@ on:
 
 - **best-effort by construction**: `docker push` 는 `docker build` 성공 후에만 실행 → 설치 스크립트가 깨지면 빌드 단계에서 실패하고 push 에 도달하지 않음. ECR 의 live `:latest` 는 손대지 않으며 동작 중인 러너는 영향 없음.
 - `schedule` 은 default branch(`main`)에서만 발화 → 이 변경은 main 에 머지되어야 활성화됨.
+- 공급망 완화: Dockerfile 이 Claude Code `2.1.186`, Codex `0.142.0`, Kiro CLI `2.8.1`, 설치 스크립트 SHA-256, gh/aws/node 아카이브 SHA-256, Kiro ARM64 zip SHA-256 을 고정하고 checksum 과 설치 버전을 검증한다. `docker build --pull` 로 주간 cron 이 stale base cache 를 재사용하지 않게 한다.
 
 ### B. Claude Code 플러그인 베이킹 — `Dockerfile`
 
@@ -86,8 +87,7 @@ RUN CODEX_PLUGIN="$(find /home/runner/.claude -type d -path '*plugins*/codex' | 
 ### C. Kiro v3 — `run-panel.sh` + `Dockerfile`
 
 - 패널 호출: `timeout "$T" kiro-cli --v3 chat "$PROMPT" --model "$m" ...`
-- 빌드 검증 게이트: `kiro-cli --v3 --help` 추가 → v3 플래그 부재/리네임 시 주간 빌드가 조용히 깨지지 않고 즉시 실패.
-- **리스크**: v3 가 기존 `--no-interactive` / `--trust-tools` / `--wrap` 플래그를 리네임할 수 있음 → 구현 시 설치된 바이너리로 확인 후 조정.
+- 빌드 검증 게이트: `kiro-cli --v3 chat --help` 에서 실제 패널 플래그(`--no-interactive`, `--trust-tools`, `--wrap`) 존재를 검사 → v3 플래그 부재/리네임 시 주간 빌드가 조용히 깨지지 않고 즉시 실패.
 
 ### D. Antigravity(`agy`) 제거
 
@@ -121,6 +121,6 @@ RUN CODEX_PLUGIN="$(find /home/runner/.claude -type d -path '*plugins*/codex' | 
 ## 검증 계획
 
 1. 로컬/CI 에서 이미지 빌드 → `claude plugin list` 가 3종 enabled 표시.
-2. `kiro-cli --v3 --help` 통과.
+2. `kiro-cli --v3 chat --help` 에서 `--no-interactive`, `--trust-tools`, `--wrap` 확인.
 3. `workflow_dispatch` 수동 1회 빌드 → ECR `:latest` 갱신 → 신규 PR 에서 패널 동작 확인.
 4. 주간 cron 1회 통과 관찰.
