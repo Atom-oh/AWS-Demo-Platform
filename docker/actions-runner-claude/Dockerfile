@@ -34,21 +34,22 @@ RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o /t
  && rm -rf /tmp/aws /tmp/awscliv2.zip \
  && aws --version
 
-# 3) Node.js — claude-code 및 codex 플러그인 companion(.mjs). 공식 바이너리(결정적).
+# 3) Node.js — codex 플러그인 companion(codex-companion.mjs, build-time configure 및 인터랙티브
+#    `/codex:*` 슬래시 커맨드)이 요구. 공식 바이너리(결정적). claude-code 는 npm 미사용(아래 curl).
 RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${TARGETARCH}.tar.xz" -o /tmp/node.tar.xz \
  && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
  && rm /tmp/node.tar.xz \
- && node --version && npm --version
-
-# 4) claude-code (npm 글로벌) — 매 빌드 최신. 의장(synthesize.sh)이 `claude -p` 로 사용.
-RUN npm install -g @anthropic-ai/claude-code \
- && claude --version
+ && node --version
 
 # 패널 CLI 가 설치되는 ~/.local/bin 을 PATH 에 추가 (GHA step 셸에서 command -v 가 찾도록).
 ENV PATH="/home/runner/.local/bin:${PATH}"
 
 USER runner
 WORKDIR /home/runner
+
+# 4) claude-code — 공식 네이티브 설치(~/.local/bin, npm 불필요). 의장(synthesize.sh)이 `claude -p` 로 사용.
+RUN curl -fsSL https://claude.ai/install.sh | bash \
+ && claude --version
 
 # 5) Codex — Bedrock 네이티브(config.toml). 공식 standalone 설치(~/.local/bin).
 RUN curl -fsSL https://chatgpt.com/codex/install.sh | sh \
