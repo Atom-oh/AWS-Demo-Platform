@@ -21,7 +21,7 @@ ARG CODEX_RELEASE=0.142.0
 ARG KIRO_CLI_VERSION=2.8.1
 ARG GH_TARBALL_SHA256=0f31e2a8549c64b5c1679f0b99ce5e0dac7c91da9e86f6246adb8805b0f0b4bb
 ARG AWSCLI_ZIP_SHA256=df18f41e85b1305747a51b2da3886dd17ecde7412614068ed19905d6b245c69b
-ARG NODE_TARBALL_SHA256=44d1ffc5905c005ace4515ca6f8c090c4c7cfce3a9a67df0dba35c727590b8f6
+ARG NODE_TARBALL_SHA256=73cd297378572e0bc9dfc187c5ec8cca8d43aee6a596c10ebea1ed5f9ec682b6
 ARG CLAUDE_INSTALL_SH_SHA256=005ec1a937f32dfbb74f9e810287bcb12cba2d5cae4c9277aa8c6364adbf1787
 ARG CODEX_INSTALL_SH_SHA256=73eb367137d151eabe89590a1d1a08a9c2fe2800a656bffac3c5707b62b42683
 ARG KIRO_CLI_AARCH64_ZIP_SHA256=bf60877634bfea9515672e558f80ec4dd592f20f7739f58327e4cc0ae7ee998d
@@ -47,10 +47,11 @@ RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o /t
 
 # 3) Node.js — codex 플러그인 companion(codex-companion.mjs, build-time configure 및 인터랙티브
 #    `/codex:*` 슬래시 커맨드)이 요구. 공식 바이너리(결정적). claude-code 는 npm 미사용(아래 curl).
-RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${TARGETARCH}.tar.xz" -o /tmp/node.tar.xz \
- && echo "${NODE_TARBALL_SHA256}  /tmp/node.tar.xz" | sha256sum -c - \
- && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 \
- && rm /tmp/node.tar.xz \
+# NOTE: base 이미지(actions-runner, Ubuntu noble)에는 xz 가 없다 → .tar.gz(gzip, 기본 포함)로 받는다.
+RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${TARGETARCH}.tar.gz" -o /tmp/node.tar.gz \
+ && echo "${NODE_TARBALL_SHA256}  /tmp/node.tar.gz" | sha256sum -c - \
+ && tar -xzf /tmp/node.tar.gz -C /usr/local --strip-components=1 \
+ && rm /tmp/node.tar.gz \
  && node --version
 
 # 패널 CLI 가 설치되는 ~/.local/bin 을 PATH 에 추가 (GHA step 셸에서 command -v 가 찾도록).
