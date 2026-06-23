@@ -50,19 +50,13 @@ spec:
                     env:
                       # PR review 패널 AI CLI 인증 (ExternalSecret ai-panel-keys <- /demo-platform/actions/AI-key).
                       # optional: true — 키/Secret 부재가 러너 fleet 기동을 막지 않게 한다
-                      # (해당 패널은 graceful skip). Antigravity 는 free-tier best-effort.
+                      # (해당 패널은 graceful skip).
                       # ai-panel-keys 는 actions-runner-system 네임스페이스 공용(스케일셋 간 공유).
                       - name: KIRO_API_KEY
                         valueFrom:
                           secretKeyRef:
                             name: ai-panel-keys
                             key: KIRO_API_KEY
-                            optional: true
-                      - name: ANTIGRAVITY_API_KEY
-                        valueFrom:
-                          secretKeyRef:
-                            name: ai-panel-keys
-                            key: ANTIGRAVITY_API_KEY
                             optional: true
                     resources:
                       requests:
