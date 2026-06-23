@@ -16,6 +16,10 @@ FROM ${ECR_BASE}
 
 ARG NODE_VERSION=20.18.1
 ARG GH_VERSION=2.63.2
+ARG CLAUDE_CODE_VERSION=2.1.186
+ARG CODEX_RELEASE=0.142.0
+ARG KIRO_CLI_VERSION=2.8.1
+ARG KIRO_CLI_AARCH64_ZIP_SHA256=bf60877634bfea9515672e558f80ec4dd592f20f7739f58327e4cc0ae7ee998d
 ARG TARGETARCH=arm64
 
 USER root
@@ -48,19 +52,31 @@ USER runner
 WORKDIR /home/runner
 
 # 4) claude-code — 공식 네이티브 설치(~/.local/bin, npm 불필요). 의장(synthesize.sh)이 `claude -p` 로 사용.
-RUN curl -fsSL https://claude.ai/install.sh | bash \
- && claude --version
+RUN curl -fsSL https://claude.ai/install.sh | bash -s -- "$CLAUDE_CODE_VERSION" \
+ && claude --version \
+ && claude --version | grep -F "$CLAUDE_CODE_VERSION"
 
 # 5) Codex — Bedrock 네이티브(config.toml). 공식 standalone 설치(~/.local/bin).
-RUN curl -fsSL https://chatgpt.com/codex/install.sh | sh \
- && codex --version
+RUN curl -fsSL https://chatgpt.com/codex/install.sh | \
+      CODEX_NON_INTERACTIVE=1 sh -s -- --release "$CODEX_RELEASE" \
+ && codex --version \
+ && codex --version | grep -F "$CODEX_RELEASE"
 
-# 6) Kiro CLI — 바이너리명은 정확히 `kiro-cli`. 공식 설치 (KIRO_API_KEY 로 인증).
-# 패널은 v3 하니스로 동작(run-panel.sh: `kiro-cli --v3 chat`) → v3 플래그 존재를 빌드 시 검증해
-# 플래그 부재/리네임 시 주간 빌드가 조용히 깨지지 않고 즉시 실패하게 한다.
-RUN curl -fsSL https://cli.kiro.dev/install | bash \
+# 6) Kiro CLI — 바이너리명은 정확히 `kiro-cli`. stable manifest 의 ARM64 zip + sha256 을 고정.
+# 패널은 v3 하니스로 동작(run-panel.sh: `kiro-cli --v3 chat`)하므로 실제 사용 플래그도 빌드에서 검증한다.
+RUN test "$TARGETARCH" = "arm64" \
+ && curl -fsSL "https://prod.download.cli.kiro.dev/stable/${KIRO_CLI_VERSION}/kirocli-aarch64-linux.zip" -o /tmp/kirocli.zip \
+ && echo "${KIRO_CLI_AARCH64_ZIP_SHA256}  /tmp/kirocli.zip" | sha256sum -c - \
+ && unzip -q /tmp/kirocli.zip -d /tmp/kirocli \
+ && KIRO_CLI_SKIP_SETUP=1 /tmp/kirocli/kirocli/install.sh \
+ && rm -rf /tmp/kirocli /tmp/kirocli.zip \
  && kiro-cli --version \
- && kiro-cli --v3 --help >/dev/null
+ && kiro-cli --version | grep -F "$KIRO_CLI_VERSION" \
+ && kiro-cli --v3 chat --help > /tmp/kiro-v3-chat-help \
+ && grep -F -- "--no-interactive" /tmp/kiro-v3-chat-help \
+ && grep -F -- "--trust-tools" /tmp/kiro-v3-chat-help \
+ && grep -F -- "--wrap" /tmp/kiro-v3-chat-help \
+ && rm /tmp/kiro-v3-chat-help
 
 # 7) Codex Bedrock 설정 baking (us-east-1, openai.gpt-5.5). 러너 노드 IAM 자격증명 사용.
 COPY --chown=runner:runner config.toml /home/runner/.codex/config.toml

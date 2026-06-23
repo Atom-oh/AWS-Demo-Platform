@@ -7,6 +7,12 @@
 # ghcr PTC 는 자격증명이 필요하다(GitHub PAT, scope: read:packages). Secrets Manager 시크릿 이름은
 # 반드시 `ecr-pullthroughcache/` 로 시작해야 ECR 가 접근할 수 있다. 값은 수동 주입(TF는 슬롯만 관리).
 
+variable "enable_ghcr_pull_through_cache_rule" {
+  description = "Create the ghcr.io ECR pull-through cache rule. Keep false until ecr-pullthroughcache/ghcr contains a valid GitHub PAT."
+  type        = bool
+  default     = false
+}
+
 resource "aws_secretsmanager_secret" "ghcr_pull_through" {
   name        = "ecr-pullthroughcache/ghcr"
   description = "GitHub PAT (read:packages) for ECR pull-through cache of ghcr.io. Value injected manually."
@@ -22,6 +28,8 @@ resource "aws_secretsmanager_secret" "ghcr_pull_through" {
 #   (한 번의 atlantis apply 로 둘 다 생성하면 값 미존재로 규칙 생성이 실패할 수 있다.)
 
 resource "aws_ecr_pull_through_cache_rule" "ghcr" {
+  count = var.enable_ghcr_pull_through_cache_rule ? 1 : 0
+
   ecr_repository_prefix = "ghcr"
   upstream_registry_url = "ghcr.io"
   credential_arn        = aws_secretsmanager_secret.ghcr_pull_through.arn
