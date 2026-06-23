@@ -361,3 +361,5 @@ resource "aws_eks_pod_identity_association" "ci_runner" {
 
   depends_on = [module.eks]
 }
+
+# apply: post-#38 runner infra (Atlantis). See PR body for sequence.
