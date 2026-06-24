@@ -40,17 +40,17 @@ data "terraform_remote_state" "shared" {
 module "eks" {
   source = "../modules/compute/eks"
 
-  environment                  = var.environment
-  region                       = var.region
-  cluster_name                 = "mall-apne2-mgmt"
-  vpc_id                       = data.terraform_remote_state.shared.outputs.vpc_id
-  private_subnet_ids           = data.terraform_remote_state.shared.outputs.private_subnet_ids
-  alb_security_group_id        = data.terraform_remote_state.shared.outputs.alb_security_group_id
-  nlb_security_group_id        = data.terraform_remote_state.shared.outputs.nlb_security_group_id
+  environment                                  = var.environment
+  region                                       = var.region
+  cluster_name                                 = "mall-apne2-mgmt"
+  vpc_id                                       = data.terraform_remote_state.shared.outputs.vpc_id
+  private_subnet_ids                           = data.terraform_remote_state.shared.outputs.private_subnet_ids
+  alb_security_group_id                        = data.terraform_remote_state.shared.outputs.alb_security_group_id
+  nlb_security_group_id                        = data.terraform_remote_state.shared.outputs.nlb_security_group_id
   internal_observability_nlb_security_group_id = data.terraform_remote_state.shared.outputs.internal_observability_nlb_security_group_id
-  bootstrap_node_instance_types = ["m5.xlarge", "m5a.xlarge"]
-  role_name_suffix             = "-apne2-mgmt"
-  tags                         = var.tags
+  bootstrap_node_instance_types                = ["m5.xlarge", "m5a.xlarge"]
+  role_name_suffix                             = "-apne2-mgmt"
+  tags                                         = var.tags
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -193,16 +193,16 @@ resource "aws_iam_role_policy" "ci_runner_bedrock" {
         Resource = "*"
       },
       {
-        Effect   = "Allow"
-        Action   = "iam:PassRole"
+        Effect = "Allow"
+        Action = "iam:PassRole"
         Resource = [
           "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/*agentcore*",
           "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/cdk-*"
         ]
       },
       {
-        Effect = "Allow"
-        Action = "iam:PassRole"
+        Effect   = "Allow"
+        Action   = "iam:PassRole"
         Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/*"
         Condition = {
           StringEquals = {
@@ -323,6 +323,134 @@ resource "aws_iam_role_policy" "ci_runner_cdk_deploy" {
           "arn:aws:s3:::cdk-*",
           "arn:aws:s3:::cdk-*/*"
         ]
+      }
+    ]
+  })
+}
+
+# AMI build (cc-on-bedrock ami-build.yml, runs-on: cc-bedrock-arm self-hosted runner).
+# That runner uses this ci_runner role via Pod Identity (SA cc-bedrock-arm-gha-rs-no-permission),
+# so the weekly golden-AMI build permissions live on the runner's role here — NOT on the OIDC
+# github-actions-role. ami-build.yml should drop its `configure-aws-credentials` OIDC step to use
+# the runner's pod-identity creds directly (like pr-review.yml).
+# NOTE: ci_runner is shared by all claude/cc-bedrock-arm runners. Destructive/RCE actions are
+#   tag-scoped to managed_by=cc-on-bedrock (the builder/AMI carry that tag) to bound blast radius;
+#   a dedicated runner SA/role is the complete least-privilege fix (tracked follow-up).
+resource "aws_iam_role_policy" "ci_runner_ami_build" {
+  name = "ami-build"
+  role = aws_iam_role.ci_runner.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        # Read + launch/image + DeleteSnapshot. Describe* has no resource-level support;
+        # RunInstances/CreateImage are create-time (builder + AMI get the managed_by tag AT
+        # creation via the workflow's --tag-specifications). DeleteSnapshot stays "*" because
+        # CreateImage tags the image but not its underlying snapshots — narrowing it requires a
+        # snapshot tag-specification in the build script (cc-on-bedrock follow-up).
+        Sid    = "Ec2ReadLaunchImage"
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeImages",
+          "ec2:DescribeSnapshots",
+          "ec2:DescribeInstances",
+          "ec2:DescribeInstanceStatus",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeTags",
+          "ec2:RunInstances",
+          "ec2:CreateImage",
+          "ec2:DeleteSnapshot"
+        ]
+        Resource = "*"
+      },
+      {
+        # CreateTags MUST be create-time only. Without ec2:CreateAction, a shared-fleet runner
+        # could tag ANY instance/AMI with managed_by=cc-on-bedrock and self-authorize the
+        # tag-scoped destructive/SSM actions below — defeating the whole guard. (PR #41 C1.)
+        Sid      = "Ec2CreateTagsOnCreateOnly"
+        Effect   = "Allow"
+        Action   = "ec2:CreateTags"
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "ec2:CreateAction" = ["RunInstances", "CreateImage"]
+          }
+        }
+      },
+      {
+        # Destructive actions on EXISTING resources → restricted to the builder/AMI by tag,
+        # so a shared-fleet runner job cannot stop/terminate/deregister unrelated resources.
+        Sid    = "Ec2DestructiveManagedOnly"
+        Effect = "Allow"
+        Action = [
+          "ec2:StopInstances",
+          "ec2:TerminateInstances",
+          "ec2:DeregisterImage"
+        ]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "aws:ResourceTag/managed_by" = "cc-on-bedrock"
+          }
+        }
+      },
+      {
+        # SSM RCE limited to the builder instance (tagged managed_by) — not every SSM-managed
+        # instance in the account. Document permission is granted separately (AWS-owned docs).
+        Sid      = "SsmSendCommandToBuilder"
+        Effect   = "Allow"
+        Action   = "ssm:SendCommand"
+        Resource = "arn:aws:ec2:${var.region}:${data.aws_caller_identity.current.account_id}:instance/*"
+        Condition = {
+          StringEquals = {
+            "ssm:resourceTag/managed_by" = "cc-on-bedrock"
+          }
+        }
+      },
+      {
+        Sid      = "SsmSendCommandDocuments"
+        Effect   = "Allow"
+        Action   = "ssm:SendCommand"
+        Resource = "arn:aws:ssm:${var.region}::document/AWS-*"
+      },
+      {
+        Sid      = "SsmCommandRead"
+        Effect   = "Allow"
+        Action   = ["ssm:GetCommandInvocation", "ssm:ListCommandInvocations", "ssm:DescribeInstanceInformation"]
+        Resource = "*"
+      },
+      {
+        Sid    = "SsmAmiIdParam"
+        Effect = "Allow"
+        Action = ["ssm:PutParameter", "ssm:GetParameter", "ssm:GetParameters"]
+        Resource = [
+          "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/cc-on-bedrock/devenv/ami-id",
+          "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/cc-on-bedrock/devenv/ami-id/*",
+          "arn:aws:ssm:${var.region}::parameter/aws/service/ami-amazon-linux-latest/*"
+        ]
+      },
+      {
+        Sid    = "BuilderInstanceProfile"
+        Effect = "Allow"
+        Action = [
+          "iam:GetInstanceProfile",
+          "iam:CreateInstanceProfile",
+          "iam:AddRoleToInstanceProfile"
+        ]
+        Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:instance-profile/cc-on-bedrock-devenv-builder"
+      },
+      {
+        Sid      = "PassBuilderRole"
+        Effect   = "Allow"
+        Action   = "iam:PassRole"
+        Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/cc-on-bedrock-dashboard-ec2"
+        Condition = {
+          StringEquals = {
+            "iam:PassedToService" = "ec2.amazonaws.com"
+          }
+        }
       }
     ]
   })
