@@ -344,10 +344,11 @@ resource "aws_iam_role_policy" "ci_runner_ami_build" {
     Version = "2012-10-17"
     Statement = [
       {
-        # Read + create-time + DeleteSnapshot. Describe* has no resource-level support;
-        # RunInstances/CreateImage/CreateTags are create-time (builder + AMI get the
-        # managed_by tag AT creation via the workflow's --tag-specifications); DeleteSnapshot
-        # can't be tag-scoped (CreateImage tags the image, not its underlying snapshots).
+        # Read + launch/image + DeleteSnapshot. Describe* has no resource-level support;
+        # RunInstances/CreateImage are create-time (builder + AMI get the managed_by tag AT
+        # creation via the workflow's --tag-specifications). DeleteSnapshot stays "*" because
+        # CreateImage tags the image but not its underlying snapshots — narrowing it requires a
+        # snapshot tag-specification in the build script (cc-on-bedrock follow-up).
         Sid    = "Ec2ReadLaunchImage"
         Effect = "Allow"
         Action = [
@@ -359,11 +360,24 @@ resource "aws_iam_role_policy" "ci_runner_ami_build" {
           "ec2:DescribeSecurityGroups",
           "ec2:DescribeTags",
           "ec2:RunInstances",
-          "ec2:CreateTags",
           "ec2:CreateImage",
           "ec2:DeleteSnapshot"
         ]
         Resource = "*"
+      },
+      {
+        # CreateTags MUST be create-time only. Without ec2:CreateAction, a shared-fleet runner
+        # could tag ANY instance/AMI with managed_by=cc-on-bedrock and self-authorize the
+        # tag-scoped destructive/SSM actions below — defeating the whole guard. (PR #41 C1.)
+        Sid      = "Ec2CreateTagsOnCreateOnly"
+        Effect   = "Allow"
+        Action   = "ec2:CreateTags"
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "ec2:CreateAction" = ["RunInstances", "CreateImage"]
+          }
+        }
       },
       {
         # Destructive actions on EXISTING resources → restricted to the builder/AMI by tag,
@@ -414,7 +428,7 @@ resource "aws_iam_role_policy" "ci_runner_ami_build" {
         Resource = [
           "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/cc-on-bedrock/devenv/ami-id",
           "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/cc-on-bedrock/devenv/ami-id/*",
-          "arn:aws:ssm:*::parameter/aws/service/ami-amazon-linux-latest/*"
+          "arn:aws:ssm:${var.region}::parameter/aws/service/ami-amazon-linux-latest/*"
         ]
       },
       {
