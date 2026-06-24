@@ -3,6 +3,22 @@ kind: EC2NodeClass
 metadata:
   name: default
 spec:
+  # Node-level OOM protection: reserve memory for system/kubelet + evict pods before the
+  # node exhausts memory and the kubelet itself dies (NodeStatusUnknown). Soft = graceful
+  # early trigger; hard = backstop; reserved = keep kubelet/system alive under pressure.
+  kubelet:
+    systemReserved:
+      memory: 200Mi
+    kubeReserved:
+      cpu: 100m
+      memory: 500Mi
+    evictionSoft:
+      memory.available: 1Gi
+    evictionSoftGracePeriod:
+      memory.available: 1m
+    evictionHard:
+      memory.available: 500Mi
+    evictionMaxPodGracePeriod: 60
   amiSelectorTerms:
     - alias: al2023@latest
   blockDeviceMappings:
