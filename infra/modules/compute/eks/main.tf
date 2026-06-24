@@ -268,37 +268,6 @@ resource "aws_iam_role_policy_attachment" "ebs_csi" {
   role       = aws_iam_role.ebs_csi.name
 }
 
-# IAM role for EFS CSI Driver addon
-resource "aws_iam_role" "efs_csi" {
-  name = "${var.cluster_name}-efs-csi${local.role_name_suffix}"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRoleWithWebIdentity"
-        Effect = "Allow"
-        Principal = {
-          Federated = aws_iam_openid_connect_provider.eks.arn
-        }
-        Condition = {
-          StringEquals = {
-            "${local.oidc_provider_url}:aud" = "sts.amazonaws.com"
-            "${local.oidc_provider_url}:sub" = "system:serviceaccount:kube-system:efs-csi-controller-sa"
-          }
-        }
-      }
-    ]
-  })
-
-  tags = var.tags
-}
-
-resource "aws_iam_role_policy_attachment" "efs_csi" {
-  policy_arn = "arn:${data.aws_partition.current.partition}:iam::aws:policy/service-role/AmazonEFSCSIDriverPolicy"
-  role       = aws_iam_role.efs_csi.name
-}
-
 # EKS Addons
 resource "aws_eks_addon" "vpc_cni" {
   cluster_name                = aws_eks_cluster.main.name
@@ -388,31 +357,6 @@ resource "aws_eks_addon" "aws_ebs_csi_driver" {
   tags = var.tags
 
   depends_on = [aws_eks_addon.vpc_cni, aws_iam_role_policy_attachment.ebs_csi]
-}
-
-resource "aws_eks_addon" "aws_efs_csi_driver" {
-  cluster_name                = aws_eks_cluster.main.name
-  addon_name                  = "aws-efs-csi-driver"
-  addon_version               = var.addon_versions.efs_csi_driver
-  resolve_conflicts_on_update = "OVERWRITE"
-  service_account_role_arn    = aws_iam_role.efs_csi.arn
-
-  configuration_values = jsonencode({
-    controller = {
-      tolerations = [
-        {
-          key      = "node-role"
-          operator = "Equal"
-          value    = "system-critical"
-          effect   = "NoSchedule"
-        }
-      ]
-    }
-  })
-
-  tags = var.tags
-
-  depends_on = [aws_eks_addon.vpc_cni]
 }
 
 resource "aws_eks_addon" "eks_pod_identity_agent" {
