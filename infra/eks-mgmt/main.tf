@@ -328,6 +328,93 @@ resource "aws_iam_role_policy" "ci_runner_cdk_deploy" {
   })
 }
 
+# AMI build (cc-on-bedrock ami-build.yml, runs-on: cc-bedrock-arm self-hosted runner).
+# That runner uses this ci_runner role via Pod Identity (SA cc-bedrock-arm-gha-rs-no-permission),
+# so the weekly golden-AMI build permissions live on the runner's role here — NOT on the OIDC
+# github-actions-role. ami-build.yml should drop its `configure-aws-credentials` OIDC step to use
+# the runner's pod-identity creds directly (like pr-review.yml).
+# NOTE: ci_runner is shared by all claude/cc-bedrock-arm runners → these AMI perms are fleet-wide.
+#   Move to a dedicated runner SA/role if least-privilege is required.
+resource "aws_iam_role_policy" "ci_runner_ami_build" {
+  name = "ami-build"
+  role = aws_iam_role.ci_runner.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "Ec2BuildAndPrune"
+        Effect = "Allow"
+        # Describe*/CreateImage have no resource-level support → require "*".
+        # (RunInstances/Terminate/Stop could be tag-scoped later for least-privilege.)
+        Action = [
+          "ec2:DescribeImages",
+          "ec2:DescribeSnapshots",
+          "ec2:DescribeInstances",
+          "ec2:DescribeInstanceStatus",
+          "ec2:DescribeSubnets",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeTags",
+          "ec2:RunInstances",
+          "ec2:CreateTags",
+          "ec2:StopInstances",
+          "ec2:TerminateInstances",
+          "ec2:CreateImage",
+          "ec2:DeregisterImage",
+          "ec2:DeleteSnapshot"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "SsmRunCommand"
+        Effect = "Allow"
+        Action = [
+          "ssm:SendCommand",
+          "ssm:GetCommandInvocation",
+          "ssm:ListCommandInvocations",
+          "ssm:DescribeInstanceInformation"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "SsmAmiIdParam"
+        Effect = "Allow"
+        Action = [
+          "ssm:PutParameter",
+          "ssm:GetParameter",
+          "ssm:GetParameters"
+        ]
+        Resource = [
+          "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/cc-on-bedrock/devenv/ami-id",
+          "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter/cc-on-bedrock/devenv/ami-id/*",
+          "arn:aws:ssm:*::parameter/aws/service/ami-amazon-linux-latest/*"
+        ]
+      },
+      {
+        Sid    = "BuilderInstanceProfile"
+        Effect = "Allow"
+        Action = [
+          "iam:GetInstanceProfile",
+          "iam:CreateInstanceProfile",
+          "iam:AddRoleToInstanceProfile"
+        ]
+        Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:instance-profile/cc-on-bedrock-devenv-builder"
+      },
+      {
+        Sid      = "PassBuilderRole"
+        Effect   = "Allow"
+        Action   = "iam:PassRole"
+        Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/cc-on-bedrock-dashboard-ec2"
+        Condition = {
+          StringEquals = {
+            "iam:PassedToService" = "ec2.amazonaws.com"
+          }
+        }
+      }
+    ]
+  })
+}
+
 # Pod Identity Associations — one per runner service account
 locals {
   runner_service_accounts = [
