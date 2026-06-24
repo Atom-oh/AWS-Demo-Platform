@@ -3,6 +3,34 @@ kind: EC2NodeClass
 metadata:
   name: runner-x86
 spec:
+  # Node-level resource protection: reserve memory for system/kubelet + evict pods before the
+  # node exhausts memory OR disk (nodefs/imagefs) and the kubelet itself dies (NodeStatusUnknown).
+  # Soft = graceful early trigger; hard = backstop; reserved = keep kubelet/system alive under pressure.
+  kubelet:
+    systemReserved:
+      memory: 200Mi
+    kubeReserved:
+      cpu: 100m
+      memory: 500Mi
+    evictionSoft:
+      memory.available: 8%
+      nodefs.available: 15%
+      nodefs.inodesFree: 10%
+      imagefs.available: 20%
+      imagefs.inodesFree: 10%
+    evictionSoftGracePeriod:
+      memory.available: 1m
+      nodefs.available: 2m
+      nodefs.inodesFree: 2m
+      imagefs.available: 2m
+      imagefs.inodesFree: 2m
+    evictionHard:
+      memory.available: 5%
+      nodefs.available: 10%
+      nodefs.inodesFree: 5%
+      imagefs.available: 15%
+      imagefs.inodesFree: 5%
+    evictionMaxPodGracePeriod: 60
   amiSelectorTerms:
     - alias: al2023@latest
   blockDeviceMappings:
