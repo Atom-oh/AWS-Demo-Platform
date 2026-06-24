@@ -134,13 +134,15 @@ projects:
     apply_requirements:
       - mergeable
 
-  # eks-mgmt — hub cluster + CI runner IAM (claude-runner Pod Identity).
-  # ⚠️ CAUTION: this module's state (production/ap-northeast-2/eks-mgmt) is shared
-  # with the multi-region-architecture repo, and it refreshes tempo-storage S3 +
-  # EKS OIDC data sources. AtlantisIRSARole must be able to read those, and
-  # multi-region-architecture must NOT concurrently apply the same state, or
-  # plans/applies will fail or fight (split-brain). Registered per request so the
-  # ci_runner / Pod Identity changes can be applied via Atlantis.
+  # eks-mgmt — hub cluster (mall-apne2-mgmt) + CI runner IAM (claude-runner Pod Identity).
+  # This repo is the SOLE owner of the module config: the duplicate dir in
+  # multi-region-architecture was removed (2026-06-24), so there is no longer a
+  # split-brain risk. State stays at the shared key
+  # production/ap-northeast-2/eks-mgmt/terraform.tfstate in the shared bucket
+  # multi-region-mall-terraform-state — do NOT rename the key: the az-a/az-c spokes
+  # in multi-region-architecture read it read-only via terraform_remote_state.
+  # This module also refreshes tempo-storage S3 + EKS OIDC data sources, so
+  # AtlantisIRSARole must be able to read those.
   - name: eks-mgmt
     dir: infra/eks-mgmt
     terraform_version: v1.9.6

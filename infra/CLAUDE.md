@@ -4,7 +4,7 @@
 Terraform code for AWS Demo Platform. Hub EKS cluster reference, Atlantis IAM, network (Internal ALB, CF VPC Origin, R53 PHZ), and (planned) admin auth + dashboard runtime.
 
 ## Key Directories
-- `eks-mgmt/` — Cross-repo reference to the hub EKS cluster (`mall-apne2-mgmt`) defined in `multi-region-architecture`.
+- `eks-mgmt/` — **Authoritative** Terraform for the hub EKS cluster (`mall-apne2-mgmt`) + CI runner IAM (`claude-runner` Pod Identity). State key `production/ap-northeast-2/eks-mgmt/terraform.tfstate` in the shared bucket. The `eks-az-a`/`eks-az-c` spokes in `multi-region-architecture` read this state read-only via `terraform_remote_state` — **do not rename the key**. Applied via this repo's Atlantis only (the duplicate dir in `multi-region-architecture` was removed 2026-06-24).
 - `atlantis-bootstrap/` — `AtlantisIRSARole` + scoped IAM policy + 4 Secrets Manager slots for GitHub App credentials.
 - `alb-internal/` — Internal ALB `demo-platform-internal` and its SG. SG ingress must include CF VPC Origin source SG + `10.0.0.0/8`.
 - `cloudfront/` — CloudFront distribution + VPC Origin. Origin DomainName matches `*.atomai.click` wildcard cert to avoid SNI mismatch on https-only.
