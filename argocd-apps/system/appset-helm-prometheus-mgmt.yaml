@@ -121,6 +121,18 @@ spec:
               prometheusSpec:
                 replicas: 2
                 retention: 15d
+                # Without a memory limit Prometheus grew to ~6.8Gi RSS and triggered a
+                # node-wide (global) OOM that killed the kubelet on 8Gi platform nodes
+                # (NodeStatusUnknown), cascading across nodes as the StatefulSet rescheduled.
+                # request 8Gi -> Karpenter must pick a 16Gi-class node (m7g/r7g xlarge+), so
+                # Prometheus no longer lands on an 8Gi node; limit 12Gi -> an overrun is a
+                # cgroup OOM that kills only this pod, never the node.
+                resources:
+                  requests:
+                    cpu: 500m
+                    memory: 8Gi
+                  limits:
+                    memory: 12Gi
                 enableRemoteWriteReceiver: true
                 enableFeatures:
                   - exemplar-storage
