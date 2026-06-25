@@ -52,7 +52,11 @@ spec:
           resources:
             # AWS provider v6 schema load + large modules (eks-mgmt) spike memory;
             # 2Gi OOM-killed the provider during plan (plugin handshake failed).
-            requests: { cpu: 200m, memory: 1Gi }
+            # Guaranteed QoS (requests == limits): scheduler reserves the full 4Gi so a
+            # terraform plan spike can't overcommit and starve the kubelet (node OOM /
+            # NodeStatusUnknown), the limit caps Atlantis itself instead of the node, and
+            # Guaranteed pods are evicted last under node pressure.
+            requests: { cpu: 1000m, memory: 4Gi }
             limits:   { cpu: 1000m, memory: 4Gi }
       volumes:
         - name: repos
