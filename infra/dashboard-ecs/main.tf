@@ -83,6 +83,10 @@ resource "aws_ecs_task_definition" "api" {
         { name = "DDB_TABLE_HISTORY", value = "demo-platform-history-dev" },
         { name = "SQS_QUEUE_URL", value = local.sqs_queue_url },
         { name = "PROJECTS_DIR", value = "/app/projects" },
+        # Admin dashboard allowlist: comma-separated Cognito usernames whose access
+        # tokens are accepted by the api (jwt-cognito.ts; others get 403). After
+        # changing this, force the service onto the new task-def revision
+        # (service has ignore_changes=[task_definition]).
         { name = "ADMIN_USERNAMES", value = "atomoh,atomoh@amazon.com" },
       ]
       # Cognito ids for the access-token JWT verifier (fail-closed in prod).
