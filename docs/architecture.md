@@ -131,6 +131,7 @@ Browser -> CloudFront -> VPC Origin -> Internal ALB -> TGB -> Pod (Atlantis | Ar
 | `infra/sqs` | Lifecycle Controller job queue + DLQ (Stage 2, dev) |
 | `infra/ecr` | `demo-platform/api` + `demo-platform/worker` image repos (Stage 2) |
 | `infra/secrets-manager` | Dashboard secret slots: github PAT, argocd token, cognito (Stage 2) |
+| `infra/bedrock-privatelink/` | Cross-region private Bedrock access: us-east-1/us-east-2 `bedrock-runtime`+`bedrock-mantle` interface endpoints reached from ap-ne2 consumer VPCs via existing TGW + inter-region peering + Route53 PHZ ([ADR-008](decisions/ADR-008-cross-region-bedrock-privatelink.md)) |
 | `infra/modules` | Reusable submodules |
 
 ### Deployed Resources (Stage 1)
