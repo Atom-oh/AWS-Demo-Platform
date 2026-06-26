@@ -162,3 +162,5 @@ projects:
       when_modified:
         - "*.tf"
         - "../../atlantis.yaml"
+    apply_requirements:
+      - mergeable
