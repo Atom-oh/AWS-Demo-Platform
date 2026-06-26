@@ -83,6 +83,8 @@ resource "aws_ecs_task_definition" "api" {
         { name = "DDB_TABLE_HISTORY", value = "demo-platform-history-dev" },
         { name = "SQS_QUEUE_URL", value = local.sqs_queue_url },
         { name = "PROJECTS_DIR", value = "/app/projects" },
+        # Admin dashboard allowlist (comma-separated Cognito usernames). PR #47 added
+        # atomoh@amazon.com; this PR re-triggers Atlantis to apply it (merged before apply).
         { name = "ADMIN_USERNAMES", value = "atomoh,atomoh@amazon.com" },
       ]
       # Cognito ids for the access-token JWT verifier (fail-closed in prod).
