@@ -93,7 +93,7 @@ New module **`infra/bedrock-privatelink/`** (single Terraform root, three provid
 
 ## Error handling / failure modes
 
-- **TGW route conflict / ownership:** the existing ap-ne2 TGW and its route tables may be owned by another stack. Mitigation: reference by data source, add only the two endpoint-CIDR static routes, and run `atlantis plan` first to confirm no drift/ownership clash. **Open risk — verify TGW route-table ownership before apply.**
+- **TGW route conflict / ownership:** *Resolved (2026-06-26 investigation).* `atom-tgw` (`tgw-0162c7d68d7886619`) is in-account (180294183052), minimally tagged (`Name=atom-tgw`), and **not managed by this repo's Terraform** (zero TGW resources in repo). Its default route table `tgw-rtb-019c5cb46f743be38` carries `10.2.0.0/16` + `10.254.0.0/16` (propagated) and a manual `172.16.0.0/16` blackhole (evidence of out-of-band/console route management). `10.60.0.0/24` / `10.61.0.0/24` are absent → additive, no conflict. Mitigation: this module **references the TGW + default RT by data source only** (never manages the TGW, its existing attachments, or existing routes); it adds only the 2 peering attachments + 2 static routes. Because routes are managed out-of-band, run `atlantis plan` before apply to confirm no drift.
 - **PHZ shadowing:** a PHZ for `bedrock-runtime.us-east-1.amazonaws.com` overrides that exact name in associated VPCs only; ap-ne2 in-region Bedrock (`bedrock-runtime.ap-northeast-2.amazonaws.com`) is untouched.
 - **Endpoint ENI IP churn:** handled by re-reading via data source each apply; A-records updated by Terraform.
 - **Partial failure:** if DNS resolves but routing is missing, calls time out (not 4xx). Validation step (below) catches this before relying on it.
@@ -123,6 +123,12 @@ Validate from **this EC2 instance** (`10.254.22.82`, mgmt-vpc) and from a runner
 
 ## Open questions for reviewer
 
-1. **TGW route-table ownership** — is `tgw-0162c7d68d7886619` and its route tables managed by another repo/stack? This module must only *add* routes; confirm before apply.
+1. ~~TGW route-table ownership~~ — **Resolved** (see Error handling): in-account, unmanaged-by-repo, additive routes only.
 2. AZ choice for endpoint VPC subnets (pick 2 AZs per region — `use1-az1/az2`, `use2-az1/az2`).
 3. Accept the ~$170–220/mo standing cost for CI-only egress privacy, or scope to us-east-1 first?
+
+## TGW facts (verified 2026-06-26)
+
+- `atom-tgw` `tgw-0162c7d68d7886619`, owner `180294183052`, ASN 64512, default RT association + propagation enabled.
+- Default RT `tgw-rtb-019c5cb46f743be38`: `10.2.0.0/16` (→ production-vpc, propagated), `10.254.0.0/16` (→ mgmt-vpc, propagated), `172.16.0.0/16` (static blackhole). Second RT `tgw-rtb-0d2526e121b005499` (`Name=test`, non-default, unused for consumers).
+- Not present in repo Terraform → reference by data source, add-only.
