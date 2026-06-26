@@ -156,7 +156,7 @@ projects:
 
   - name: bedrock-privatelink
     dir: infra/bedrock-privatelink
-    terraform_version: v1.9.8
+    terraform_version: v1.9.6
     autoplan:
       enabled: true
       when_modified:
