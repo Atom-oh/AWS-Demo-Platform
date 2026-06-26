@@ -63,7 +63,7 @@ ap-northeast-2                                   us-east-1
   - ap-ne2 TGW RT (associated with the two consumer attachments): static routes `10.60.0.0/24 → use1 peering`, `10.61.0.0/24 → use2 peering`.
   - us-east-1 TGW RT: `10.2.0.0/16` and `10.254.0.0/16 → ap-ne2 peering`; endpoint-VPC CIDR propagated/static for local attachment.
   - us-east-2 TGW RT: same consumer routes via ap-ne2 peering.
-- Consumer **VPC subnet route tables**: ensure `10.60.0.0/24` and `10.61.0.0/24` route to the TGW. (Existing TGW attachment implies some TGW routes already present; add the two endpoint CIDRs.)
+- Consumer **VPC subnet route tables**: *verified 2026-06-26* — they carry **specific /16** TGW routes only (mgmt-vpc RTs → `10.2.0.0/16`, prod-vpc RTs → `10.254.0.0/16`), **not** a summarized `10.0.0.0/8`. So the endpoint CIDRs are not yet routed. This module adds granular `aws_route` entries (`10.60.0.0/24` + `10.61.0.0/24` → TGW) to each consumer RT that already has a TGW route, referenced by RT ID via data source (additive, never manages the RT). Target RTs: mgmt-vpc `rtb-0f1ad80608917e523`, `rtb-0fa4472d89b98c289`; prod-vpc `rtb-02abd8443cad569e5`, `rtb-0213d02507cd872fc`, `rtb-013d8a85e36d4e35f`, `rtb-01584f9e581848e4d` (6 RTs × 2 CIDRs = 12 routes).
 
 ### 4. DNS resolution (Route 53 Private Hosted Zones)
 Four PHZs, each **associated with both consumer VPCs** (`10.254` and `10.2`):
