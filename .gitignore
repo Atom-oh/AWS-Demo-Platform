@@ -49,3 +49,5 @@ __pycache__/
 *.log
 .claude/scheduled_tasks.lock
 .claude/co-agent-consensus/
+.claude/co-agent-panel.local.json
+.claude/co-agent-*.local.json
