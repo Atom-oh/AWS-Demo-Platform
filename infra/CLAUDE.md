@@ -14,7 +14,7 @@ Terraform code for AWS Demo Platform. Hub EKS cluster reference, Atlantis IAM, n
 - `modules/` — Reusable submodules (copied from `multi-region-architecture`).
 
 ## Rules
-- **Terraform 1.9.8** — do NOT use `use_lockfile` (TF 1.10+). Use `dynamodb_table = "multi-region-mall-terraform-locks"`.
+- **Terraform 1.9.6** (Atlantis `terraform_version` across all `atlantis.yaml` projects; v1.9.8 currently fails to download on an expired upstream HashiCorp GPG key) — do NOT use `use_lockfile` (TF 1.10+). Use `dynamodb_table = "multi-region-mall-terraform-locks"`.
 - **Shared backend** — bucket `multi-region-mall-terraform-state`. Each module uses a unique `key` (e.g., `aws-demo-platform/alb-internal.tfstate`).
 - **ACM cert** — always `data "aws_acm_certificate"` for `*.atomai.click`. Never create a new cert.
 - **No public LBs** — every LB SG is restricted to CF VPC Origin source SG + `10.0.0.0/8`.

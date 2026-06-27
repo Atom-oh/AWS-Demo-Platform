@@ -13,7 +13,7 @@ See `docs/superpowers/specs/2026-05-26-aws-demo-platform-design.md` for the full
 
 ## Tech Stack
 
-- **IaC** — Terraform 1.9.8, AWS provider, shared backend bucket `multi-region-mall-terraform-state`
+- **IaC** — Terraform 1.9.6 (Atlantis-pinned in `atlantis.yaml`; v1.9.8 currently fails to download on an expired upstream HashiCorp GPG key), AWS provider, shared backend bucket `multi-region-mall-terraform-state`
 - **Orchestration** — EKS (`mall-apne2-mgmt` hub cluster, spoke clusters `mall-apne2-az-{a,c}`)
 - **PR automation** — Atlantis (deployed on hub cluster with IRSA → cross-account `DemoPlatformTerraformer` assume-role)
 - **AI PR review** — `pr-review.yml` on the `aws-demo-platform-claude-arm` runner: a multi-AI panel (Codex via Bedrock + Kiro v3 `claude-opus-4.8`/`kimi-k2.5`/`glm-5` via `kiro-cli --v3`) feeds a **Claude Opus 4.8 chair** that synthesizes one review + `VERDICT` (fail-closed gate). Orchestration in `scripts/pr-review/`. Runner image built in-repo (`docker/actions-runner-claude/` + `runner-image.yml`), **rebuilt weekly** (Sun 03:00 KST cron, best-effort) and shipping baked Claude Code plugins (`codex@openai-codex`, `code-review@`/`github@claude-plugins-official`, Codex plugin pre-configured). Kiro auth via `KIRO_API_KEY` from Secrets Manager `/demo-platform/actions/AI-key` (ExternalSecret `ai-panel-keys`). Antigravity/`agy` is intentionally absent because headless API-key auth does not work. **Runner pods use the shared `claude-runner` SA → `mall-apne2-mgmt-ci-runner` role (Bedrock + bedrock-mantle) via EKS Pod Identity; this SA must be in `infra/eks-mgmt` `runner_service_accounts` or codex loses bedrock-mantle creds.** See [ADR-007](docs/decisions/ADR-007-multi-ai-pr-review-panel.md).
