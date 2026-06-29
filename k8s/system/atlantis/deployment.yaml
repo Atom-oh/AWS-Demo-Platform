@@ -19,7 +19,12 @@ spec:
           effect: NoSchedule
       containers:
         - name: atlantis
-          image: ghcr.io/runatlantis/atlantis:v0.30.0
+          # v0.44.1 (built 2026-06-26) ships the renewed HashiCorp GPG key
+          # (72D7468F, re-extended to 2030-03-01 per HCSEC-2026-03). v0.30.0 was
+          # built before the 2026-04-18 expiry, so its embedded key rejected
+          # terraform-version downloads with "openpgp: key expired" — only the
+          # image-bundled default (1.9.6) worked. See runatlantis/atlantis#6405.
+          image: ghcr.io/runatlantis/atlantis:v0.44.1
           args:
             - server
             - --repo-config=/etc/atlantis/repos.yaml
