@@ -72,7 +72,10 @@ data "aws_iam_policy_document" "atlantis_perms" {
       "cloudfront:*", "route53:*", "acm:*",
       "secretsmanager:*", "dynamodb:*", "logs:*", "sqs:*",
       "ecr:*", "ecs:*", "cognito-idp:*", "kms:*",
-      "rds:Describe*", "elasticache:Describe*", "kafka:Describe*"
+      "rds:Describe*", "elasticache:Describe*", "kafka:Describe*",
+      # ListTagsForResource is NOT covered by Describe*; the AWS provider calls it
+      # during plan refresh of these resources (DocumentDB uses the rds: namespace).
+      "rds:ListTagsForResource", "elasticache:ListTagsForResource", "kafka:ListTagsForResource"
     ]
     resources = ["*"]
   }
