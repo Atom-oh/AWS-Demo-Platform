@@ -14,42 +14,33 @@
 ARG ECR_BASE=ghcr.io/actions/actions-runner:latest
 FROM ${ECR_BASE}
 
-ARG NODE_VERSION=20.18.1
-ARG GH_VERSION=2.63.2
-ARG CLAUDE_CODE_VERSION=2.1.186
-ARG CODEX_RELEASE=0.142.0
-ARG KIRO_CLI_VERSION=2.8.1
-ARG GH_TARBALL_SHA256=0f31e2a8549c64b5c1679f0b99ce5e0dac7c91da9e86f6246adb8805b0f0b4bb
-ARG AWSCLI_ZIP_SHA256=df18f41e85b1305747a51b2da3886dd17ecde7412614068ed19905d6b245c69b
-ARG NODE_TARBALL_SHA256=73cd297378572e0bc9dfc187c5ec8cca8d43aee6a596c10ebea1ed5f9ec682b6
-ARG CLAUDE_INSTALL_SH_SHA256=005ec1a937f32dfbb74f9e810287bcb12cba2d5cae4c9277aa8c6364adbf1787
-ARG CODEX_INSTALL_SH_SHA256=73eb367137d151eabe89590a1d1a08a9c2fe2800a656bffac3c5707b62b42683
-ARG KIRO_CLI_AARCH64_ZIP_SHA256=bf60877634bfea9515672e558f80ec4dd592f20f7739f58327e4cc0ae7ee998d
+# 모든 도구는 벤더 latest 로 설치(버전·SHA 핀 없음). 주간 빌드의 목적이 최신 유지이므로 핀은 설계상 모순.
+ARG NODE_MAJOR=24
 ARG TARGETARCH=arm64
 
 USER root
 
-# 1) GitHub CLI(gh) — pr-review 워크플로의 diff/코멘트 upsert. 베이스에 curl/unzip 존재.
-RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${TARGETARCH}.tar.gz" -o /tmp/gh.tar.gz \
- && echo "${GH_TARBALL_SHA256}  /tmp/gh.tar.gz" | sha256sum -c - \
+# 1) GitHub CLI(gh) — pr-review 워크플로의 diff/코멘트 upsert. 베이스에 curl/unzip 존재. latest 릴리스.
+RUN GH_VERSION="$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest | grep -oP '\"tag_name\":\s*\"v\K[^\"]+')" \
+ && curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${TARGETARCH}.tar.gz" -o /tmp/gh.tar.gz \
  && tar -xzf /tmp/gh.tar.gz -C /tmp \
  && install -m 0755 "/tmp/gh_${GH_VERSION}_linux_${TARGETARCH}/bin/gh" /usr/local/bin/gh \
  && rm -rf /tmp/gh* \
  && gh --version
 
 # 2) AWS CLI v2 — Bedrock/ECR (러너 노드 IAM 자격증명 사용).
+# 버전 없는 latest URL 만 안정 제공 → SHA 핀 불가(릴리스마다 stale). latest 설치.
 RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o /tmp/awscliv2.zip \
- && echo "${AWSCLI_ZIP_SHA256}  /tmp/awscliv2.zip" | sha256sum -c - \
  && unzip -q /tmp/awscliv2.zip -d /tmp \
  && /tmp/aws/install \
  && rm -rf /tmp/aws /tmp/awscliv2.zip \
  && aws --version
 
 # 3) Node.js — codex 플러그인 companion(codex-companion.mjs, build-time configure 및 인터랙티브
-#    `/codex:*` 슬래시 커맨드)이 요구. 공식 바이너리(결정적). claude-code 는 npm 미사용(아래 curl).
+#    `/codex:*` 슬래시 커맨드)이 요구. stable 최신(현재 LTS 라인 v24)의 latest 패치를 설치.
 # NOTE: base 이미지(actions-runner, Ubuntu noble)에는 xz 가 없다 → .tar.gz(gzip, 기본 포함)로 받는다.
-RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${TARGETARCH}.tar.gz" -o /tmp/node.tar.gz \
- && echo "${NODE_TARBALL_SHA256}  /tmp/node.tar.gz" | sha256sum -c - \
+RUN NODE_TARBALL="$(curl -fsSL "https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/" | grep -oP "node-v[0-9.]+-linux-${TARGETARCH}\.tar\.gz" | head -1)" \
+ && curl -fsSL "https://nodejs.org/dist/latest-v${NODE_MAJOR}.x/${NODE_TARBALL}" -o /tmp/node.tar.gz \
  && tar -xzf /tmp/node.tar.gz -C /usr/local --strip-components=1 \
  && rm /tmp/node.tar.gz \
  && node --version
@@ -61,31 +52,27 @@ USER runner
 WORKDIR /home/runner
 
 # 4) claude-code — 공식 네이티브 설치(~/.local/bin, npm 불필요). 의장(synthesize.sh)이 `claude -p` 로 사용.
+# install.sh 는 버전 없는 latest 스크립트 → SHA 핀 불가(vendor 업데이트마다 stale). latest claude 설치.
 RUN curl -fsSL https://claude.ai/install.sh -o /tmp/claude-install.sh \
- && echo "${CLAUDE_INSTALL_SH_SHA256}  /tmp/claude-install.sh" | sha256sum -c - \
- && bash /tmp/claude-install.sh "$CLAUDE_CODE_VERSION" \
+ && bash /tmp/claude-install.sh \
  && rm /tmp/claude-install.sh \
- && claude --version \
- && claude --version | grep -F "$CLAUDE_CODE_VERSION"
+ && claude --version
 
 # 5) Codex — Bedrock 네이티브(config.toml). 공식 standalone 설치(~/.local/bin).
+# install.sh 는 버전 없는 latest 스크립트 → SHA 핀 불가(vendor 업데이트마다 stale). latest codex 설치.
 RUN curl -fsSL https://chatgpt.com/codex/install.sh -o /tmp/codex-install.sh \
- && echo "${CODEX_INSTALL_SH_SHA256}  /tmp/codex-install.sh" | sha256sum -c - \
- && CODEX_NON_INTERACTIVE=1 sh /tmp/codex-install.sh --release "$CODEX_RELEASE" \
+ && CODEX_NON_INTERACTIVE=1 sh /tmp/codex-install.sh \
  && rm /tmp/codex-install.sh \
- && codex --version \
- && codex --version | grep -F "$CODEX_RELEASE"
+ && codex --version
 
-# 6) Kiro CLI — 바이너리명은 정확히 `kiro-cli`. stable manifest 의 ARM64 zip + sha256 을 고정.
+# 6) Kiro CLI — 바이너리명은 정확히 `kiro-cli`. stable/latest 채널의 ARM64 zip 을 설치(latest).
 # 패널은 v3 하니스로 동작(run-panel.sh: `kiro-cli --v3 chat`)하므로 실제 사용 플래그도 빌드에서 검증한다.
 RUN test "$TARGETARCH" = "arm64" \
- && curl -fsSL "https://prod.download.cli.kiro.dev/stable/${KIRO_CLI_VERSION}/kirocli-aarch64-linux.zip" -o /tmp/kirocli.zip \
- && echo "${KIRO_CLI_AARCH64_ZIP_SHA256}  /tmp/kirocli.zip" | sha256sum -c - \
+ && curl -fsSL "https://prod.download.cli.kiro.dev/stable/latest/kirocli-aarch64-linux.zip" -o /tmp/kirocli.zip \
  && unzip -q /tmp/kirocli.zip -d /tmp/kirocli \
  && KIRO_CLI_SKIP_SETUP=1 /tmp/kirocli/kirocli/install.sh \
  && rm -rf /tmp/kirocli /tmp/kirocli.zip \
  && kiro-cli --version \
- && kiro-cli --version | grep -F "$KIRO_CLI_VERSION" \
  && kiro-cli --v3 chat --help > /tmp/kiro-v3-chat-help \
  && grep -F -- "--no-interactive" /tmp/kiro-v3-chat-help \
  && grep -F -- "--trust-tools" /tmp/kiro-v3-chat-help \
