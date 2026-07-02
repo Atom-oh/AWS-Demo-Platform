@@ -20,6 +20,12 @@ ARG TARGETARCH=arm64
 
 USER root
 
+# 0) bubblewrap — codex sandbox 전제(없으면 번들 fallback + 경고). base(Ubuntu noble)에 apt 존재.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends bubblewrap \
+ && rm -rf /var/lib/apt/lists/* \
+ && bwrap --version
+
 # 1) GitHub CLI(gh) — pr-review 워크플로의 diff/코멘트 upsert. 베이스에 curl/unzip 존재. latest 릴리스.
 RUN GH_VERSION="$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest | grep -oP '\"tag_name\":\s*\"v\K[^\"]+')" \
  && curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${TARGETARCH}.tar.gz" -o /tmp/gh.tar.gz \
