@@ -1,7 +1,7 @@
 # ADR-008: Cross-region private Bedrock connectivity via TGW + PrivateLink
 
 ## Status
-Accepted (2026-06-26)
+Superseded by ADR-009 (2026-07-05)
 
 ## Context
 The multi-AI PR review panel and interactive tooling call Bedrock in us-east-1/us-east-2

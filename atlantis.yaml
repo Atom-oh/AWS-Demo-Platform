@@ -153,14 +153,3 @@ projects:
         - "../../atlantis.yaml"
     apply_requirements:
       - mergeable
-
-  - name: bedrock-privatelink
-    dir: infra/bedrock-privatelink
-    terraform_version: v1.9.6
-    autoplan:
-      enabled: true
-      when_modified:
-        - "*.tf"
-        - "../../atlantis.yaml"
-    apply_requirements:
-      - mergeable
