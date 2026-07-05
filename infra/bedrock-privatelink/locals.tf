@@ -8,11 +8,15 @@ locals {
   ]
   consumer_cidrs = ["10.254.0.0/16", "10.2.0.0/16"]
 
-  # Consumer subnet route tables that already route to the TGW (need endpoint-CIDR routes)
+  # Consumer subnet route tables that already route to the TGW (need endpoint-CIDR routes).
+  # prod-vpc must cover all 3 private AZ route tables (2a/2b/2c) — Karpenter's runner-arm/
+  # runner-x86 NodePools select any Tier=private subnet, not just the managed nodegroup's
+  # 2a/2c, so a runner pod landing in 2b silently lost the TGW route to the Bedrock endpoints.
   consumer_route_table_ids = [
     "rtb-0f1ad80608917e523", "rtb-0fa4472d89b98c289", # mgmt-vpc
-    "rtb-02abd8443cad569e5", "rtb-0213d02507cd872fc",
-    "rtb-013d8a85e36d4e35f", "rtb-01584f9e581848e4d", # prod-vpc
+    "rtb-02abd8443cad569e5", "rtb-0213d02507cd872fc", # prod-vpc 2a
+    "rtb-013d8a85e36d4e35f", "rtb-01584f9e581848e4d", # prod-vpc 2c
+    "rtb-029dc414790f137c3",                          # prod-vpc 2b
   ]
 
   endpoint_vpc_cidr = { use1 = "10.60.0.0/24", use2 = "10.61.0.0/24" }
