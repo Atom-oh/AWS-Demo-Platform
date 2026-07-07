@@ -19,6 +19,8 @@ spec:
         repoURL: ghcr.io/actions/actions-runner-controller-charts
         targetRevision: 0.10.1
         helm:
+          # Application name '{{name}}'-suffixed is 61 chars; Helm release names cap at 53.
+          releaseName: 'runner-claude-arm-ccud-{{name}}'
           valuesObject:
             githubConfigUrl: https://github.com/Atom-oh/claude-code-usage-dashboard
             githubConfigSecret: github-app-secret
