@@ -250,3 +250,5 @@ them in so the panel actually exercises the plugins:
 와 중복 → 고유 가치는 code-review 방법론·인터랙티브 사용.
 
 See `docs/superpowers/specs/2026-06-23-runner-weekly-rebuild-plugins-design.md`.
+
+See [ADR-010](ADR-010-bedrock-account-data-retention-for-fable-mythos.md) for the Bedrock account-level data retention requirement behind the Fable 5 chair model.
