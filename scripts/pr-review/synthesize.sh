@@ -19,9 +19,13 @@ SCRUB_TMP="$WORK/scrub-cell.tmp"
 while IFS= read -r f; do
   [ -s "$f" ] || continue
   # 크리덴셜 스크럽(마지막 방어선) — Kiro fs_read 잔여 위험은 그 tool grant 자체를 제거해
-  # 구조적으로 닫혔다(ADR-012, amends ADR-007); 이 스크럽은 이제 일반적인 defense-in-depth다. 캡 적용
-  # 전체 스크럽 후 캡을 적용해야 잘린 경계에서 패턴이 쪼개져 탐지를 피하는 걸 막고,
-  # 절단 여부도 스크럽된 길이 기준으로 정확히 판단할 수 있다.
+  # **Kiro 에 한해서만** 구조적으로 닫혔다(ADR-012, amends ADR-007). codex(`-s read-only`
+  # 샌드박스도 실제 파일 read 가능)와 claude-self 패널원(`Read`/`Grep`/`Glob` 허용)은
+  # 여전히 같은 untrusted diff 를 상대로 진짜 파일-read 능력을 갖고 있어, 이 스크럽 루프가
+  # 그 둘의 셀 출력에도 적용되는 지금, 이 둘에게는 이 스크럽이 여전히 주 방어선이다(부수적
+  # defense-in-depth 가 아님 — `lib.sh` 주석·ADR-012 Consequences와 동일하게 정정, PR #62
+  # 리뷰 L5 MAJOR). 캡 적용 전 전체 스크럽 후 캡을 적용해야 잘린 경계에서 패턴이 쪼개져
+  # 탐지를 피하는 걸 막고, 절단 여부도 스크럽된 길이 기준으로 정확히 판단할 수 있다.
   scrub_secrets < "$f" > "$SCRUB_TMP"
   CELL="$(head -c "$PANEL_CELL_CAP" "$SCRUB_TMP")"
   SCRUBBED_LEN="$(wc -c < "$SCRUB_TMP")"

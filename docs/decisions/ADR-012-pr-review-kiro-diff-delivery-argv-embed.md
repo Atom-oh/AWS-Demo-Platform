@@ -16,9 +16,10 @@ still the text in ADR-007's original body) and its unstated successor `--trust-t
 (the lens×model matrix upgrade that introduced `fs_read` landed without a documented change
 in this repo at the time). ADR-007's core decision (a multi-AI panel with a Claude chair)
 and ADR-011 (roster `kimi-k2.5`→`gpt-5.5`, drop `--v3` — the live source of truth for the
-Kiro roster/CLI flags, which landed on `main` shortly before this ADR was drafted) are both
-unaffected and remain in effect: ADR-011's own Decision changed `--trust-tools=fs_read` to
-the *tool name*, not whether Kiro gets any tool grant at all, which is the narrower thing
+Kiro roster/`--v3` decision specifically, which landed on `main` shortly before this ADR
+was drafted) are both unaffected and remain in effect: ADR-011's own Decision changed
+`--trust-tools=fs_read` to the *tool name*, not whether Kiro gets any tool grant at all,
+which is the narrower thing
 this ADR changes.
 
 ## Context
@@ -120,8 +121,8 @@ there.
 승인됨 (2026-07-08) — ADR-007의 Kiro 툴-그랜트 세부사항(`--trust-tools=read,grep`, ADR-007
 원문 본문에 아직 그대로 있음)과 그 뒤를 이었으나 당시엔 별도 기록 없이 도입된
 `--trust-tools=fs_read`를 개정한다. ADR-007의 핵심 결정(Claude 의장 + 멀티-AI 패널)과
-ADR-011(로스터 `kimi-k2.5`→`gpt-5.5`, `--v3` 제거 — Kiro 로스터/CLI 플래그의 현행
-source of truth이며, 이 ADR을 작성하기 직전에 main에 머지됨)은 둘 다 영향받지 않고
+ADR-011(로스터 `kimi-k2.5`→`gpt-5.5`, `--v3` 제거 — Kiro 로스터/`--v3` 결정 특정의
+현행 source of truth이며, 이 ADR을 작성하기 직전에 main에 머지됨)은 둘 다 영향받지 않고
 그대로 유효하다: ADR-011 자신의 Decision은 `--trust-tools=fs_read`의 *툴 이름*을
 바꿨을 뿐, Kiro에 아예 툴을 안 주느냐는 이 ADR이 다루는 더 좁은 범위와는 별개다.
 
