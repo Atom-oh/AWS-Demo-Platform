@@ -6,6 +6,7 @@ resources:
   - ../karpenter/runner-x86-nodepool.yaml
   - ../karpenter/runner-arm-ec2nodeclass.yaml
   - ../karpenter/runner-arm-nodepool.yaml
+  - ../karpenter/runner-docs-nodepool.yaml
   - ../karpenter/platform-ec2nodeclass.yaml
   - ../karpenter/platform-nodepool.yaml
 
