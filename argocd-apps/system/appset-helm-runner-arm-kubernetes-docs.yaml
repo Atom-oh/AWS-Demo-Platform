@@ -46,10 +46,13 @@ spec:
                 nodeSelector:
                   node-pool: platform
             # No DinD sidecar: VitePress frontend build has no docker step.
+            # Dedicated r8g.large node (16GiB) via runner-docs-arm NodePool — the
+            # 1800m/3500Mi shared ci-runner pool is too small for this build.
             template:
               spec:
                 nodeSelector:
                   kubernetes.io/arch: arm64
+                  node-pool: runner-docs-arm
                 containers:
                   - name: runner
                     image: ghcr.io/actions/actions-runner:latest
@@ -57,10 +60,10 @@ spec:
                     resources:
                       requests:
                         cpu: "1800m"
-                        memory: "10Gi"
+                        memory: "14Gi"
                 tolerations:
                   - key: workload-type
-                    value: ci-runner
+                    value: ci-runner-docs
                     effect: NoSchedule
       destination:
         server: '{{server}}'
