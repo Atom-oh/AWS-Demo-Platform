@@ -167,8 +167,12 @@ jobs:
         run: |
           # 마지막 non-empty 줄만 신뢰 — 본문 어딘가(패널 인용 등)에 "VERDICT: FAIL" 문자열이
           # 나타나도 실제 판정 줄이 아니면 오검출되지 않도록. verdict_count==1 로 중복/부재도 배제.
-          last_line="$(tail -n1 /tmp/review.md)"
-          verdict_count="$(grep -c '^VERDICT:' /tmp/review.md 2>/dev/null)"
+          # awk 로 trailing 빈 줄을 건너뛴다 — synthesize.sh:112-115 의 chair_valid() 와
+          # 동일한 정규화라야 "chair_valid는 통과, gate는 오차단" 불일치가 생기지 않는다.
+          last_line="$(awk 'NF{last=$0} END{print last}' /tmp/review.md)"
+          # grep -c 는 0-match 시 exit 1 — errexit(set -e) 하에서 command substitution
+          # 실패로 스텝 자체가 죽는다(fail-closed else 분기 도달 불가). || true 로 방지.
+          verdict_count="$(grep -c '^VERDICT:' /tmp/review.md || true)"
           if [ "$last_line" = "VERDICT: FAIL" ]; then
             echo "result=fail" >> "$GITHUB_OUTPUT"
             echo "reason=VERDICT: FAIL" >> "$GITHUB_OUTPUT"
@@ -194,8 +198,15 @@ jobs:
           else
             STATUS_BADGE="**Status: PASSED** — No blocking issues found"
           fi
-          # 마지막 VERDICT 라인은 코멘트에서 제거 (gate 신호용)
-          sed '$ { /^VERDICT:/d }' /tmp/review.md > /tmp/review-clean.md
+          # 마지막 non-empty 줄의 VERDICT 라인만 코멘트에서 제거 (gate 신호용) —
+          # 위 gate 스텝의 awk 정규화와 동일 기준: trailing 빈 줄이 있어도 정확히
+          # 걸러내야 VERDICT 라인이 PR 코멘트에 남는 사고를 막는다.
+          last_verdict_ln="$(awk '/^VERDICT:/{ln=NR} END{print ln+0}' /tmp/review.md)"
+          if [ "$last_verdict_ln" -gt 0 ]; then
+            sed "${last_verdict_ln}d" /tmp/review.md > /tmp/review-clean.md
+          else
+            cp /tmp/review.md /tmp/review-clean.md
+          fi
           {
             echo "$MARKER"
             echo "## 🤖 AI Code Review (${chair_used:-Claude Fable 5} chair · lens×model matrix: Codex + Kiro x3 + Claude self-review, L2-L5)"
