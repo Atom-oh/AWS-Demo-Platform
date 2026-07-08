@@ -73,7 +73,10 @@ RUN curl -fsSL https://chatgpt.com/codex/install.sh -o /tmp/codex-install.sh \
 
 # 6) Kiro CLI — 바이너리명은 정확히 `kiro-cli`. stable/latest 채널의 ARM64 zip 을 설치(latest).
 # `--v3` 는 더 좁은 모델 카탈로그로 라우팅해 gpt-5.5 를 거부한다(ADR-011) — run-panel.sh 는
-# `kiro-cli chat`(v3 없이)로 호출하므로 실제 사용 플래그를 빌드에서 검증한다.
+# `kiro-cli chat`(v3 없이)로 호출하므로 실제 사용 플래그를 빌드에서 검증한다. 플래그 존재
+# 여부만으로는 부족 — `--trust-tools=`(빈 값)가 "툴 미부여"를 의미하는 시맨틱 자체를
+# ADR-012가 exfiltration 수정의 근거로 삼으므로, 그 문서화된 문구까지 검증해 kiro-cli 가
+# 주간 재빌드로 이 의미를 조용히 바꿔도 빌드가 fail-closed 하게 한다.
 RUN test "$TARGETARCH" = "arm64" \
  && curl -fsSL "https://prod.download.cli.kiro.dev/stable/latest/kirocli-aarch64-linux.zip" -o /tmp/kirocli.zip \
  && unzip -q /tmp/kirocli.zip -d /tmp/kirocli \
@@ -85,6 +88,7 @@ RUN test "$TARGETARCH" = "arm64" \
  && grep -F -- "--no-interactive" /tmp/kiro-chat-help \
  && grep -F -- "--trust-tools" /tmp/kiro-chat-help \
  && grep -F -- "--wrap" /tmp/kiro-chat-help \
+ && grep -qF "trust no tools: '--trust-tools='" /tmp/kiro-chat-help \
  && rm /tmp/kiro-chat-help
 
 # 7) Codex Bedrock 설정 baking (us-east-1, openai.gpt-5.5). 러너 노드 IAM 자격증명 사용.

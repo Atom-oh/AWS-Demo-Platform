@@ -29,15 +29,16 @@ record_result() {
   rm -f "$slot.rc"
 }
 
-# 자격증명 패턴 스크럽 — 마지막 방어선(last line of defense), 예방이 아님. Kiro fs_read
-# 잔여 위험은 그 tool grant 자체를 제거해 구조적으로 닫혔다(ADR-012, amends ADR-007) —
-# 이 스크럽은
-# 이제 일반적인 defense-in-depth(다른 경로로 우연히 크리덴셜성 값이 셀 출력에 섞여 나오는
-# 경우)이며, 셀 출력을 체어에 넘기기 전에 흔한 크리덴셜 포맷을 정규식으로 치환한다. 패턴은 co-agent 의
-# `consensus_hooks.py::_SECRET_RE`(AWS/GitHub/Slack/OpenAI·Anthropic/Google + generic
-# key=value)를 재사용하고, EKS Pod Identity 토큰(고정 경로 파일의 값 자체가 JWT 포맷)
-# 탐지를 추가했다. 절대경로 read 자체를 막지는 못하므로(스크럽은 값이 셀 출력에 실제로
-# 나타난 *뒤*에만 작동) 잔여 위험은 그대로 남는다 — ADR-002 명시.
+# 자격증명 패턴 스크럽 — 마지막 방어선(last line of defense), 예방이 아님. Kiro 의
+# 절대경로 read 경로는 그 tool grant 자체를 제거해 **Kiro 에 한해** 구조적으로 닫혔다
+# (ADR-012, amends ADR-007) — 하지만 codex(`-s read-only` 샌드박스도 실제 파일 read
+# 가능)와 claude-self 패널원(`Read`/`Grep`/`Glob` 허용)은 여전히 같은 untrusted diff 를
+# 상대로 진짜 파일-read 능력을 갖고 있어, 이 둘에게는 이 스크럽이 지금도 주 방어선이다
+# (AWS-Demo-Platform PR #62 리뷰 L3 MAJOR — Kiro 경로가 닫혔다고 전체 스크럽을 부수적
+# defense-in-depth로 강등 서술한 것을 정정). 셀 출력을 체어에 넘기기 전에 흔한 크리덴셜
+# 포맷을 정규식으로 치환한다. 패턴은 co-agent 의 `consensus_hooks.py::_SECRET_RE`(AWS/
+# GitHub/Slack/OpenAI·Anthropic/Google + generic key=value)를 재사용하고, EKS Pod
+# Identity 토큰(고정 경로 파일의 값 자체가 JWT 포맷) 탐지를 추가했다.
 scrub_secrets() {
   # PEM 은 여러 줄에 걸치므로 line-oriented sed 로는 본문을 못 지운다(헤더 줄만 매칭)
   # — awk 상태기계로 BEGIN..END 블록 전체를 마커 한 줄로 치환(첫 스테이지, 구조적 스크럽).

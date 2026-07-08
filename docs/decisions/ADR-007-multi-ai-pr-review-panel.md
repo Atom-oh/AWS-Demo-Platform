@@ -12,7 +12,10 @@
 ## Status
 Accepted (2026-06-14). Superseded in part by [ADR-011](ADR-011-pr-review-kiro-roster-gpt55-drop-v3.md)
 (Kiro roster `kimi-k2.5` → `gpt-5.5`, drop `--v3`) — this document's roster/flag
-references below are historical.
+references below are historical. Also amended in part by
+[ADR-012](ADR-012-pr-review-kiro-diff-delivery-argv-embed.md) (Kiro tool-grant detail only:
+`--trust-tools=read,grep`/`fs_read` → `--trust-tools=` + capped argv-embedded diff. The
+panel/chair decision and this ADR's own later inline updates below are unaffected by either.)
 
 ## Context
 
@@ -94,7 +97,10 @@ prior Claude-solo behavior.
 ## 상태
 승인됨 (2026-06-14). [ADR-011](ADR-011-pr-review-kiro-roster-gpt55-drop-v3.md)(Kiro
 로스터 `kimi-k2.5` → `gpt-5.5`, `--v3` 제거)로 일부 대체됨 — 아래 로스터/플래그 언급은
-역사적 기록.
+역사적 기록. [ADR-012](ADR-012-pr-review-kiro-diff-delivery-argv-embed.md)가 일부 추가
+개정(Kiro 툴-그랜트 세부사항만: `--trust-tools=read,grep`/`fs_read` → `--trust-tools=` +
+캡핑된 argv-embed diff). 패널/의장 결정과 아래 이 ADR 자신의 후속 인라인 업데이트는 둘
+다 영향 없음.
 
 ## 배경
 
