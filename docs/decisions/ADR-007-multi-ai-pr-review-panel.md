@@ -10,7 +10,9 @@
 # English
 
 ## Status
-Accepted (2026-06-14)
+Accepted (2026-06-14). Superseded in part by [ADR-011](ADR-011-pr-review-kiro-roster-gpt55-drop-v3.md)
+(Kiro roster `kimi-k2.5` → `gpt-5.5`, drop `--v3`) — this document's roster/flag
+references below are historical.
 
 ## Context
 
@@ -90,7 +92,9 @@ prior Claude-solo behavior.
 # 한국어
 
 ## 상태
-승인됨 (2026-06-14)
+승인됨 (2026-06-14). [ADR-011](ADR-011-pr-review-kiro-roster-gpt55-drop-v3.md)(Kiro
+로스터 `kimi-k2.5` → `gpt-5.5`, `--v3` 제거)로 일부 대체됨 — 아래 로스터/플래그 언급은
+역사적 기록.
 
 ## 배경
 

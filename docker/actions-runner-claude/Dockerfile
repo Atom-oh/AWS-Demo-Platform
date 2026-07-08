@@ -10,7 +10,7 @@
 # 베이스 미포함(여기서 설치): gh, aws-cli v2, node, claude-code, codex, kiro-cli, Claude Code 플러그인.
 #
 # 검증 필요(빌드 후): ECR PTC(ghcr) 규칙/자격증명, gha-ecr-push 역할의 ghcr/actions/* import + actions-runner-claude
-#   push 권한, `kiro-cli --v3` 플래그.
+#   push 권한, `kiro-cli chat` 플래그(--v3 없음, ADR-011).
 ARG ECR_BASE=ghcr.io/actions/actions-runner:latest
 FROM ${ECR_BASE}
 
@@ -72,18 +72,20 @@ RUN curl -fsSL https://chatgpt.com/codex/install.sh -o /tmp/codex-install.sh \
  && codex --version
 
 # 6) Kiro CLI — 바이너리명은 정확히 `kiro-cli`. stable/latest 채널의 ARM64 zip 을 설치(latest).
-# 패널은 v3 하니스로 동작(run-panel.sh: `kiro-cli --v3 chat`)하므로 실제 사용 플래그도 빌드에서 검증한다.
+# `--v3` 는 더 좁은 모델 카탈로그로 라우팅해 gpt-5.5 를 거부한다(ADR-011) — run-panel.sh 는
+# `kiro-cli chat`(v3 없이)로 호출하므로 실제 사용 플래그를 빌드에서 검증한다.
 RUN test "$TARGETARCH" = "arm64" \
  && curl -fsSL "https://prod.download.cli.kiro.dev/stable/latest/kirocli-aarch64-linux.zip" -o /tmp/kirocli.zip \
  && unzip -q /tmp/kirocli.zip -d /tmp/kirocli \
  && KIRO_CLI_SKIP_SETUP=1 /tmp/kirocli/kirocli/install.sh \
  && rm -rf /tmp/kirocli /tmp/kirocli.zip \
  && kiro-cli --version \
- && kiro-cli --v3 chat --help > /tmp/kiro-v3-chat-help \
- && grep -F -- "--no-interactive" /tmp/kiro-v3-chat-help \
- && grep -F -- "--trust-tools" /tmp/kiro-v3-chat-help \
- && grep -F -- "--wrap" /tmp/kiro-v3-chat-help \
- && rm /tmp/kiro-v3-chat-help
+ && kiro-cli chat --help > /tmp/kiro-chat-help \
+ && grep -F -- "--mode" /tmp/kiro-chat-help \
+ && grep -F -- "--no-interactive" /tmp/kiro-chat-help \
+ && grep -F -- "--trust-tools" /tmp/kiro-chat-help \
+ && grep -F -- "--wrap" /tmp/kiro-chat-help \
+ && rm /tmp/kiro-chat-help
 
 # 7) Codex Bedrock 설정 baking (us-east-1, openai.gpt-5.5). 러너 노드 IAM 자격증명 사용.
 COPY --chown=runner:runner config.toml /home/runner/.codex/config.toml
