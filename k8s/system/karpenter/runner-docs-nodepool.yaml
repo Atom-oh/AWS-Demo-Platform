@@ -28,7 +28,10 @@ spec:
         - key: karpenter.k8s.aws/instance-size
           operator: In
           values:
-            - large
+            # large (16GiB) can't fit a 14Gi pod request once kubelet
+            # reservations, eviction buffer, and daemonset overhead are
+            # subtracted -- confirmed via FailedScheduling on this pool.
+            - xlarge
       taints:
         - key: workload-type
           value: ci-runner-docs
