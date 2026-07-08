@@ -13,3 +13,4 @@ resources:
   - runner-x86-nodepool.yaml
   - runner-arm-ec2nodeclass.yaml
   - runner-arm-nodepool.yaml
+  - runner-docs-nodepool.yaml
