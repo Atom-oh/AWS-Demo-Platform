@@ -19,7 +19,8 @@ SCRUB_TMP="$WORK/scrub-cell.tmp"
 while IFS= read -r f; do
   [ -s "$f" ] || continue
   # 크리덴셜 스크럽(마지막 방어선) — Kiro fs_read 잔여 위험은 그 tool grant 자체를 제거해
-  # 구조적으로 닫혔다(ADR-013 계열 수정); 이 스크럽은 이제 일반적인 defense-in-depth다.   # 캡 적용 전체 스크럽 후 캡을 적용해야 잘린 경계에서 패턴이 쪼개져 탐지를 피하는 걸 막고,
+  # 구조적으로 닫혔다(ADR-012, amends ADR-007); 이 스크럽은 이제 일반적인 defense-in-depth다. 캡 적용
+  # 전체 스크럽 후 캡을 적용해야 잘린 경계에서 패턴이 쪼개져 탐지를 피하는 걸 막고,
   # 절단 여부도 스크럽된 길이 기준으로 정확히 판단할 수 있다.
   scrub_secrets < "$f" > "$SCRUB_TMP"
   CELL="$(head -c "$PANEL_CELL_CAP" "$SCRUB_TMP")"
@@ -145,18 +146,20 @@ if [ -s "$WORK/degraded-models.txt" ]; then
 fi
 
 # Kiro diff truncation 가시화 — 대형 diff 는 run-panel.sh 의 KIRO_DIFF_CAP 을 넘으면 Kiro
-# 셀에 prefix 만 전달된다. truncation 은 VERDICT 를 강제하진 않되(codex 는 전체 diff 를
-# 계속 봄) 신호 없이 넘기면 "Kiro 셀들이 diff 뒷부분은 못 본 채 정상 응답으로 집계됐다"는
-# 사실이 리뷰에서 안 보인다.
+# 셀에 prefix 만 전달된다. truncation 은 VERDICT 를 강제하진 않되(codex·claude-self 는
+# stdin 으로 전체 diff 를 계속 봄) 신호 없이 넘기면 "Kiro 셀들이 diff 뒷부분은 못 본 채
+# 정상 응답으로 집계됐다"는 사실이 리뷰에서 안 보인다.
 if [ -f "$WORK/kiro-diff-truncated.flag" ]; then
-  { echo "✂️ **Kiro diff truncated**: diff 가 KIRO_DIFF_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함 — codex 는 전체 diff 를 봤으므로 뒷부분 이슈는 codex 단일 벤더 커버리지."
+  { echo "✂️ **Kiro diff truncated**: diff 가 KIRO_DIFF_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함 — codex·claude-self 는 stdin 으로 전체 diff 를 봤으므로(Kiro 만 argv-capped) 뒷부분 이슈는 그 2개 벤더 커버리지."
     echo ""
     cat "$OUT"
   } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
 fi
 
-# 심각도 상향(run-panel.sh 의 coverage-severe.flag) — degraded 모델이 (전체-1)개 이상이면
-# 살아남은 벤더가 최대 1개뿐이라 "lens당 교차확인"이 성립하지 않는다. 이 경우는 경고만으로
+# 심각도 상향(run-panel.sh 의 coverage-severe.flag) — 3개 벤더(codex/kiro/claude-self)
+# 중 2개(=전체-1) 이상이 완전히 죽으면 살아남은 벤더가 최대 1개뿐이라 "lens당 교차확인"이
+# 성립하지 않는다(DEAD_VENDORS >= 2, run-panel.sh 참조 — 모델 개수 축이 아니라 벤더 축).
+# 이 경우는 경고만으로
 # 끝내지 않고 체어의 판정과 무관하게 VERDICT 를 강제 FAIL 한다(fail-closed 계약 보존).
 # VERDICT 는 파일의 마지막 줄이어야 하므로 기존 VERDICT 줄을 지우고 새로 붙인다. GNU sed 의
 # `0,/re/d` 는 패턴이 한 번도 매치하지 않으면 파일 전체를 지우므로, 매치가 있을 때만
