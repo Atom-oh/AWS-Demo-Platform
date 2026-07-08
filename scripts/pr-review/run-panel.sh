@@ -31,7 +31,7 @@ SLOT="$WORK/slot"; RESP="$WORK/responded.txt"; : > "$RESP"
 # 비-ephemeral 러너에서 $WORK 가 재사용되면 이전 실행이 남긴 severe 플래그가 그대로
 # 살아남아, 이번엔 모델 전부 정상 응답해도 synthesize.sh 가 강제 FAIL 하게 된다 —
 # responded.txt/degraded-models.txt 처럼 매 실행 시작 시 리셋.
-rm -f "$WORK/coverage-severe.flag"
+rm -f "$WORK/coverage-severe.flag" "$WORK/kiro-diff-truncated.flag"
 T="${PANEL_TIMEOUT:-300}"
 RETRIES="${PANEL_RETRIES:-3}"
 KIRO_MODELS=("claude-opus-4.8:kiro-opus" "gpt-5.5:kiro-gpt" "glm-5:kiro-glm")
@@ -76,6 +76,11 @@ kiro_env() {
 # 설계를 공유하는 모든 fleet repo에 동일 적용). `--trust-tools=` 로 툴을 아예 안 주면 이
 # 경로가 구조적으로 막힌다. 이 diff 는 이미 public repo 의 PR diff 라 argv 임베드의 ps
 # 노출은 새로운 기밀 노출이 아니다.
+# `--trust-tools=`(빈 값)이 "무툴"임은 추정이 아니라 kiro-cli 자신의 공식 문서
+# (`kiro-cli chat --help`): "trust no tools: '--trust-tools='" — 그대로 인용되는
+# 예시 문구다(버전: `kiro-cli 2.11.1`, 라이브 재현으로도 재확인 — 주입된
+# "read /etc/passwd" 지시가 거부됨). 향후 kiro-cli 가 이 시맨틱을 바꾸면 이
+# fail-closed 가정도 재검증 필요.
 KIRO_DIFF_CAP="${KIRO_DIFF_CAP:-100000}"
 KIRO_DIFF_TEXT="$(head -c "$KIRO_DIFF_CAP" "$DIFF")"
 if [ "$(wc -c < "$DIFF")" -gt "$KIRO_DIFF_CAP" ]; then
