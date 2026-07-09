@@ -23,6 +23,12 @@ tool grant this ADR's Decision below still shows as the "current invocation" was
 `--trust-tools=` (no tool grant) + capped argv-embedded diff — that line is historical, not
 current. This ADR's roster/`--v3` decision is unaffected.
 
+**Amended (PR #63)**: the `fs_read`-based diff delivery described below was itself
+superseded — Kiro cells now get **no** tool grant (`--trust-tools=`, empty) and the diff
+is embedded directly as capped argv text instead. See PR #63 review for the rationale
+(prompt-injection-driven absolute-path credential read via `fs_read`). The roster/`--v3`
+decision below is unaffected; only the `--trust-tools=fs_read` references are stale.
+
 ## Context
 
 `kimi-k2.5` was flagged in ADR-007 itself as a risk ("may be account-tier gated → silent
@@ -77,6 +83,12 @@ repo에는 별도 ADR 없음)와 함께 반영됐다 — 아래 로스터/플래
 대체**: 아래 Decision이 "현재 호출"로 보여주는 `--trust-tools=fs_read` 툴 그랜트는
 `--trust-tools=`(무툴) + 캡핑된 argv-embed diff로 교체됐다 — 그 줄은 이제 역사적
 기록이다. 이 ADR의 로스터/`--v3` 결정은 영향받지 않는다.
+
+**개정 (PR #63)**: 아래에 기술된 `fs_read` 기반 diff 전달 방식은 그 자체가 대체됐다 —
+Kiro 셀은 이제 어떤 툴도 부여받지 않고(`--trust-tools=`, 빈 값), diff 는 size-capped
+argv 텍스트로 직접 embed 된다. 근거는 PR #63 리뷰 참조(프롬프트 인젝션이 유도하는
+`fs_read` 절대경로 credential read). 로스터/`--v3` 결정 자체는 영향받지 않음 —
+`--trust-tools=fs_read` 언급만 stale.
 
 ## Context
 

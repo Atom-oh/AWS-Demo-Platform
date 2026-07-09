@@ -1,7 +1,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
-  name: helm-runner-arm-kubernetes-docs
+  name: helm-runner-claude-arm-kubernetes-docs
   namespace: argocd
 spec:
   generators:
@@ -11,7 +11,7 @@ spec:
             cluster-name: mall-apne2-mgmt
   template:
     metadata:
-      name: 'runner-arm-kubernetes-docs-{{name}}'
+      name: 'runner-claude-arm-kubernetes-docs-{{name}}'
     spec:
       project: default
       source:
@@ -25,7 +25,7 @@ spec:
             controllerServiceAccount:
               name: arc-controller-mall-apne2-mgmt-gha-rs-controller
               namespace: actions-runner-system
-            runnerScaleSetName: kubernetes-docs-arm
+            runnerScaleSetName: kubernetes-docs-claude-arm
             minRunners: 0
             maxRunners: 50
             listenerTemplate:
@@ -45,25 +45,32 @@ spec:
                     effect: NoSchedule
                 nodeSelector:
                   node-pool: platform
-            # No DinD sidecar: VitePress frontend build has no docker step.
-            # Dedicated r8g.large node (16GiB) via runner-docs-arm NodePool — the
-            # 1800m/3500Mi shared ci-runner pool is too small for this build.
             template:
               spec:
+                serviceAccountName: claude-runner
                 nodeSelector:
                   kubernetes.io/arch: arm64
-                  node-pool: runner-docs-arm
                 containers:
                   - name: runner
-                    image: ghcr.io/actions/actions-runner:latest
+                    image: 180294183052.dkr.ecr.ap-northeast-2.amazonaws.com/actions-runner-claude:latest
                     command: ["/home/runner/run.sh"]
+                    env:
+                      # PR review 패널 AI CLI 인증 (ExternalSecret ai-panel-keys <- /demo-platform/actions/AI-key).
+                      # optional: true — 키/Secret 부재가 러너 fleet 기동을 막지 않게 한다
+                      # (해당 패널은 graceful skip).
+                      - name: KIRO_API_KEY
+                        valueFrom:
+                          secretKeyRef:
+                            name: ai-panel-keys
+                            key: KIRO_API_KEY
+                            optional: true
                     resources:
                       requests:
                         cpu: "1800m"
-                        memory: "14Gi"
+                        memory: "3500Mi"
                 tolerations:
                   - key: workload-type
-                    value: ci-runner-docs
+                    value: ci-runner
                     effect: NoSchedule
       destination:
         server: '{{server}}'

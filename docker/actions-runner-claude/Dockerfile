@@ -86,7 +86,6 @@ RUN test "$TARGETARCH" = "arm64" \
  && kiro-cli chat --help > /tmp/kiro-chat-help \
  && grep -F -- "--mode" /tmp/kiro-chat-help \
  && grep -F -- "--no-interactive" /tmp/kiro-chat-help \
- && grep -F -- "--trust-tools" /tmp/kiro-chat-help \
  && grep -F -- "--wrap" /tmp/kiro-chat-help \
  && grep -qF "trust no tools: '--trust-tools='" /tmp/kiro-chat-help \
  && rm /tmp/kiro-chat-help
