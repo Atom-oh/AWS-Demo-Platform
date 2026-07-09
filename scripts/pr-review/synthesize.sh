@@ -92,11 +92,11 @@ chair_label() { case "$1" in
   *)          echo "$1" ;;
 esac ; }
 
-run_chair() {  # $1=model → "$OUT" 에 기록. claude 실패해도 || true 로 계속.
+run_chair() {  # $1=model → "$OUT" 에 기록(scrub 통과). claude 실패해도 || true 로 계속.
   ANTHROPIC_MODEL="$1" timeout "$CHAIR_TIMEOUT" \
     claude -p "$(cat "$WORK/synth-prompt.txt")" --output-format text \
     --allowedTools "Read Grep Glob Bash(gh pr diff:*) Bash(gh pr view:*) mcp__github__get_file_contents mcp__github__search_code" \
-    < "$DIFF" > "$OUT" 2>"$WORK/chair.err" || true
+    < "$DIFF" 2>"$WORK/chair.err" | scrub_secrets > "$OUT" || true
 }
 
 # 요구사항: 마지막 non-empty 줄이 정확히 VERDICT: PASS 또는 VERDICT: FAIL.
@@ -120,7 +120,11 @@ CHAIR_USED="$PRIMARY_MODEL"
 # ANTHROPIC_MODEL 이 이미 fallback 기본값과 동일) 재시도는 동일 호출을 그대로
 # 반복할 뿐이라 CHAIR_TIMEOUT 을 두 번 태우고도 아무 이득이 없다 — skip.
 if ! chair_valid && [ "$FALLBACK_MODEL" != "$PRIMARY_MODEL" ]; then
-  echo "::warning::chair '$(chair_label "$PRIMARY_MODEL")' degraded (connection/timeout/empty/no-verdict, ${CHAIR_TIMEOUT}s cap): $(head -c 500 "$WORK/chair.err" 2>/dev/null) — falling back to '$(chair_label "$FALLBACK_MODEL")'"
+  # panel/chair stdout 은 scrub_secrets 를 통과시키는데 이 fallback 경고의 stderr 발췌만
+  # 빠져 있었다 — claude CLI 에러 메시지에 credential/env 정보가 섞이면 public Actions
+  # 로그로 그대로 새는 경로였다(cc-on-bedrock PR#107 리뷰 M4).
+  CHAIR_ERR_EXCERPT="$(head -c 500 "$WORK/chair.err" 2>/dev/null | scrub_secrets)"
+  echo "::warning::chair '$(chair_label "$PRIMARY_MODEL")' degraded (connection/timeout/empty/no-verdict, ${CHAIR_TIMEOUT}s cap): $CHAIR_ERR_EXCERPT — falling back to '$(chair_label "$FALLBACK_MODEL")'"
   run_chair "$FALLBACK_MODEL"
   if chair_valid; then
     CHAIR_USED="$FALLBACK_MODEL"
@@ -140,6 +144,34 @@ fi
 if [ -s "$WORK/degraded-models.txt" ]; then
   DEGRADED="$(tr '\n' ',' < "$WORK/degraded-models.txt" | sed 's/,$//; s/,/, /g')"
   { echo "⚠️ **커버리지 저하**: [$DEGRADED] 모델이 전체 lens 에서 응답 없음(플래그 무효·바이너리 부재·인증 실패 등) — 아래 리뷰는 그 모델 없이 종합됨."
+    echo ""
+    cat "$OUT"
+  } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
+fi
+
+# Kiro diff truncation 가시화 — 대형 diff 는 run-panel.sh 의 KIRO_DIFF_CAP 을 넘으면 Kiro
+# 셀에 prefix 만 전달된다(argv 커널 한도 회피, 의도된 트레이드오프). truncation 은 VERDICT
+# 를 강제하진 않되(codex/claude-self 는 통상 전체 diff 를 봄) 신호 없이 넘기면 "Kiro 셀이
+# diff 뒷부분은 못 본 채 정상 응답으로 집계됐다"는 사실이 리뷰에서 안 보인다.
+# "codex/claude-self 는 전체를 봤다"는 그 둘도 degraded(바이너리 부재·timeout·인증 실패)일
+# 수 있어 무조건 참이 아니다(AWS-Demo-Platform PR#63 리뷰 L4-1) — degraded-models.txt 와
+# 교차해 실제로 살아있는 벤더만 커버리지 주장에 넣는다. 둘 다 degraded 면 truncation 뒷부분을
+# 아무도 못 본 것이므로 그 사실을 명시한다.
+if [ -f "$WORK/kiro-diff-truncated.flag" ]; then
+  TAIL_COVERAGE="codex/claude-self 는 패널에 전달된 diff 전체를 봤으므로 뒷부분 이슈는 그쪽 커버리지(단, 워크플로우 단 3000-line 사전 truncation 이 있었다면 그마저 원본 PR 전체는 아님)."
+  if [ -s "$WORK/degraded-models.txt" ]; then
+    CODEX_DEAD=0; SELF_DEAD=0
+    grep -qx codex "$WORK/degraded-models.txt" && CODEX_DEAD=1 || true
+    grep -qx claude-self "$WORK/degraded-models.txt" && SELF_DEAD=1 || true
+    if [ "$CODEX_DEAD" -eq 1 ] && [ "$SELF_DEAD" -eq 1 ]; then
+      TAIL_COVERAGE="codex/claude-self 모두 이 실행에서 degraded — diff 뒷부분(cap 이후)을 어떤 모델도 보지 않았을 수 있음."
+    elif [ "$CODEX_DEAD" -eq 1 ]; then
+      TAIL_COVERAGE="codex 는 이 실행에서 degraded — claude-self 만 패널에 전달된 diff 전체를 봤으므로 뒷부분 이슈는 그쪽 단일 커버리지."
+    elif [ "$SELF_DEAD" -eq 1 ]; then
+      TAIL_COVERAGE="claude-self 는 이 실행에서 degraded — codex 만 패널에 전달된 diff 전체를 봤으므로 뒷부분 이슈는 그쪽 단일 커버리지."
+    fi
+  fi
+  { echo "✂️ **Kiro diff truncated**: diff 가 KIRO_DIFF_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함 — $TAIL_COVERAGE"
     echo ""
     cat "$OUT"
   } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
