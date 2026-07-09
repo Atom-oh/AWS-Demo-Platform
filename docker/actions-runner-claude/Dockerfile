@@ -83,8 +83,12 @@ RUN test "$TARGETARCH" = "arm64" \
  && kiro-cli chat --help > /tmp/kiro-chat-help \
  && grep -F -- "--mode" /tmp/kiro-chat-help \
  && grep -F -- "--no-interactive" /tmp/kiro-chat-help \
- && grep -F -- "--trust-tools" /tmp/kiro-chat-help \
  && grep -F -- "--wrap" /tmp/kiro-chat-help \
+ # 플래그 존재만 확인하면 "빈 값 = 무툴" 시맨틱이 바뀌어도(kiro-cli 는 stable/latest 에서
+ # 주간 자동 리빌드) 통과한다 — run-panel.sh 의 fail-closed 가정(15차 리뷰 M1, AWS-Demo-Platform
+ # PR#63 리뷰 L3-1)이 아무 신호 없이 무력화될 수 있다. 문서화된 정확한 시맨틱 문구까지
+ # 검증해 문구가 바뀌면 빌드 자체가 깨지도록 한다(fail-closed).
+ && grep -F -- "trust no tools: '--trust-tools='" /tmp/kiro-chat-help \
  && rm /tmp/kiro-chat-help
 
 # 7) Codex Bedrock 설정 baking (us-east-1, openai.gpt-5.5). 러너 노드 IAM 자격증명 사용.

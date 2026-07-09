@@ -92,11 +92,11 @@ chair_label() { case "$1" in
   *)          echo "$1" ;;
 esac ; }
 
-run_chair() {  # $1=model → "$OUT" 에 기록. claude 실패해도 || true 로 계속.
+run_chair() {  # $1=model → "$OUT" 에 기록(scrub 통과). claude 실패해도 || true 로 계속.
   ANTHROPIC_MODEL="$1" timeout "$CHAIR_TIMEOUT" \
     claude -p "$(cat "$WORK/synth-prompt.txt")" --output-format text \
     --allowedTools "Read Grep Glob Bash(gh pr diff:*) Bash(gh pr view:*) mcp__github__get_file_contents mcp__github__search_code" \
-    < "$DIFF" > "$OUT" 2>"$WORK/chair.err" || true
+    < "$DIFF" 2>"$WORK/chair.err" | scrub_secrets > "$OUT" || true
 }
 
 # 요구사항: 마지막 non-empty 줄이 정확히 VERDICT: PASS 또는 VERDICT: FAIL.
@@ -147,10 +147,27 @@ fi
 
 # Kiro diff truncation 가시화 — 대형 diff 는 run-panel.sh 의 KIRO_DIFF_CAP 을 넘으면 Kiro
 # 셀에 prefix 만 전달된다(argv 커널 한도 회피, 의도된 트레이드오프). truncation 은 VERDICT
-# 를 강제하진 않되(codex/claude-self 는 여전히 전체 diff 를 봄) 신호 없이 넘기면 "Kiro 셀이
+# 를 강제하진 않되(codex/claude-self 는 통상 전체 diff 를 봄) 신호 없이 넘기면 "Kiro 셀이
 # diff 뒷부분은 못 본 채 정상 응답으로 집계됐다"는 사실이 리뷰에서 안 보인다.
+# "codex/claude-self 는 전체를 봤다"는 그 둘도 degraded(바이너리 부재·timeout·인증 실패)일
+# 수 있어 무조건 참이 아니다(AWS-Demo-Platform PR#63 리뷰 L4-1) — degraded-models.txt 와
+# 교차해 실제로 살아있는 벤더만 커버리지 주장에 넣는다. 둘 다 degraded 면 truncation 뒷부분을
+# 아무도 못 본 것이므로 그 사실을 명시한다.
 if [ -f "$WORK/kiro-diff-truncated.flag" ]; then
-  { echo "✂️ **Kiro diff truncated**: diff 가 KIRO_DIFF_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함 — codex/claude-self 는 전체 diff 를 봤으므로 뒷부분 이슈는 그쪽 커버리지."
+  TAIL_COVERAGE="codex/claude-self 는 패널에 전달된 diff 전체를 봤으므로 뒷부분 이슈는 그쪽 커버리지(단, 워크플로우 단 3000-line 사전 truncation 이 있었다면 그마저 원본 PR 전체는 아님)."
+  if [ -s "$WORK/degraded-models.txt" ]; then
+    CODEX_DEAD=0; SELF_DEAD=0
+    grep -qx codex "$WORK/degraded-models.txt" && CODEX_DEAD=1 || true
+    grep -qx claude-self "$WORK/degraded-models.txt" && SELF_DEAD=1 || true
+    if [ "$CODEX_DEAD" -eq 1 ] && [ "$SELF_DEAD" -eq 1 ]; then
+      TAIL_COVERAGE="codex/claude-self 모두 이 실행에서 degraded — diff 뒷부분(cap 이후)을 어떤 모델도 보지 않았을 수 있음."
+    elif [ "$CODEX_DEAD" -eq 1 ]; then
+      TAIL_COVERAGE="codex 는 이 실행에서 degraded — claude-self 만 패널에 전달된 diff 전체를 봤으므로 뒷부분 이슈는 그쪽 단일 커버리지."
+    elif [ "$SELF_DEAD" -eq 1 ]; then
+      TAIL_COVERAGE="claude-self 는 이 실행에서 degraded — codex 만 패널에 전달된 diff 전체를 봤으므로 뒷부분 이슈는 그쪽 단일 커버리지."
+    fi
+  fi
+  { echo "✂️ **Kiro diff truncated**: diff 가 KIRO_DIFF_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함 — $TAIL_COVERAGE"
     echo ""
     cat "$OUT"
   } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
