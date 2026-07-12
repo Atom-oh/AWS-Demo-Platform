@@ -173,7 +173,7 @@ scaffolded at desiredCount=0 (needs github/argocd secrets + config bundling).
 
 **Deployed resources (dev, atomoh-main):**
 - DynamoDB: `demo-platform-{state,jobs,history}-dev` (deletion protection on)
-- IAM: `DashboardEcsTaskRole-dev`, `DashboardEcsExecutionRole-dev`, `DemoPlatformOperator`, `demo-platform-gha-ecr-push` (OIDC)
+- IAM: `DashboardEcsTaskRole-dev`, `DashboardEcsExecutionRole-dev`, `DemoPlatformOperator`, `demo-platform-gha-ecr-push` (OIDC), `ai-trader-web-terraform-plan`/`-admin` (external-repo OIDC, plan/apply privilege split — [ADR-012](decisions/ADR-012-ai-trader-web-oidc-plan-apply-split.md))
 - SQS: `demo-platform-jobs-dev` + DLQ
 - ECR: `demo-platform/api`, `demo-platform/worker`, `demo-platform/frontend`, `actions-runner-claude` (images pushed via GHA on main-merge, tags `sha-<sha>` + `main-latest`/`latest`)
 - Secrets Manager: `dev/github/pat`, `argocd/admin-token`, `dev/cognito/*` (cognito slots populated by the cognito module)
