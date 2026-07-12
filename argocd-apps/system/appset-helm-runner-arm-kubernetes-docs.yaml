@@ -46,8 +46,9 @@ spec:
                 nodeSelector:
                   node-pool: platform
             # No DinD sidecar: VitePress frontend build has no docker step.
-            # Dedicated r8g.large node (16GiB) via runner-docs-arm NodePool — the
-            # 1800m/3500Mi shared ci-runner pool is too small for this build.
+            # Dedicated r8g.xlarge node (32GiB) via runner-docs-arm NodePool — the
+            # 1800m/3500Mi shared ci-runner pool is too small for this build. Bumped
+            # from 14Gi/r8g.large after adding cn/es/jp locales (now ko+en+cn+es+jp).
             template:
               spec:
                 nodeSelector:
@@ -59,8 +60,8 @@ spec:
                     command: ["/home/runner/run.sh"]
                     resources:
                       requests:
-                        cpu: "1800m"
-                        memory: "14Gi"
+                        cpu: "3000m"
+                        memory: "26Gi"
                 tolerations:
                   - key: workload-type
                     value: ci-runner-docs
