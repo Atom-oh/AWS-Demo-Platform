@@ -42,16 +42,27 @@ the blast radius of a compromised admin assume-path is platform-wide.
 
 Split into two roles (`infra/iam/ai-trader-web-gha-roles.tf`):
 
-| Role | Managed policy | Trusted `sub` | Used by |
-|------|----------------|---------------|---------|
-| `ai-trader-web-terraform-plan` | `ReadOnlyAccess` | `pull_request`, `ref:refs/heads/main` | plan job |
-| `ai-trader-web-terraform-admin` | `AdministratorAccess` | `environment:prod` **only** | apply job |
+| Role | Managed policy | Trust (`sub` / `ref`) | Used by |
+|------|----------------|-----------------------|---------|
+| `ai-trader-web-terraform-plan` | `ReadOnlyAccess` **+ inline Deny on shared state** | sub `pull_request`, `ref:refs/heads/main` | plan job |
+| `ai-trader-web-terraform-admin` | `AdministratorAccess` | sub `environment:prod` **AND** ref `refs/heads/main` | apply job |
 
 - The plan job (attacker-influenceable) can only read. ai-trader-web uses **local** Terraform
-  state (no remote backend block), so the plan role needs no S3/DynamoDB state permissions —
-  `ReadOnlyAccess` is sufficient for a plan refresh.
-- The admin job is reachable **only** via the `prod` environment, whose GitHub protection
-  rules (required reviewers + deployment-branch restriction) are the actual human gate.
+  state (no remote backend block), so the plan role needs no S3/DynamoDB state permissions.
+- **But `ReadOnlyAccess` grants `s3:Get*` account-wide**, and this account hosts the *shared,
+  platform-wide* Terraform state bucket (`multi-region-mall-terraform-state`) + lock table —
+  state that can contain plaintext secrets. Since the plan role is assumable by attacker-
+  controlled PR-branch code, "read-only" is not by itself safe: it would be a full-platform
+  tfstate exfiltration path. An **inline Deny** on that bucket + lock table closes it at zero
+  cost (ai-trader-web's local state never touches them). `secretsmanager:GetSecretValue` /
+  `kms:Decrypt` are already absent from `ReadOnlyAccess`, so those paths are closed by omission.
+- The admin job is reachable via the `prod` environment sub **and**, at the IAM layer, only
+  when the OIDC token's `ref` claim is `refs/heads/main`. The `ref` claim is separate from
+  `sub`, so the two AND together — this double gate does not rely solely on ai-trader-web's
+  environment protection (which is not enforceable from this IaC). apply only fires on main
+  push + `workflow_dispatch` from main, so `refs/heads/main` is the only legitimate ref.
+- Confirm ai-trader-web's `prod` environment protection (required reviewers +
+  deployment-branch restriction) is set anyway — defense in depth on top of the ref gate.
 - `max_session_duration = 7200` on the admin role so long applies don't expire mid-run.
 - Both roles reuse the shared `data.aws_iam_openid_connect_provider.github`.
 - Naming keeps the `ai-trader-web-*` prefix (deliberate deviation from `demo-platform-*`) to
@@ -63,16 +74,16 @@ Split into two roles (`infra/iam/ai-trader-web-gha-roles.tf`):
 flowchart TD
     subgraph gh["Atom-oh/ai-trader-web · terraform.yml"]
         pr["plan job<br/>sub: pull_request<br/>+ refs/heads/main"]
-        ap["apply job<br/>environment: prod<br/>(required reviewers gate)"]
+        ap["apply job<br/>environment: prod<br/>+ ref: refs/heads/main"]
     end
     oidc["token.actions.githubusercontent.com<br/>(shared OIDC provider)"]
-    plan["ai-trader-web-terraform-plan<br/>ReadOnlyAccess"]
+    plan["ai-trader-web-terraform-plan<br/>ReadOnlyAccess + shared-state Deny"]
     admin["ai-trader-web-terraform-admin<br/>AdministratorAccess · 2h session"]
     pr -->|OIDC AssumeRoleWithWebIdentity| oidc
     ap -->|OIDC AssumeRoleWithWebIdentity| oidc
     oidc -->|sub match| plan
-    oidc -->|sub match| admin
-    pr -.->|"attacker-controlled plan code<br/>→ read-only only"| plan
+    oidc -->|sub AND ref match| admin
+    pr -.->|"attacker-controlled plan code<br/>→ read-only, shared state denied"| plan
     ap -.->|"human-gated apply<br/>→ admin"| admin
 ```
 
@@ -86,8 +97,14 @@ flowchart TD
   ref condition, so any branch deploying to `prod` can assume admin *if* the environment lets
   it; the environment's branch restriction is what closes that.
 - Follow-up (ai-trader-web PR): `terraform.yml` plan job → `role-to-assume:
-  ai-trader-web-terraform-plan`; apply job → `ai-trader-web-terraform-admin`. Both jobs still
-  need `permissions: id-token: write`.
+  arn:aws:iam::180294183052:role/ai-trader-web-terraform-plan`; apply job →
+  `arn:aws:iam::180294183052:role/ai-trader-web-terraform-admin` (ARNs exported as
+  `ai_trader_web_terraform_{plan,admin}_role_arn` outputs). Both jobs still need
+  `permissions: id-token: write`. The apply job must also set `role-duration-seconds: 7200`
+  on `configure-aws-credentials` for the 2h session to take effect (the action defaults to 1h).
+- ai-trader-web uses local state on ephemeral runners (state is lost each run); if it later
+  adopts a remote backend, the plan role's shared-state Deny must be revisited and the role
+  given scoped read + lock on *its own* state.
 - The pre-existing `ai-trader-web-gha-deploy` (PowerUser) role is left untouched; it can be
   retired separately once workflows migrate to the new pair.
 
@@ -129,17 +146,45 @@ admin assume 경로가 침해되면 blast radius가 플랫폼 전체다.
 
 두 역할로 분리한다(`infra/iam/ai-trader-web-gha-roles.tf`):
 
-| 역할 | Managed policy | 신뢰 `sub` | 사용처 |
-|------|----------------|-----------|--------|
-| `ai-trader-web-terraform-plan` | `ReadOnlyAccess` | `pull_request`, `ref:refs/heads/main` | plan job |
-| `ai-trader-web-terraform-admin` | `AdministratorAccess` | `environment:prod` **만** | apply job |
+| 역할 | Managed policy | 신뢰 (`sub` / `ref`) | 사용처 |
+|------|----------------|---------------------|--------|
+| `ai-trader-web-terraform-plan` | `ReadOnlyAccess` **+ 공유 state inline Deny** | sub `pull_request`, `ref:refs/heads/main` | plan job |
+| `ai-trader-web-terraform-admin` | `AdministratorAccess` | sub `environment:prod` **AND** ref `refs/heads/main` | apply job |
 
 - 공격자 영향권인 plan job은 읽기만 가능. ai-trader-web는 **로컬** Terraform state(remote
-  backend 블록 없음)를 쓰므로 plan 역할에 S3/DynamoDB state 권한이 불필요 —
-  plan refresh에는 `ReadOnlyAccess`로 충분.
-- admin job은 **오직** `prod` environment 경유로만 도달 가능하며, 그 GitHub protection
-  rule(required reviewer + deployment-branch 제한)이 실제 사람 게이트다.
+  backend 블록 없음)를 쓰므로 plan 역할에 자체 state용 S3/DynamoDB 권한이 불필요.
+- **그러나 `ReadOnlyAccess`는 계정 전역 `s3:Get*`를 부여**하며, 이 계정은 *플랫폼 전체* 공유
+  state 버킷(`multi-region-mall-terraform-state`)과 lock 테이블을 호스팅한다(평문 시크릿 포함
+  가능). plan 역할은 공격자 통제 PR 브랜치 코드로 assume되므로 "읽기 전용" 자체가 안전하지
+  않다 — 전 플랫폼 tfstate exfiltration 경로가 된다. 해당 버킷+lock 테이블에 **inline Deny**를
+  부착해 무비용으로 차단(ai-trader-web 로컬 state는 이들을 건드리지 않음).
+  `secretsmanager:GetSecretValue`/`kms:Decrypt`는 `ReadOnlyAccess`에 없어 이미 차단됨.
+- admin job은 `prod` environment sub **및** IAM 계층의 `ref = refs/heads/main` 조건을 동시에
+  만족해야 도달 가능. `ref` claim은 `sub`와 별개라 AND로 걸리며, 이 이중 게이트는
+  ai-trader-web environment protection(IaC로 강제 불가)에만 의존하지 않는다. apply는 main
+  push + main에서의 `workflow_dispatch`에서만 발생하므로 `refs/heads/main`이 유일한 정당 ref.
+- 그래도 ai-trader-web `prod` environment protection(required reviewer + deployment-branch
+  제한) 설정은 방어 심화로 확인할 것.
 - 장시간 apply 만료 방지를 위해 admin 역할에 `max_session_duration = 7200`.
+
+### 신뢰 / 권한 분리
+
+```mermaid
+flowchart TD
+    subgraph gh["Atom-oh/ai-trader-web · terraform.yml"]
+        pr["plan job<br/>sub: pull_request<br/>+ refs/heads/main"]
+        ap["apply job<br/>environment: prod<br/>+ ref: refs/heads/main"]
+    end
+    oidc["token.actions.githubusercontent.com<br/>(공유 OIDC provider)"]
+    plan["ai-trader-web-terraform-plan<br/>ReadOnlyAccess + 공유 state Deny"]
+    admin["ai-trader-web-terraform-admin<br/>AdministratorAccess · 2h 세션"]
+    pr -->|OIDC AssumeRoleWithWebIdentity| oidc
+    ap -->|OIDC AssumeRoleWithWebIdentity| oidc
+    oidc -->|sub 일치| plan
+    oidc -->|sub AND ref 일치| admin
+    pr -.->|"공격자 통제 plan 코드<br/>→ 읽기 전용, 공유 state 차단"| plan
+    ap -.->|"사람 게이트 apply<br/>→ admin"| admin
+```
 - 두 역할 모두 공유 `data.aws_iam_openid_connect_provider.github`를 재사용.
 - `ai-trader-web-*` prefix 유지(`demo-platform-*`에서의 의도적 이탈) — 기존 out-of-band
   `ai-trader-web-gha-deploy` 역할과 짝을 이룸.
