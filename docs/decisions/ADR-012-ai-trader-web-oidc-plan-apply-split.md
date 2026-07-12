@@ -57,9 +57,10 @@ Split into two roles (`infra/iam/ai-trader-web-gha-roles.tf`):
   **inline Deny** on the state bucket/lock table + a `demo-platform-*` DynamoDB wildcard
   **including `/index/*`** (a projection-ALL GSI on `demo-platform-jobs-dev` would leak the
   full item set past a table-only Deny, since `dynamodb:Query` authorizes on the index ARN) +
-  a `/demo-platform/*` CloudWatch Logs Deny (`logs:*`, so `StartQuery`/`GetQueryResults` +
-  `StartLiveTail` are covered, not just `GetLogEvents`) closes it, while ai-trader-web's own
-  resources (it deploys into this same account) stay readable for plan refresh.
+  a `/demo-platform/*` CloudWatch Logs Deny (`logs:*` — blocks `StartQuery` + `StartLiveTail`,
+  the log-group-scoped read entry points, not just `GetLogEvents`) + a `demo-platform-*` SQS
+  Deny (job queue + DLQ) closes it, while ai-trader-web's own resources (it deploys into this
+  same account) stay readable for plan refresh.
   `secretsmanager:GetSecretValue` / `kms:Decrypt` are already absent from `ReadOnlyAccess`, so
   the ExternalId/secret paths are closed by omission. (The state bucket + lock table live in
   `us-east-1`, per `backend.tf` — the lock-table Deny ARN is pinned there, not `local.region`.)
@@ -174,8 +175,9 @@ admin assume 경로가 침해되면 blast radius가 플랫폼 전체다.
   데이터 exfiltration 경로가 된다. state 버킷/lock 테이블 + `demo-platform-*` DynamoDB 와일드카드
   (**`/index/*` 포함** — `demo-platform-jobs-dev`의 projection-ALL GSI는 `dynamodb:Query`가 index
   ARN으로 인가되어 테이블 단독 Deny를 우회하므로 전체 아이템이 노출됨) + `/demo-platform/*`
-  CloudWatch Logs(`logs:*` — `GetLogEvents`뿐 아니라 `StartQuery`/`GetQueryResults`+`StartLiveTail`
-  까지 커버)에 **inline Deny**를 부착해 차단하되, ai-trader-web 자체 리소스(같은 계정에 배포)는
+  CloudWatch Logs(`logs:*` — `GetLogEvents`뿐 아니라 log-group 스코프 읽기 진입점인
+  `StartQuery`+`StartLiveTail`까지 차단) + `demo-platform-*` SQS(job 큐 + DLQ)에 **inline Deny**를
+  부착해 차단하되, ai-trader-web 자체 리소스(같은 계정에 배포)는
   plan refresh용으로 읽기 가능하게 남긴다. `secretsmanager:GetSecretValue`/`kms:Decrypt`는
   `ReadOnlyAccess`에 없어 ExternalId/시크릿 경로는 이미 차단됨. (state 버킷+lock 테이블은
   `backend.tf` 기준 `us-east-1`에 있어 lock 테이블 Deny ARN은 `local.region`이 아닌 `us-east-1`.)
@@ -190,6 +192,9 @@ admin assume 경로가 침해되면 blast radius가 플랫폼 전체다.
   `environment:` 바인딩 **없이** 돌아야 한다(바인딩하면 sub가 `environment:prod`로 바뀌어 이 trust가
   깨진다).
 - 장시간 apply 만료 방지를 위해 admin 역할에 `max_session_duration = 7200`.
+- 두 역할 모두 공유 `data.aws_iam_openid_connect_provider.github`를 재사용.
+- `ai-trader-web-*` prefix 유지(`demo-platform-*`에서의 의도적 이탈) — 기존 out-of-band
+  `ai-trader-web-gha-deploy` 역할과 짝을 이룸.
 
 ### 신뢰 / 권한 분리
 
@@ -209,9 +214,6 @@ flowchart TD
     pr -.->|"공격자 통제 plan 코드<br/>→ 읽기 전용, demo-platform 데이터 차단"| plan
     ap -.->|"main에 병합된 코드만<br/>→ admin"| admin
 ```
-- 두 역할 모두 공유 `data.aws_iam_openid_connect_provider.github`를 재사용.
-- `ai-trader-web-*` prefix 유지(`demo-platform-*`에서의 의도적 이탈) — 기존 out-of-band
-  `ai-trader-web-gha-deploy` 역할과 짝을 이룸.
 
 ## Consequences
 

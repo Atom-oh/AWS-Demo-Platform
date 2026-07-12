@@ -3,11 +3,10 @@
 # Split by privilege because `terraform plan` executes provider plugins and
 # `external`/data sources from the PR branch — so a plan job runs attacker-
 # controllable code. Granting admin to the `pull_request` sub would let anyone
-# who can open a PR run code with account-admin creds, bypassing the
-# environment:prod approval gate entirely (ADR-012). So:
+# who can open a PR run code with account-admin creds (ADR-012). So:
 #
-#   plan  (pull_request + push to main)  -> ai-trader-web-terraform-plan  (ReadOnlyAccess)
-#   apply (environment:prod, gated)      -> ai-trader-web-terraform-admin (AdministratorAccess)
+#   plan  (pull_request + push to main) -> ai-trader-web-terraform-plan  (ReadOnlyAccess)
+#   apply (push to main only)           -> ai-trader-web-terraform-admin (AdministratorAccess)
 #
 # ai-trader-web uses local Terraform state (no remote backend block) and deploys
 # into THIS account, so ReadOnlyAccess lets plan refresh its own resources — but
@@ -87,14 +86,24 @@ data "aws_iam_policy_document" "ai_trader_web_gha_plan_deny_state" {
   }
   # demo-platform's CloudWatch logs (dashboard API request logs etc.) — scoped to
   # the /demo-platform/* namespace so ai-trader-web's own log groups (it deploys
-  # into this same account) stay readable for its plan refresh.
-  # logs:* (not an action list) so StartQuery/GetQueryResults + StartLiveTail —
-  # which ReadOnlyAccess also grants and which read log content — are covered too.
+  # into this same account) stay readable for its plan refresh. logs:* (not an
+  # action list) blocks StartQuery + StartLiveTail, the log-group-scoped reads
+  # ReadOnlyAccess also grants. (GetQueryResults has no resource-level scoping,
+  # but StartQuery is the entry point and is denied, so the read is closed.)
   statement {
     sid       = "DenyDemoPlatformLogs"
     effect    = "Deny"
     actions   = ["logs:*"]
     resources = ["arn:aws:logs:${local.region}:${local.account_id}:log-group:/demo-platform/*"]
+  }
+  # demo-platform SQS job queue + DLQ (demo-platform-jobs-dev,
+  # demo-platform-jobs-dlq-dev) — ReceiveMessage would expose in-flight Lifecycle
+  # Controller job payloads. Wildcard covers both.
+  statement {
+    sid       = "DenyDemoPlatformSqs"
+    effect    = "Deny"
+    actions   = ["sqs:*"]
+    resources = ["arn:aws:sqs:${local.region}:${local.account_id}:demo-platform-*"]
   }
 }
 
@@ -104,7 +113,7 @@ resource "aws_iam_role_policy" "ai_trader_web_gha_plan_deny_state" {
   policy = data.aws_iam_policy_document.ai_trader_web_gha_plan_deny_state.json
 }
 
-# --- apply role: admin, gated on the prod environment -------------------------
+# --- apply role: admin, gated on the main-branch sub (IAM-enforced) -----------
 
 data "aws_iam_policy_document" "ai_trader_web_gha_admin_assume" {
   statement {
