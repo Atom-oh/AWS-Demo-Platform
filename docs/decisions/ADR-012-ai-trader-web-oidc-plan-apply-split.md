@@ -45,7 +45,7 @@ Split into two roles (`infra/iam/ai-trader-web-gha-roles.tf`):
 | Role | Managed policy | Trust (`sub`) | Used by |
 |------|----------------|---------------|---------|
 | `ai-trader-web-terraform-plan` | `ReadOnlyAccess` **+ inline Deny on demo-platform data** | `pull_request`, `ref:refs/heads/main` | plan job |
-| `ai-trader-web-terraform-admin` | `AdministratorAccess` | `environment:prod` only (branch gate = GitHub `prod` environment protection) | apply job |
+| `ai-trader-web-terraform-admin` | `AdministratorAccess` | `ref:refs/heads/main` only (IAM-enforced branch gate) | apply job |
 
 - The plan job (attacker-influenceable) can only read, and ai-trader-web uses **local**
   Terraform state, so the plan role needs no permissions on its *own* state.
@@ -54,19 +54,26 @@ Split into two roles (`infra/iam/ai-trader-web-gha-roles.tf`):
   + lock table, may contain plaintext secrets) plus the demo-platform Lifecycle Controller
   DynamoDB tables. Since the plan role is assumable by attacker-controlled PR-branch code,
   "read-only" is not by itself safe — it would be a demo-platform-data exfiltration path. An
-  **inline Deny** on the state bucket/lock table + `demo-platform-{state,jobs,history}-dev`
-  closes it, while ai-trader-web's own resources (it deploys into this same account) stay
-  readable for plan refresh. `secretsmanager:GetSecretValue` / `kms:Decrypt` are already absent
-  from `ReadOnlyAccess`, so the ExternalId/secret paths are closed by omission. (The state
-  bucket + lock table live in `us-east-1`, per `backend.tf` — the lock-table Deny ARN is
-  pinned there, not `local.region`.)
-- The admin role's trust can only be gated by `sub` here: **AWS STS exposes only `aud`/`sub`
-  (and `amr`/`azp`) from a GitHub OIDC token as IAM condition keys — the `ref` claim is NOT a
-  usable condition key.** A `StringEquals` on `ref` would always be false → permanent
-  `AccessDenied` (this is exactly why `gha-ecr-push-role.tf` encodes the ref *inside* the sub
-  string). So the branch gate for apply lives in ai-trader-web's `prod` GitHub environment
-  protection (required reviewers + deployment-branch restriction), **which must be verified in
-  the ai-trader-web repo settings** — it cannot be enforced from this IaC.
+  **inline Deny** on the state bucket/lock table + a `demo-platform-*` DynamoDB wildcard
+  **including `/index/*`** (a projection-ALL GSI on `demo-platform-jobs-dev` would leak the
+  full item set past a table-only Deny, since `dynamodb:Query` authorizes on the index ARN) +
+  a `/demo-platform/*` CloudWatch Logs Deny (`logs:*`, so `StartQuery`/`GetQueryResults` +
+  `StartLiveTail` are covered, not just `GetLogEvents`) closes it, while ai-trader-web's own
+  resources (it deploys into this same account) stay readable for plan refresh.
+  `secretsmanager:GetSecretValue` / `kms:Decrypt` are already absent from `ReadOnlyAccess`, so
+  the ExternalId/secret paths are closed by omission. (The state bucket + lock table live in
+  `us-east-1`, per `backend.tf` — the lock-table Deny ARN is pinned there, not `local.region`.)
+- **The admin role is gated on the `ref:refs/heads/main` sub, NOT an `environment:prod` sub.**
+  An environment sub would delegate the branch gate to GitHub environment protection — which
+  this repo's billing plan cannot enforce (no required-reviewer / branch-restriction rules on
+  a private repo: `gh api .../environments/prod` → `protection_rules: []`, `PUT` → HTTP 422).
+  `ref:refs/heads/main` is part of the **sub** (a real IAM condition key — unlike the
+  non-evaluable `ref` *claim*, which AWS STS does not expose; that is why `gha-ecr-push-role.tf`
+  also encodes the ref inside the sub). So IAM itself restricts admin to code already merged to
+  `main`, gated by main's branch protection + PR review — no dependence on GitHub environment
+  features. The ai-trader-web apply job must therefore run on push/`workflow_dispatch` on main
+  **without** an `environment:` binding (a binding would flip the sub to `environment:prod` and
+  break this trust).
 - `max_session_duration = 7200` on the admin role so long applies don't expire mid-run.
 - Both roles reuse the shared `data.aws_iam_openid_connect_provider.github`.
 - Naming keeps the `ai-trader-web-*` prefix (deliberate deviation from `demo-platform-*`) to
@@ -77,8 +84,8 @@ Split into two roles (`infra/iam/ai-trader-web-gha-roles.tf`):
 ```mermaid
 flowchart TD
     subgraph gh["Atom-oh/ai-trader-web · terraform.yml"]
-        pr["plan job<br/>sub: pull_request<br/>+ refs/heads/main"]
-        ap["apply job<br/>sub: environment: prod<br/>(branch gate = env protection)"]
+        pr["plan job<br/>sub: pull_request<br/>+ ref:refs/heads/main"]
+        ap["apply job<br/>sub: ref:refs/heads/main<br/>(push / dispatch on main, no environment)"]
     end
     oidc["token.actions.githubusercontent.com<br/>(shared OIDC provider)"]
     plan["ai-trader-web-terraform-plan<br/>ReadOnlyAccess + demo-platform-data Deny"]
@@ -86,33 +93,29 @@ flowchart TD
     pr -->|OIDC AssumeRoleWithWebIdentity| oidc
     ap -->|OIDC AssumeRoleWithWebIdentity| oidc
     oidc -->|sub match| plan
-    oidc -->|sub match| admin
+    oidc -->|sub match: main only| admin
     pr -.->|"attacker-controlled plan code<br/>→ read-only, demo-platform data denied"| plan
-    ap -.->|"env-protected apply<br/>→ admin"| admin
+    ap -.->|"only code merged to main<br/>→ admin"| admin
 ```
 
 ## Consequences
 
 - Attacker-controlled plan code is confined to read-only and cannot read demo-platform's
-  state/data — the environment gate can no longer be bypassed via the PR trigger.
-- The admin gate depends **entirely** on ai-trader-web's `prod` environment protection
-  (required reviewers + deployment-branch restriction), since the `ref` claim is not
-  IAM-enforceable (above). **KNOWN GAP (2026-07-12): ai-trader-web's `prod` environment
-  currently has NO protection rules and NO branch policy, and its billing plan does not
-  support required-reviewer / branch-restriction rules on a private repo** (`gh api
-  .../environments/prod` → `protection_rules: []`; `PUT` returns HTTP 422). Until that is
-  resolved (upgrade the plan and set a `main`-only branch policy, make the repo public, or
-  move the environment to an account whose plan supports it), any branch that can run a
-  `terraform.yml` job targeting `environment: prod` can assume `AdministratorAccess`. Treat the
-  admin role as **effectively gated only by who can push/PR to ai-trader-web** until the
-  environment protection is in place. The plan-role split still holds — the untrusted `plan`
-  path is read-only and demo-platform data is denied regardless.
+  state/data — the split can no longer be bypassed via the PR trigger.
+- The admin gate is enforced **at the IAM layer** (`ref:refs/heads/main` sub), so it does not
+  depend on GitHub environment protection — which this repo's plan cannot provide. Only code
+  merged to `main` can assume admin, so main's branch protection + PR review are the human
+  gate. (Earlier revisions of this ADR gated on `environment:prod`; that was dropped because
+  the environment had no enforceable protection here — see the trust bullet above.)
 - Follow-up (ai-trader-web PR): `terraform.yml` plan job → `role-to-assume:
   arn:aws:iam::180294183052:role/ai-trader-web-terraform-plan`; apply job →
   `arn:aws:iam::180294183052:role/ai-trader-web-terraform-admin` (ARNs exported as
   `ai_trader_web_terraform_{plan,admin}_role_arn` outputs). Both jobs still need
-  `permissions: id-token: write`. The apply job must also set `role-duration-seconds: 7200`
-  on `configure-aws-credentials` for the 2h session to take effect (the action defaults to 1h).
+  `permissions: id-token: write`. The apply job must run on push / `workflow_dispatch` on main
+  **without** an `environment:` key (an environment binding changes the OIDC sub to
+  `environment:prod` and the admin trust — pinned to the `ref:refs/heads/main` sub — would
+  reject it). It must also set `role-duration-seconds: 7200` on `configure-aws-credentials`
+  for the 2h session to take effect (the action defaults to 1h).
 - ai-trader-web uses local state on ephemeral runners (state is lost each run); if it later
   adopts a remote backend, the plan role's shared-state Deny must be revisited and the role
   given scoped read + lock on *its own* state.
@@ -160,7 +163,7 @@ admin assume 경로가 침해되면 blast radius가 플랫폼 전체다.
 | 역할 | Managed policy | 신뢰 (`sub`) | 사용처 |
 |------|----------------|-------------|--------|
 | `ai-trader-web-terraform-plan` | `ReadOnlyAccess` **+ demo-platform 데이터 inline Deny** | `pull_request`, `ref:refs/heads/main` | plan job |
-| `ai-trader-web-terraform-admin` | `AdministratorAccess` | `environment:prod` 단독 | apply job |
+| `ai-trader-web-terraform-admin` | `AdministratorAccess` | `ref:refs/heads/main` 단독 (IAM 강제 branch 게이트) | apply job |
 
 - 공격자 영향권인 plan job은 읽기만 가능하며, ai-trader-web는 **로컬** state를 쓰므로 *자체*
   state용 권한이 불필요.
@@ -168,17 +171,24 @@ admin assume 경로가 침해되면 blast radius가 플랫폼 전체다.
   *플랫폼 전체* 공유 state(버킷 `multi-region-mall-terraform-state` + lock 테이블, 평문 시크릿
   포함 가능)와 demo-platform Lifecycle Controller DynamoDB 테이블을 호스팅한다. plan 역할은
   공격자 통제 PR 브랜치 코드로 assume되므로 "읽기 전용" 자체가 안전하지 않다 — demo-platform
-  데이터 exfiltration 경로가 된다. state 버킷/lock 테이블 + `demo-platform-{state,jobs,history}-dev`에
-  **inline Deny**를 부착해 차단하되, ai-trader-web 자체 리소스(같은 계정에 배포)는 plan refresh용
-  으로 읽기 가능하게 남긴다. `secretsmanager:GetSecretValue`/`kms:Decrypt`는 `ReadOnlyAccess`에
-  없어 ExternalId/시크릿 경로는 이미 차단됨. (state 버킷+lock 테이블은 `backend.tf` 기준
-  `us-east-1`에 있어 lock 테이블 Deny ARN은 `local.region`이 아닌 `us-east-1`로 고정.)
-- admin 역할 trust는 여기서 `sub`로만 게이트 가능하다: **AWS STS는 GitHub OIDC 토큰에서
-  `aud`/`sub`(및 `amr`/`azp`)만 IAM condition key로 노출하며, `ref` claim은 사용 가능한
-  condition key가 아니다.** `ref`에 대한 `StringEquals`는 항상 false → 영구 `AccessDenied`가 된다
-  (그래서 `gha-ecr-push-role.tf`는 ref를 sub 문자열 *안에* 넣어 매칭한다). 따라서 apply의 branch
-  게이트는 ai-trader-web `prod` environment protection(required reviewer + deployment-branch
-  제한)에 있으며, **ai-trader-web repo 설정에서 반드시 확인해야 한다** — 이 IaC로는 강제 불가.
+  데이터 exfiltration 경로가 된다. state 버킷/lock 테이블 + `demo-platform-*` DynamoDB 와일드카드
+  (**`/index/*` 포함** — `demo-platform-jobs-dev`의 projection-ALL GSI는 `dynamodb:Query`가 index
+  ARN으로 인가되어 테이블 단독 Deny를 우회하므로 전체 아이템이 노출됨) + `/demo-platform/*`
+  CloudWatch Logs(`logs:*` — `GetLogEvents`뿐 아니라 `StartQuery`/`GetQueryResults`+`StartLiveTail`
+  까지 커버)에 **inline Deny**를 부착해 차단하되, ai-trader-web 자체 리소스(같은 계정에 배포)는
+  plan refresh용으로 읽기 가능하게 남긴다. `secretsmanager:GetSecretValue`/`kms:Decrypt`는
+  `ReadOnlyAccess`에 없어 ExternalId/시크릿 경로는 이미 차단됨. (state 버킷+lock 테이블은
+  `backend.tf` 기준 `us-east-1`에 있어 lock 테이블 Deny ARN은 `local.region`이 아닌 `us-east-1`.)
+- **admin 역할은 `environment:prod` sub가 아니라 `ref:refs/heads/main` sub로 게이트한다.**
+  environment sub는 branch 게이트를 GitHub environment protection에 위임하는데, 이 repo의 billing
+  plan은 그것을 강제할 수 없다(private repo에 required-reviewer/branch 제한 rule 미지원:
+  `gh api .../environments/prod` → `protection_rules: []`, `PUT` → HTTP 422). `ref:refs/heads/main`은
+  **sub**의 일부(실제 IAM condition key — AWS STS가 노출하지 않는 `ref` *claim*과 다름; 그래서
+  `gha-ecr-push-role.tf`도 ref를 sub 안에 넣는다)이므로, IAM 자체가 admin을 `main`에 병합된
+  코드로만 제한하고, main의 branch protection + PR 리뷰가 사람 게이트가 된다 — GitHub environment
+  기능에 의존하지 않는다. 따라서 ai-trader-web apply job은 main push/`workflow_dispatch`에서
+  `environment:` 바인딩 **없이** 돌아야 한다(바인딩하면 sub가 `environment:prod`로 바뀌어 이 trust가
+  깨진다).
 - 장시간 apply 만료 방지를 위해 admin 역할에 `max_session_duration = 7200`.
 
 ### 신뢰 / 권한 분리
@@ -186,8 +196,8 @@ admin assume 경로가 침해되면 blast radius가 플랫폼 전체다.
 ```mermaid
 flowchart TD
     subgraph gh["Atom-oh/ai-trader-web · terraform.yml"]
-        pr["plan job<br/>sub: pull_request<br/>+ refs/heads/main"]
-        ap["apply job<br/>sub: environment: prod<br/>(branch 게이트 = env protection)"]
+        pr["plan job<br/>sub: pull_request<br/>+ ref:refs/heads/main"]
+        ap["apply job<br/>sub: ref:refs/heads/main<br/>(main push/dispatch, environment 없음)"]
     end
     oidc["token.actions.githubusercontent.com<br/>(공유 OIDC provider)"]
     plan["ai-trader-web-terraform-plan<br/>ReadOnlyAccess + demo-platform 데이터 Deny"]
@@ -195,9 +205,9 @@ flowchart TD
     pr -->|OIDC AssumeRoleWithWebIdentity| oidc
     ap -->|OIDC AssumeRoleWithWebIdentity| oidc
     oidc -->|sub 일치| plan
-    oidc -->|sub 일치| admin
+    oidc -->|sub 일치: main 한정| admin
     pr -.->|"공격자 통제 plan 코드<br/>→ 읽기 전용, demo-platform 데이터 차단"| plan
-    ap -.->|"env-protected apply<br/>→ admin"| admin
+    ap -.->|"main에 병합된 코드만<br/>→ admin"| admin
 ```
 - 두 역할 모두 공유 `data.aws_iam_openid_connect_provider.github`를 재사용.
 - `ai-trader-web-*` prefix 유지(`demo-platform-*`에서의 의도적 이탈) — 기존 out-of-band
@@ -206,22 +216,18 @@ flowchart TD
 ## Consequences
 
 - 공격자가 통제하는 plan 코드는 읽기 전용으로 한정되고 demo-platform state/데이터를 읽을 수
-  없다 — PR 트리거로 environment 게이트를 우회할 수 없다.
-- admin 게이트는 `ref` claim이 IAM으로 강제 불가하므로 ai-trader-web `prod` environment
-  protection(required reviewer + deployment-branch 제한)에 **전적으로** 의존한다.
-  **알려진 갭(2026-07-12): ai-trader-web `prod` environment에는 현재 protection rule도 branch
-  policy도 없고, private repo인 이 저장소의 billing plan이 required-reviewer/branch 제한 rule을
-  지원하지 않는다**(`gh api .../environments/prod` → `protection_rules: []`; `PUT` HTTP 422).
-  해결(플랜 업그레이드 후 `main`-only branch policy 설정, repo 공개 전환, 또는 플랜이 지원되는
-  계정으로 environment 이전) 전까지는 `environment: prod`를 타깃하는 `terraform.yml` job을 돌릴
-  수 있는 어느 브랜치든 `AdministratorAccess`를 assume할 수 있다. environment protection이
-  갖춰지기 전까지 admin 역할은 **ai-trader-web에 push/PR 가능한 사람만이 게이트**라고 간주할 것.
-  plan 역할 분리는 유효하다 — 비신뢰 `plan` 경로는 읽기 전용이고 demo-platform 데이터는 항상 차단.
+  없다 — PR 트리거로 분리를 우회할 수 없다.
+- admin 게이트는 **IAM 계층**(`ref:refs/heads/main` sub)에서 강제되므로 GitHub environment
+  protection(이 repo 플랜이 제공 불가)에 의존하지 않는다. `main`에 병합된 코드만 admin을 assume할
+  수 있어 main의 branch protection + PR 리뷰가 사람 게이트다. (이전 리비전은 `environment:prod`로
+  게이트했으나, 여기서 강제 가능한 environment protection이 없어 폐기 — 위 trust 불릿 참조.)
 - 후속(ai-trader-web PR): `terraform.yml` plan job → `role-to-assume:
   arn:aws:iam::180294183052:role/ai-trader-web-terraform-plan`, apply job →
   `arn:aws:iam::180294183052:role/ai-trader-web-terraform-admin` (ARN은
   `ai_trader_web_terraform_{plan,admin}_role_arn` output으로 export). 두 job 모두
-  `permissions: id-token: write` 필요. apply job은 2h 세션이 적용되려면
+  `permissions: id-token: write` 필요. apply job은 main push/`workflow_dispatch`에서
+  `environment:` 키 **없이** 돌아야 한다(environment 바인딩 시 OIDC sub가 `environment:prod`로
+  바뀌어 `ref:refs/heads/main` sub에 고정된 admin trust가 거부한다). 또한 2h 세션 적용을 위해
   `configure-aws-credentials`에 `role-duration-seconds: 7200`도 설정해야 한다(미설정 시 기본 1h).
 - ai-trader-web는 ephemeral 러너에서 로컬 state를 쓴다(매 실행 소실). 이후 remote backend를
   도입하면 plan 역할의 공유-state Deny를 재검토하고 *자체* state에 대한 read + lock 권한을

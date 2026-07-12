@@ -88,10 +88,12 @@ data "aws_iam_policy_document" "ai_trader_web_gha_plan_deny_state" {
   # demo-platform's CloudWatch logs (dashboard API request logs etc.) — scoped to
   # the /demo-platform/* namespace so ai-trader-web's own log groups (it deploys
   # into this same account) stay readable for its plan refresh.
+  # logs:* (not an action list) so StartQuery/GetQueryResults + StartLiveTail —
+  # which ReadOnlyAccess also grants and which read log content — are covered too.
   statement {
     sid       = "DenyDemoPlatformLogs"
     effect    = "Deny"
-    actions   = ["logs:GetLogEvents", "logs:FilterLogEvents", "logs:GetLogRecord"]
+    actions   = ["logs:*"]
     resources = ["arn:aws:logs:${local.region}:${local.account_id}:log-group:/demo-platform/*"]
   }
 }
@@ -117,18 +119,20 @@ data "aws_iam_policy_document" "ai_trader_web_gha_admin_assume" {
       variable = "token.actions.githubusercontent.com:aud"
       values   = ["sts.amazonaws.com"]
     }
-    # environment:prod — the apply job's only trusted sub. This is the ONLY
-    # gate expressible here: AWS STS exposes only `aud`/`sub` (and amr/azp) from
-    # a GitHub OIDC token as IAM condition keys — the `ref` claim is NOT a usable
-    # condition key (a StringEquals on it would always be false → permanent
-    # AccessDenied; that is why gha-ecr-push-role.tf encodes the ref inside the
-    # sub string). The branch gate therefore lives in the ai-trader-web repo's
-    # `prod` environment protection (required reviewers + deployment-branch
-    # restriction). CONFIRM those are set — they cannot be enforced from this IaC.
+    # Gate admin on the main-branch sub, NOT on an `environment:prod` sub. An
+    # environment sub would delegate the branch gate to GitHub environment
+    # protection, which this repo's billing plan cannot enforce (no required
+    # reviewers / branch policy — HTTP 422). `ref:refs/heads/main` IS the sub
+    # (a real IAM condition key, unlike the non-evaluable `ref` claim), so IAM
+    # itself restricts admin to code already on main — gated by main's branch
+    # protection + PR review. Same model as demo-platform-gha-ecr-push.
+    # NOTE: the ai-trader-web apply job must therefore run on push to main /
+    # workflow_dispatch on main WITHOUT an `environment:` binding (an environment
+    # binding would change the sub to environment:prod and break this trust).
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:Atom-oh/ai-trader-web:environment:prod"]
+      values   = ["repo:Atom-oh/ai-trader-web:ref:refs/heads/main"]
     }
   }
 }
