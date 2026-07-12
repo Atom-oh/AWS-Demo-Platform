@@ -125,7 +125,7 @@ Browser -> CloudFront -> VPC Origin -> Internal ALB -> TGB -> Pod (Atlantis | Ar
 | `infra/route53-private-zone` | Split-horizon PHZ for `*.atomai.click` |
 | `infra/cognito` | Admin auth (planned) |
 | `infra/dashboard-ecs` | Dashboard runtime (planned) |
-| `infra/iam` | DashboardEcsTaskRole-dev + ExecutionRole-dev + DemoPlatformOperator (Stage 2) |
+| `infra/iam` | DashboardEcsTaskRole-dev + ExecutionRole-dev + DemoPlatformOperator (Stage 2) + GHA OIDC roles (`demo-platform-gha-ecr-push`, `ai-trader-web-terraform-plan`/`-admin`) |
 | `infra/global` | Account-global resources |
 | `infra/dynamodb` | Lifecycle Controller state/jobs/history tables (Stage 2, dev) |
 | `infra/sqs` | Lifecycle Controller job queue + DLQ (Stage 2, dev) |

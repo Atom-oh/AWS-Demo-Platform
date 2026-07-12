@@ -42,10 +42,10 @@ the blast radius of a compromised admin assume-path is platform-wide.
 
 Split into two roles (`infra/iam/ai-trader-web-gha-roles.tf`):
 
-| Role | Managed policy | Trust (`sub` / `ref`) | Used by |
-|------|----------------|-----------------------|---------|
-| `ai-trader-web-terraform-plan` | `ReadOnlyAccess` **+ inline Deny on shared state** | sub `pull_request`, `ref:refs/heads/main` | plan job |
-| `ai-trader-web-terraform-admin` | `AdministratorAccess` | sub `environment:prod` **AND** ref `refs/heads/main` | apply job |
+| Role | Managed policy | Trust (`sub`) | Used by |
+|------|----------------|---------------|---------|
+| `ai-trader-web-terraform-plan` | `ReadOnlyAccess` **+ inline Deny on demo-platform data** | `pull_request`, `ref:refs/heads/main` | plan job |
+| `ai-trader-web-terraform-admin` | `AdministratorAccess` | `environment:prod` only (branch gate = GitHub `prod` environment protection) | apply job |
 
 - The plan job (attacker-influenceable) can only read, and ai-trader-web uses **local**
   Terraform state, so the plan role needs no permissions on its *own* state.
@@ -97,8 +97,16 @@ flowchart TD
   state/data — the environment gate can no longer be bypassed via the PR trigger.
 - The admin gate depends **entirely** on ai-trader-web's `prod` environment protection
   (required reviewers + deployment-branch restriction), since the `ref` claim is not
-  IAM-enforceable (above). **This must be verified in the ai-trader-web repo settings** — with
-  no branch restriction, any branch deploying to the `prod` environment could assume admin.
+  IAM-enforceable (above). **KNOWN GAP (2026-07-12): ai-trader-web's `prod` environment
+  currently has NO protection rules and NO branch policy, and its billing plan does not
+  support required-reviewer / branch-restriction rules on a private repo** (`gh api
+  .../environments/prod` → `protection_rules: []`; `PUT` returns HTTP 422). Until that is
+  resolved (upgrade the plan and set a `main`-only branch policy, make the repo public, or
+  move the environment to an account whose plan supports it), any branch that can run a
+  `terraform.yml` job targeting `environment: prod` can assume `AdministratorAccess`. Treat the
+  admin role as **effectively gated only by who can push/PR to ai-trader-web** until the
+  environment protection is in place. The plan-role split still holds — the untrusted `plan`
+  path is read-only and demo-platform data is denied regardless.
 - Follow-up (ai-trader-web PR): `terraform.yml` plan job → `role-to-assume:
   arn:aws:iam::180294183052:role/ai-trader-web-terraform-plan`; apply job →
   `arn:aws:iam::180294183052:role/ai-trader-web-terraform-admin` (ARNs exported as
@@ -201,8 +209,14 @@ flowchart TD
   없다 — PR 트리거로 environment 게이트를 우회할 수 없다.
 - admin 게이트는 `ref` claim이 IAM으로 강제 불가하므로 ai-trader-web `prod` environment
   protection(required reviewer + deployment-branch 제한)에 **전적으로** 의존한다.
-  **ai-trader-web repo 설정에서 반드시 확인**할 것 — branch 제한이 없으면 어느 브랜치든 `prod`
-  environment 배포 시 admin을 assume할 수 있다.
+  **알려진 갭(2026-07-12): ai-trader-web `prod` environment에는 현재 protection rule도 branch
+  policy도 없고, private repo인 이 저장소의 billing plan이 required-reviewer/branch 제한 rule을
+  지원하지 않는다**(`gh api .../environments/prod` → `protection_rules: []`; `PUT` HTTP 422).
+  해결(플랜 업그레이드 후 `main`-only branch policy 설정, repo 공개 전환, 또는 플랜이 지원되는
+  계정으로 environment 이전) 전까지는 `environment: prod`를 타깃하는 `terraform.yml` job을 돌릴
+  수 있는 어느 브랜치든 `AdministratorAccess`를 assume할 수 있다. environment protection이
+  갖춰지기 전까지 admin 역할은 **ai-trader-web에 push/PR 가능한 사람만이 게이트**라고 간주할 것.
+  plan 역할 분리는 유효하다 — 비신뢰 `plan` 경로는 읽기 전용이고 demo-platform 데이터는 항상 차단.
 - 후속(ai-trader-web PR): `terraform.yml` plan job → `role-to-assume:
   arn:aws:iam::180294183052:role/ai-trader-web-terraform-plan`, apply job →
   `arn:aws:iam::180294183052:role/ai-trader-web-terraform-admin` (ARN은

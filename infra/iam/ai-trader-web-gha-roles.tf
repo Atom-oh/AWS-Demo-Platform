@@ -75,12 +75,24 @@ data "aws_iam_policy_document" "ai_trader_web_gha_plan_deny_state" {
     sid     = "DenyDemoPlatformDynamo"
     effect  = "Deny"
     actions = ["dynamodb:*"]
+    # Wildcard covers the tables AND their GSIs (Query authorizes on the index
+    # ARN `.../index/*`, which a bare table ARN would not match — demo-platform-
+    # jobs-dev has a projection-ALL GSI, so a table-only Deny leaves the full
+    # item set readable through the index). Deny over-matching is harmless.
     resources = [
       "arn:aws:dynamodb:us-east-1:${local.account_id}:table/multi-region-mall-terraform-locks",
-      local.ddb_state_arn,
-      local.ddb_jobs_arn,
-      local.ddb_history_arn,
+      "arn:aws:dynamodb:${local.region}:${local.account_id}:table/demo-platform-*",
+      "arn:aws:dynamodb:${local.region}:${local.account_id}:table/demo-platform-*/index/*",
     ]
+  }
+  # demo-platform's CloudWatch logs (dashboard API request logs etc.) — scoped to
+  # the /demo-platform/* namespace so ai-trader-web's own log groups (it deploys
+  # into this same account) stay readable for its plan refresh.
+  statement {
+    sid       = "DenyDemoPlatformLogs"
+    effect    = "Deny"
+    actions   = ["logs:GetLogEvents", "logs:FilterLogEvents", "logs:GetLogRecord"]
+    resources = ["arn:aws:logs:${local.region}:${local.account_id}:log-group:/demo-platform/*"]
   }
 }
 
