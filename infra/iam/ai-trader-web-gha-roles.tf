@@ -9,9 +9,9 @@
 #   plan  (pull_request + push to main)  -> ai-trader-web-terraform-plan  (ReadOnlyAccess)
 #   apply (environment:prod, gated)      -> ai-trader-web-terraform-admin (AdministratorAccess)
 #
-# ai-trader-web uses local Terraform state (no remote backend block), so the
-# plan role needs no S3/DynamoDB state permissions — ReadOnlyAccess covers the
-# read-only refresh a plan performs.
+# ai-trader-web uses local Terraform state (no remote backend block) and deploys
+# into THIS account, so ReadOnlyAccess lets plan refresh its own resources — but
+# it also exposes demo-platform's shared state + data account-wide, denied below.
 #
 # Reuses data.aws_iam_openid_connect_provider.github from gha-ecr-push-role.tf.
 # Naming: `ai-trader-web-*` (not the `demo-platform-*` prefix) intentionally —
@@ -54,13 +54,16 @@ resource "aws_iam_role_policy_attachment" "ai_trader_web_gha_plan" {
   policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
 }
 
-# ReadOnlyAccess grants s3:Get*/dynamodb:GetItem account-wide, and this account
-# hosts the SHARED, platform-wide Terraform state bucket + lock table (state can
-# contain plaintext secrets). Since the plan role is assumable by attacker-
-# controlled PR-branch code (ADR-012) and ai-trader-web uses LOCAL state, it has
-# no legitimate need for demo-platform's state — deny it explicitly to close the
-# exfiltration path. (secretsmanager:GetSecretValue/kms:Decrypt are already
-# absent from ReadOnlyAccess, so those paths are closed by omission.)
+# ReadOnlyAccess grants s3:Get* / dynamodb:GetItem+Scan account-wide, and this
+# account hosts the SHARED platform-wide Terraform state (bucket + lock table,
+# may contain plaintext secrets) plus the demo-platform Lifecycle Controller
+# DynamoDB tables. Since the plan role is assumable by attacker-controlled PR-
+# branch code (ADR-012), an explicit Deny on those closes the read-exfil path
+# for demo-platform's data while leaving ai-trader-web's own resources readable
+# (it deploys into this same account). secretsmanager:GetSecretValue / kms:Decrypt
+# are already absent from ReadOnlyAccess, so ExternalId/secret paths are closed.
+# NOTE: the state lock table + bucket live in us-east-1 (see backend.tf), not the
+# ap-northeast-2 local.region, so the lock-table ARN is pinned to us-east-1.
 data "aws_iam_policy_document" "ai_trader_web_gha_plan_deny_state" {
   statement {
     sid       = "DenyDemoPlatformStateBucket"
@@ -69,10 +72,15 @@ data "aws_iam_policy_document" "ai_trader_web_gha_plan_deny_state" {
     resources = ["arn:aws:s3:::multi-region-mall-terraform-state", "arn:aws:s3:::multi-region-mall-terraform-state/*"]
   }
   statement {
-    sid       = "DenyDemoPlatformStateLock"
-    effect    = "Deny"
-    actions   = ["dynamodb:*"]
-    resources = ["arn:aws:dynamodb:${local.region}:${local.account_id}:table/multi-region-mall-terraform-locks"]
+    sid     = "DenyDemoPlatformDynamo"
+    effect  = "Deny"
+    actions = ["dynamodb:*"]
+    resources = [
+      "arn:aws:dynamodb:us-east-1:${local.account_id}:table/multi-region-mall-terraform-locks",
+      local.ddb_state_arn,
+      local.ddb_jobs_arn,
+      local.ddb_history_arn,
+    ]
   }
 }
 
@@ -97,23 +105,18 @@ data "aws_iam_policy_document" "ai_trader_web_gha_admin_assume" {
       variable = "token.actions.githubusercontent.com:aud"
       values   = ["sts.amazonaws.com"]
     }
-    # environment:prod — the apply job's only trusted sub. GitHub environment
-    # protection rules (required reviewers + deployment-branch restriction) on
-    # ai-trader-web's `prod` environment are one gate; confirm they are set
-    # (they live in the ai-trader-web repo settings, not this IaC).
+    # environment:prod — the apply job's only trusted sub. This is the ONLY
+    # gate expressible here: AWS STS exposes only `aud`/`sub` (and amr/azp) from
+    # a GitHub OIDC token as IAM condition keys — the `ref` claim is NOT a usable
+    # condition key (a StringEquals on it would always be false → permanent
+    # AccessDenied; that is why gha-ecr-push-role.tf encodes the ref inside the
+    # sub string). The branch gate therefore lives in the ai-trader-web repo's
+    # `prod` environment protection (required reviewers + deployment-branch
+    # restriction). CONFIRM those are set — they cannot be enforced from this IaC.
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
       values   = ["repo:Atom-oh/ai-trader-web:environment:prod"]
-    }
-    # Second gate at the IAM layer, not dependent on external-repo settings: the
-    # OIDC token's `ref` claim is separate from `sub`, so we can AND it with the
-    # environment sub. apply only fires on main push + workflow_dispatch from
-    # main, so refs/heads/main is the only ref an apply job legitimately carries.
-    condition {
-      test     = "StringEquals"
-      variable = "token.actions.githubusercontent.com:ref"
-      values   = ["refs/heads/main"]
     }
   }
 }
