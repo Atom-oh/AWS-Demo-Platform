@@ -74,15 +74,28 @@ data "aws_iam_policy_document" "ai_trader_web_gha_plan_deny_state" {
     sid     = "DenyDemoPlatformDynamo"
     effect  = "Deny"
     actions = ["dynamodb:*"]
-    # Wildcard covers the tables AND their GSIs (Query authorizes on the index
-    # ARN `.../index/*`, which a bare table ARN would not match — demo-platform-
-    # jobs-dev has a projection-ALL GSI, so a table-only Deny leaves the full
-    # item set readable through the index). Deny over-matching is harmless.
+    # `table/demo-platform-*` already covers the GSIs: an IAM resource wildcard
+    # `*` matches any characters including `/`, so it spans the index ARN
+    # `table/demo-platform-jobs-dev/index/gsi1` too (dynamodb:Query authorizes on
+    # that index ARN). The explicit `/index/*` line is a defensive duplicate.
     resources = [
       "arn:aws:dynamodb:us-east-1:${local.account_id}:table/multi-region-mall-terraform-locks",
       "arn:aws:dynamodb:${local.region}:${local.account_id}:table/demo-platform-*",
       "arn:aws:dynamodb:${local.region}:${local.account_id}:table/demo-platform-*/index/*",
     ]
+  }
+  # Defense-in-depth: ReadOnlyAccess v187 does NOT include
+  # secretsmanager:GetSecretValue (only Describe*/List*/GetResourcePolicy), so
+  # secret VALUES — operator/terraformer ExternalId, GitHub PAT, ArgoCD token,
+  # cognito, the AI panel key — are already unreadable. This explicit Deny pins
+  # that guarantee so a future AWS-managed-policy change can't silently open the
+  # exfil path. Scoped to /demo-platform/* so ai-trader-web's own secrets (same
+  # account) stay readable for plan.
+  statement {
+    sid       = "DenyDemoPlatformSecretValues"
+    effect    = "Deny"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = ["arn:aws:secretsmanager:${local.region}:${local.account_id}:secret:/demo-platform/*"]
   }
   # demo-platform's CloudWatch logs (dashboard API request logs etc.) — scoped to
   # the /demo-platform/* namespace so ai-trader-web's own log groups (it deploys
@@ -138,6 +151,11 @@ data "aws_iam_policy_document" "ai_trader_web_gha_admin_assume" {
     # NOTE: the ai-trader-web apply job must therefore run on push to main /
     # workflow_dispatch on main WITHOUT an `environment:` binding (an environment
     # binding would change the sub to environment:prod and break this trust).
+    # Not further pinned to a job_workflow_ref: like `ref`, that OIDC claim is not
+    # exposed by AWS STS as an IAM condition key, so it cannot be a condition
+    # here. The main-branch sub already restricts assume to code merged to main
+    # (gated by branch protection + review); job-level pinning, if wanted, must be
+    # done via GitHub sub customization on the ai-trader-web side.
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"

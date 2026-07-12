@@ -54,16 +54,19 @@ Split into two roles (`infra/iam/ai-trader-web-gha-roles.tf`):
   + lock table, may contain plaintext secrets) plus the demo-platform Lifecycle Controller
   DynamoDB tables. Since the plan role is assumable by attacker-controlled PR-branch code,
   "read-only" is not by itself safe — it would be a demo-platform-data exfiltration path. An
-  **inline Deny** on the state bucket/lock table + a `demo-platform-*` DynamoDB wildcard
-  **including `/index/*`** (a projection-ALL GSI on `demo-platform-jobs-dev` would leak the
-  full item set past a table-only Deny, since `dynamodb:Query` authorizes on the index ARN) +
-  a `/demo-platform/*` CloudWatch Logs Deny (`logs:*` — blocks `StartQuery` + `StartLiveTail`,
-  the log-group-scoped read entry points, not just `GetLogEvents`) + a `demo-platform-*` SQS
-  Deny (job queue + DLQ) closes it, while ai-trader-web's own resources (it deploys into this
-  same account) stay readable for plan refresh.
-  `secretsmanager:GetSecretValue` / `kms:Decrypt` are already absent from `ReadOnlyAccess`, so
-  the ExternalId/secret paths are closed by omission. (The state bucket + lock table live in
-  `us-east-1`, per `backend.tf` — the lock-table Deny ARN is pinned there, not `local.region`.)
+  **inline Deny** on the state bucket/lock table + a `demo-platform-*` DynamoDB wildcard (an IAM
+  resource wildcard `*` matches `/`, so `table/demo-platform-*` already spans the `.../index/*`
+  GSI ARNs that `dynamodb:Query` authorizes on — the explicit `/index/*` line is a defensive
+  duplicate) + a `/demo-platform/*` CloudWatch Logs Deny (`logs:*` — blocks `StartQuery` +
+  `StartLiveTail`, the log-group-scoped read entry points, not just `GetLogEvents`) + a
+  `demo-platform-*` SQS Deny (job queue + DLQ) closes it, while ai-trader-web's own resources
+  (it deploys into this same account) stay readable for plan refresh.
+  **Secret VALUES**: `ReadOnlyAccess` (v187) does NOT include `secretsmanager:GetSecretValue` —
+  only `Describe*`/`List*`/`GetResourcePolicy` — so the operator/terraformer ExternalId, GitHub
+  PAT, ArgoCD token, cognito, and AI panel key are already unreadable; an explicit
+  `GetSecretValue` Deny on `/demo-platform/*` pins that so a future AWS-managed-policy change
+  can't silently reopen the path. (The state bucket + lock table live in `us-east-1`, per
+  `backend.tf` — the lock-table Deny ARN is pinned there, not `local.region`.)
 - **The admin role is gated on the `ref:refs/heads/main` sub, NOT an `environment:prod` sub.**
   An environment sub would delegate the branch gate to GitHub environment protection — which
   this repo's billing plan cannot enforce (no required-reviewer / branch-restriction rules on
@@ -173,14 +176,17 @@ admin assume 경로가 침해되면 blast radius가 플랫폼 전체다.
   포함 가능)와 demo-platform Lifecycle Controller DynamoDB 테이블을 호스팅한다. plan 역할은
   공격자 통제 PR 브랜치 코드로 assume되므로 "읽기 전용" 자체가 안전하지 않다 — demo-platform
   데이터 exfiltration 경로가 된다. state 버킷/lock 테이블 + `demo-platform-*` DynamoDB 와일드카드
-  (**`/index/*` 포함** — `demo-platform-jobs-dev`의 projection-ALL GSI는 `dynamodb:Query`가 index
-  ARN으로 인가되어 테이블 단독 Deny를 우회하므로 전체 아이템이 노출됨) + `/demo-platform/*`
-  CloudWatch Logs(`logs:*` — `GetLogEvents`뿐 아니라 log-group 스코프 읽기 진입점인
-  `StartQuery`+`StartLiveTail`까지 차단) + `demo-platform-*` SQS(job 큐 + DLQ)에 **inline Deny**를
-  부착해 차단하되, ai-trader-web 자체 리소스(같은 계정에 배포)는
-  plan refresh용으로 읽기 가능하게 남긴다. `secretsmanager:GetSecretValue`/`kms:Decrypt`는
-  `ReadOnlyAccess`에 없어 ExternalId/시크릿 경로는 이미 차단됨. (state 버킷+lock 테이블은
-  `backend.tf` 기준 `us-east-1`에 있어 lock 테이블 Deny ARN은 `local.region`이 아닌 `us-east-1`.)
+  (IAM 리소스 와일드카드 `*`는 `/`도 매치하므로 `table/demo-platform-*`가 `dynamodb:Query`가
+  인가하는 `.../index/*` GSI ARN까지 이미 포함 — 별도 `/index/*` 라인은 방어적 중복) +
+  `/demo-platform/*` CloudWatch Logs(`logs:*` — `GetLogEvents`뿐 아니라 log-group 스코프 읽기
+  진입점인 `StartQuery`+`StartLiveTail`까지 차단) + `demo-platform-*` SQS(job 큐 + DLQ)에
+  **inline Deny**를 부착해 차단하되, ai-trader-web 자체 리소스(같은 계정에 배포)는 plan refresh용
+  으로 읽기 가능하게 남긴다. **시크릿 VALUE**: `ReadOnlyAccess`(v187)에는
+  `secretsmanager:GetSecretValue`가 없다(`Describe*`/`List*`/`GetResourcePolicy`만) — operator/
+  terraformer ExternalId·GitHub PAT·ArgoCD 토큰·cognito·AI panel key는 이미 읽을 수 없으며,
+  `/demo-platform/*`에 명시적 `GetSecretValue` Deny를 부착해 향후 AWS 관리형 정책 변경이 조용히
+  경로를 열지 못하게 고정한다. (state 버킷+lock 테이블은 `backend.tf` 기준 `us-east-1`에 있어 lock
+  테이블 Deny ARN은 `local.region`이 아닌 `us-east-1`.)
 - **admin 역할은 `environment:prod` sub가 아니라 `ref:refs/heads/main` sub로 게이트한다.**
   environment sub는 branch 게이트를 GitHub environment protection에 위임하는데, 이 repo의 billing
   plan은 그것을 강제할 수 없다(private repo에 required-reviewer/branch 제한 rule 미지원:
