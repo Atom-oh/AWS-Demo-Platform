@@ -79,9 +79,10 @@ Split into two roles (`infra/iam/ai-trader-web-gha-roles.tf`):
   a private repo: `gh api .../environments/prod` → `protection_rules: []`, `PUT` → HTTP 422).
   `ref:refs/heads/main` is part of the **sub** (a real IAM condition key — unlike the
   non-evaluable `ref` *claim*, which AWS STS does not expose; that is why `gha-ecr-push-role.tf`
-  also encodes the ref inside the sub). So IAM itself restricts admin to code already merged to
-  `main`, gated by main's branch protection + PR review — no dependence on GitHub environment
-  features. The ai-trader-web apply job must therefore run on push/`workflow_dispatch` on main
+  also encodes the ref inside the sub). So IAM itself restricts admin to code on `main` — no
+  dependence on GitHub environment features. (The intent is that main is review-gated, but that
+  is NOT enforceable here — see the ACCEPTED TRADE-OFF in Consequences.) The ai-trader-web apply
+  job must therefore run on push/`workflow_dispatch` on main
   **without** an `environment:` binding (a binding would flip the sub to `environment:prod` and
   break this trust).
 - `max_session_duration = 7200` on the admin role so long applies don't expire mid-run.
@@ -141,8 +142,14 @@ flowchart TD
 - ai-trader-web uses local state on ephemeral runners (state is lost each run); if it later
   adopts a remote backend, the plan role's shared-state Deny must be revisited and the role
   given scoped read + lock on *its own* state.
-- The pre-existing `ai-trader-web-gha-deploy` (PowerUser) role is left untouched; it can be
-  retired separately once workflows migrate to the new pair.
+- **The pre-existing `ai-trader-web-gha-deploy` (PowerUser) role trusted
+  `repo:Atom-oh/ai-trader-web:*` — a wildcard including `pull_request`.** That defeated the
+  split's premise: attacker-controlled PR plan code could assume *that* role for PowerUser
+  instead. It is created out-of-band (not in this repo's nor ai-trader-web's Terraform), so this
+  PR **adopts it via `terraform import`** and tightens its trust to the same `pull_request` +
+  `ref:refs/heads/main` subs (closing the `:*`→PowerUser-on-any-sub path), preserving its
+  PowerUser attachment + inline IAM policy. Kept (not deleted) because ai-trader-web's
+  `terraform.yml` still uses it until it migrates to the plan/admin pair; retire once migrated.
 
 ---
 
@@ -241,7 +248,7 @@ flowchart TD
     oidc -->|sub 일치| plan
     oidc -->|sub 일치: main 한정| admin
     pr -.->|"공격자 통제 plan 코드<br/>→ 읽기 전용, demo-platform 데이터 차단"| plan
-    ap -.->|"main에 병합된 코드만<br/>→ admin"| admin
+    ap -.->|"main 코드(push-gated,<br/>트레이드오프 참조)→ admin"| admin
 ```
 
 ## Consequences
@@ -273,5 +280,10 @@ flowchart TD
 - ai-trader-web는 ephemeral 러너에서 로컬 state를 쓴다(매 실행 소실). 이후 remote backend를
   도입하면 plan 역할의 공유-state Deny를 재검토하고 *자체* state에 대한 read + lock 권한을
   부여해야 한다.
-- 기존 `ai-trader-web-gha-deploy`(PowerUser) 역할은 그대로 두며, 워크플로가 새 역할 쌍으로
-  이전된 뒤 별도로 폐기 가능.
+- **기존 `ai-trader-web-gha-deploy`(PowerUser) 역할은 `repo:Atom-oh/ai-trader-web:*`를 신뢰했다 —
+  `pull_request`를 포함하는 와일드카드.** 이것이 분리의 전제를 무너뜨렸다: 공격자 통제 PR plan
+  코드가 *그 역할*을 assume해 PowerUser를 얻을 수 있었다. out-of-band 생성(이 repo·ai-trader-web
+  Terraform 어디에도 없음)이라 이 PR이 **`terraform import`로 편입**하고 trust를 plan/admin과 동일한
+  `pull_request` + `ref:refs/heads/main` sub로 축소(`:*`→임의 sub PowerUser 경로 차단), PowerUser
+  attachment + inline IAM 정책은 그대로 보존한다. ai-trader-web `terraform.yml`이 아직 사용 중이라
+  삭제하지 않고 유지 — 새 역할 쌍으로 이전 후 폐기.

@@ -169,8 +169,11 @@ data "aws_iam_policy_document" "ai_trader_web_gha_admin_assume" {
     # protection, which this repo's billing plan cannot enforce (no required
     # reviewers / branch policy — HTTP 422). `ref:refs/heads/main` IS the sub
     # (a real IAM condition key, unlike the non-evaluable `ref` claim), so IAM
-    # itself restricts admin to code already on main — gated by main's branch
-    # protection + PR review. Same model as demo-platform-gha-ecr-push.
+    # itself restricts admin to code already on main. Same model as
+    # demo-platform-gha-ecr-push. ACCEPTED TRADE-OFF: this repo's plan can't
+    # enforce main branch protection either (HTTP 403), so "review-gated main" is
+    # aspirational — admin is effectively gated by the collaborator list. See
+    # ADR-012 Consequences.
     # NOTE: the ai-trader-web apply job must therefore run on push to main /
     # workflow_dispatch on main WITHOUT an `environment:` binding (an environment
     # binding would change the sub to environment:prod and break this trust).
@@ -196,4 +199,94 @@ resource "aws_iam_role" "ai_trader_web_gha_admin" {
 resource "aws_iam_role_policy_attachment" "ai_trader_web_gha_admin" {
   role       = aws_iam_role.ai_trader_web_gha_admin.name
   policy_arn = "arn:aws:iam::aws:policy/AdministratorAccess"
+}
+
+# --- pre-existing gha-deploy role: adopted + trust tightened ------------------
+#
+# `ai-trader-web-gha-deploy` (PowerUserAccess) was created out-of-band (not in
+# this repo or ai-trader-web's Terraform) and trusted `repo:Atom-oh/ai-trader-web:*`
+# — a wildcard that INCLUDES the `pull_request` sub. That defeated the whole
+# plan/apply split: attacker-controlled PR plan code could just assume this role
+# instead and get PowerUser. Adopt it here (terraform import) and tighten trust
+# to the same subs as the plan/admin pair so the PR→PowerUser path is closed.
+# Kept (not deleted) because ai-trader-web's terraform.yml still uses it until it
+# migrates to the plan/admin pair; retire once migrated. PowerUser + its inline
+# IAM policy are preserved exactly as imported.
+#
+# Adopted via TF 1.5+ `import {}` blocks (below) so Atlantis plan/apply imports
+# it in-band — no manual `terraform import` / state surgery needed. The blocks
+# are idempotent (no-op once in state) and can be deleted in a later cleanup.
+
+import {
+  to = aws_iam_role.ai_trader_web_gha_deploy
+  id = "ai-trader-web-gha-deploy"
+}
+
+import {
+  to = aws_iam_role_policy_attachment.ai_trader_web_gha_deploy_poweruser
+  id = "ai-trader-web-gha-deploy/arn:aws:iam::aws:policy/PowerUserAccess"
+}
+
+import {
+  to = aws_iam_role_policy.ai_trader_web_gha_deploy_iam
+  id = "ai-trader-web-gha-deploy:terraform-20260516125018911700000001"
+}
+
+data "aws_iam_policy_document" "ai_trader_web_gha_deploy_assume" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    principals {
+      type        = "Federated"
+      identifiers = [data.aws_iam_openid_connect_provider.github.arn]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+    # Was `repo:Atom-oh/ai-trader-web:*` (matched pull_request → PR-plan PowerUser
+    # bypass). Narrowed to plan/apply subs only.
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:sub"
+      values = [
+        "repo:Atom-oh/ai-trader-web:pull_request",
+        "repo:Atom-oh/ai-trader-web:ref:refs/heads/main",
+      ]
+    }
+  }
+}
+
+resource "aws_iam_role" "ai_trader_web_gha_deploy" {
+  name               = "ai-trader-web-gha-deploy"
+  assume_role_policy = data.aws_iam_policy_document.ai_trader_web_gha_deploy_assume.json
+}
+
+resource "aws_iam_role_policy_attachment" "ai_trader_web_gha_deploy_poweruser" {
+  role       = aws_iam_role.ai_trader_web_gha_deploy.name
+  policy_arn = "arn:aws:iam::aws:policy/PowerUserAccess"
+}
+
+# Preserve the imported inline IAM policy verbatim (PowerUser lacks iam:*; this
+# grants the IAM management ai-trader-web's Terraform needs).
+resource "aws_iam_role_policy" "ai_trader_web_gha_deploy_iam" {
+  name = "terraform-20260516125018911700000001"
+  role = aws_iam_role.ai_trader_web_gha_deploy.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Resource = "*"
+      Action = [
+        "iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:ListRoles",
+        "iam:CreatePolicy", "iam:DeletePolicy", "iam:GetPolicy", "iam:ListPolicies",
+        "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies", "iam:PutRolePolicy", "iam:DeleteRolePolicy",
+        "iam:GetRolePolicy", "iam:TagRole", "iam:UntagRole", "iam:PassRole",
+        "iam:CreatePolicyVersion", "iam:DeletePolicyVersion", "iam:GetPolicyVersion",
+        "iam:ListPolicyVersions",
+      ]
+    }]
+  })
 }
