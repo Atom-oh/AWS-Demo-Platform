@@ -59,8 +59,14 @@ Split into two roles (`infra/iam/ai-trader-web-gha-roles.tf`):
   GSI ARNs that `dynamodb:Query` authorizes on — the explicit `/index/*` line is a defensive
   duplicate) + a `/demo-platform/*` CloudWatch Logs Deny (`logs:*` — blocks `StartQuery` +
   `StartLiveTail`, the log-group-scoped read entry points, not just `GetLogEvents`) + a
-  `demo-platform-*` SQS Deny (job queue + DLQ) closes it, while ai-trader-web's own resources
-  (it deploys into this same account) stay readable for plan refresh.
+  `demo-platform-*` SQS Deny (job queue + DLQ) + a `demo-platform/*` + `actions-runner-claude`
+  ECR image Deny (a pulled layer can carry baked source/config) + a Cognito read Deny on the
+  admin user pool covers the sensitive demo-platform stores, while ai-trader-web's own resources
+  (it deploys into this same account, under `ai-trader-*` names) stay readable for plan refresh.
+  This is a **targeted denylist of demo-platform's sensitive stores, not a blanket seal** —
+  `ReadOnlyAccess` still grants broad account-wide `Describe`/`List` metadata; the goal is to
+  deny the stores that hold secrets or payloads, not every read. A permissions-boundary /
+  scoped-allowlist rewrite would be more robust and is noted as future work.
   **Secret VALUES**: `ReadOnlyAccess` (v187) does NOT include `secretsmanager:GetSecretValue` —
   only `Describe*`/`List*`/`GetResourcePolicy` — so the operator/terraformer ExternalId, GitHub
   PAT, ArgoCD token, cognito, and AI panel key are already unreadable; an explicit
@@ -180,8 +186,13 @@ admin assume 경로가 침해되면 blast radius가 플랫폼 전체다.
   인가하는 `.../index/*` GSI ARN까지 이미 포함 — 별도 `/index/*` 라인은 방어적 중복) +
   `/demo-platform/*` CloudWatch Logs(`logs:*` — `GetLogEvents`뿐 아니라 log-group 스코프 읽기
   진입점인 `StartQuery`+`StartLiveTail`까지 차단) + `demo-platform-*` SQS(job 큐 + DLQ)에
-  **inline Deny**를 부착해 차단하되, ai-trader-web 자체 리소스(같은 계정에 배포)는 plan refresh용
-  으로 읽기 가능하게 남긴다. **시크릿 VALUE**: `ReadOnlyAccess`(v187)에는
+  **inline Deny** + `demo-platform/*`·`actions-runner-claude` ECR 이미지 Deny(pull한 레이어에
+  소스/설정이 baked될 수 있음) + admin Cognito user pool read Deny로 demo-platform의 민감
+  스토어를 차단하되, ai-trader-web 자체 리소스(같은 계정에 `ai-trader-*` 이름으로 배포)는 plan
+  refresh용으로 읽기 가능하게 남긴다. 이는 **demo-platform 민감 스토어에 대한 표적 denylist이지
+  전면 차단이 아니다** — `ReadOnlyAccess`는 계정 전역 `Describe`/`List` 메타데이터를 여전히 부여하며,
+  목표는 모든 read가 아니라 시크릿/페이로드를 담은 스토어의 차단이다. permissions-boundary /
+  scoped-allowlist 재작성이 더 견고하며 future work로 기록. **시크릿 VALUE**: `ReadOnlyAccess`(v187)에는
   `secretsmanager:GetSecretValue`가 없다(`Describe*`/`List*`/`GetResourcePolicy`만) — operator/
   terraformer ExternalId·GitHub PAT·ArgoCD 토큰·cognito·AI panel key는 이미 읽을 수 없으며,
   `/demo-platform/*`에 명시적 `GetSecretValue` Deny를 부착해 향후 AWS 관리형 정책 변경이 조용히

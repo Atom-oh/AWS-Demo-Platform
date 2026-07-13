@@ -118,6 +118,29 @@ data "aws_iam_policy_document" "ai_trader_web_gha_plan_deny_state" {
     actions   = ["sqs:*"]
     resources = ["arn:aws:sqs:${local.region}:${local.account_id}:demo-platform-*"]
   }
+  # demo-platform ECR images — a pulled image layer can carry baked source/config.
+  # ai-trader-web's own repos are named ai-trader-* so this does not touch them.
+  statement {
+    sid    = "DenyDemoPlatformEcr"
+    effect = "Deny"
+    actions = [
+      "ecr:GetDownloadUrlForLayer",
+      "ecr:BatchGetImage",
+      "ecr:GetRepositoryPolicy",
+    ]
+    resources = [
+      "arn:aws:ecr:${local.region}:${local.account_id}:repository/demo-platform/*",
+      "arn:aws:ecr:${local.region}:${local.account_id}:repository/actions-runner-claude",
+    ]
+  }
+  # demo-platform admin Cognito user pool — reading users/attributes would expose
+  # admin identities. ai-trader-web's own pool (ai-trader-web-users) is untouched.
+  statement {
+    sid       = "DenyDemoPlatformCognito"
+    effect    = "Deny"
+    actions   = ["cognito-idp:List*", "cognito-idp:Describe*", "cognito-idp:AdminGet*", "cognito-idp:Get*"]
+    resources = ["arn:aws:cognito-idp:${local.region}:${local.account_id}:userpool/ap-northeast-2_xmcmwdt3y"]
+  }
 }
 
 resource "aws_iam_role_policy" "ai_trader_web_gha_plan_deny_state" {
