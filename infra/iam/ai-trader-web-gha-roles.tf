@@ -179,9 +179,9 @@ data "aws_iam_policy_document" "ai_trader_web_gha_admin_assume" {
     # binding would change the sub to environment:prod and break this trust).
     # Not further pinned to a job_workflow_ref: like `ref`, that OIDC claim is not
     # exposed by AWS STS as an IAM condition key, so it cannot be a condition
-    # here. The main-branch sub already restricts assume to code merged to main
-    # (gated by branch protection + review); job-level pinning, if wanted, must be
-    # done via GitHub sub customization on the ai-trader-web side.
+    # here. The main-branch sub restricts assume to code on main (which is NOT
+    # review-enforced — see the trade-off above); job-level pinning, if wanted,
+    # must be done via GitHub sub customization on the ai-trader-web side.
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
@@ -208,10 +208,11 @@ resource "aws_iam_role_policy_attachment" "ai_trader_web_gha_admin" {
 # — a wildcard that INCLUDES the `pull_request` sub. That defeated the whole
 # plan/apply split: attacker-controlled PR plan code could just assume this role
 # instead and get PowerUser. Adopt it here (terraform import) and tighten trust
-# to the same subs as the plan/admin pair so the PR→PowerUser path is closed.
-# Kept (not deleted) because ai-trader-web's terraform.yml still uses it until it
-# migrates to the plan/admin pair; retire once migrated. PowerUser + its inline
-# IAM policy are preserved exactly as imported.
+# to `ref:refs/heads/main` ONLY (NOT pull_request), so the PR→PowerUser path is
+# closed — PR-plan code can now only reach the read-only plan role. Kept (not
+# deleted) because ai-trader-web's terraform.yml still uses it until it migrates
+# to the plan/admin pair; its PR plan job moves to ai-trader-web-terraform-plan
+# in that migration. PowerUser + its inline IAM policy preserved as imported.
 #
 # Adopted via TF 1.5+ `import {}` blocks (below) so Atlantis plan/apply imports
 # it in-band — no manual `terraform import` / state surgery needed. The blocks
@@ -245,15 +246,16 @@ data "aws_iam_policy_document" "ai_trader_web_gha_deploy_assume" {
       variable = "token.actions.githubusercontent.com:aud"
       values   = ["sts.amazonaws.com"]
     }
-    # Was `repo:Atom-oh/ai-trader-web:*` (matched pull_request → PR-plan PowerUser
-    # bypass). Narrowed to plan/apply subs only.
+    # Was `repo:Atom-oh/ai-trader-web:*`, which matched the `pull_request` sub —
+    # letting attacker-controlled PR plan code assume this PowerUser role and
+    # bypass the read-only plan split. Narrowed to `ref:refs/heads/main` ONLY
+    # (same gate as the admin role); `pull_request` is deliberately excluded so
+    # PR-plan code cannot reach PowerUser. ai-trader-web's PR plan job moves to
+    # the read-only ai-trader-web-terraform-plan role in the same migration.
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values = [
-        "repo:Atom-oh/ai-trader-web:pull_request",
-        "repo:Atom-oh/ai-trader-web:ref:refs/heads/main",
-      ]
+      values   = ["repo:Atom-oh/ai-trader-web:ref:refs/heads/main"]
     }
   }
 }

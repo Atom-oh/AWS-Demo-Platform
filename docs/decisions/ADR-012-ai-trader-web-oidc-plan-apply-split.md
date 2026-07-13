@@ -146,10 +146,11 @@ flowchart TD
   `repo:Atom-oh/ai-trader-web:*` — a wildcard including `pull_request`.** That defeated the
   split's premise: attacker-controlled PR plan code could assume *that* role for PowerUser
   instead. It is created out-of-band (not in this repo's nor ai-trader-web's Terraform), so this
-  PR **adopts it via `terraform import`** and tightens its trust to the same `pull_request` +
-  `ref:refs/heads/main` subs (closing the `:*`→PowerUser-on-any-sub path), preserving its
-  PowerUser attachment + inline IAM policy. Kept (not deleted) because ai-trader-web's
-  `terraform.yml` still uses it until it migrates to the plan/admin pair; retire once migrated.
+  PR **adopts it via `terraform import`** and tightens its trust to `ref:refs/heads/main` **only**
+  (NOT `pull_request`) — so PR-plan code can no longer reach PowerUser through it; it can only
+  reach the read-only plan role. PowerUser attachment + inline IAM policy preserved. Kept (not
+  deleted) because ai-trader-web's `terraform.yml` still uses it until it migrates to the
+  plan/admin pair (its PR plan job moves to the read-only plan role then); retire once migrated.
 
 ---
 
@@ -222,9 +223,10 @@ admin assume 경로가 침해되면 blast radius가 플랫폼 전체다.
   plan은 그것을 강제할 수 없다(private repo에 required-reviewer/branch 제한 rule 미지원:
   `gh api .../environments/prod` → `protection_rules: []`, `PUT` → HTTP 422). `ref:refs/heads/main`은
   **sub**의 일부(실제 IAM condition key — AWS STS가 노출하지 않는 `ref` *claim*과 다름; 그래서
-  `gha-ecr-push-role.tf`도 ref를 sub 안에 넣는다)이므로, IAM 자체가 admin을 `main`에 병합된
-  코드로만 제한하고, main의 branch protection + PR 리뷰가 사람 게이트가 된다 — GitHub environment
-  기능에 의존하지 않는다. 따라서 ai-trader-web apply job은 main push/`workflow_dispatch`에서
+  `gha-ecr-push-role.tf`도 ref를 sub 안에 넣는다)이므로, IAM 자체가 admin을 `main`의 코드로만
+  제한한다 — GitHub environment 기능에 의존하지 않는다. (main이 리뷰 게이트라는 것이 의도이나
+  여기선 강제 불가 — Consequences의 수용된 트레이드오프 참조.) 따라서 ai-trader-web apply job은
+  main push/`workflow_dispatch`에서
   `environment:` 바인딩 **없이** 돌아야 한다(바인딩하면 sub가 `environment:prod`로 바뀌어 이 trust가
   깨진다).
 - 장시간 apply 만료 방지를 위해 admin 역할에 `max_session_duration = 7200`.
@@ -283,7 +285,8 @@ flowchart TD
 - **기존 `ai-trader-web-gha-deploy`(PowerUser) 역할은 `repo:Atom-oh/ai-trader-web:*`를 신뢰했다 —
   `pull_request`를 포함하는 와일드카드.** 이것이 분리의 전제를 무너뜨렸다: 공격자 통제 PR plan
   코드가 *그 역할*을 assume해 PowerUser를 얻을 수 있었다. out-of-band 생성(이 repo·ai-trader-web
-  Terraform 어디에도 없음)이라 이 PR이 **`terraform import`로 편입**하고 trust를 plan/admin과 동일한
-  `pull_request` + `ref:refs/heads/main` sub로 축소(`:*`→임의 sub PowerUser 경로 차단), PowerUser
-  attachment + inline IAM 정책은 그대로 보존한다. ai-trader-web `terraform.yml`이 아직 사용 중이라
-  삭제하지 않고 유지 — 새 역할 쌍으로 이전 후 폐기.
+  Terraform 어디에도 없음)이라 이 PR이 **`terraform import`로 편입**하고 trust를
+  `ref:refs/heads/main` **단독**(`pull_request` 제외)으로 축소 — PR-plan 코드는 더 이상 이 역할로
+  PowerUser에 도달할 수 없고 read-only plan 역할만 assume 가능. PowerUser attachment + inline IAM
+  정책은 보존. ai-trader-web `terraform.yml`이 아직 사용 중이라 삭제하지 않고 유지(그 PR plan job은
+  이 migration에서 read-only plan 역할로 전환) — 새 역할 쌍 이전 후 폐기.
