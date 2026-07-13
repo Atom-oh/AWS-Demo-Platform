@@ -138,7 +138,7 @@ data "aws_iam_policy_document" "ai_trader_web_gha_plan_deny_state" {
   statement {
     sid       = "DenyDemoPlatformCognito"
     effect    = "Deny"
-    actions   = ["cognito-idp:List*", "cognito-idp:Describe*", "cognito-idp:AdminGet*", "cognito-idp:Get*"]
+    actions   = ["cognito-idp:*"] # wildcard: catch AdminList*/AdminGet*/List*/Describe*/Get* — it's a Deny, over-match is safe
     resources = ["arn:aws:cognito-idp:${local.region}:${local.account_id}:userpool/ap-northeast-2_xmcmwdt3y"]
   }
 }

@@ -105,7 +105,7 @@ flowchart TD
     oidc -->|sub match| plan
     oidc -->|sub match: main only| admin
     pr -.->|"attacker-controlled plan code<br/>→ read-only, demo-platform data denied"| plan
-    ap -.->|"only code merged to main<br/>→ admin"| admin
+    ap -.->|"code on main (push-gated,<br/>see trade-off)→ admin"| admin
 ```
 
 ## Consequences
@@ -114,9 +114,21 @@ flowchart TD
   state/data — the split can no longer be bypassed via the PR trigger.
 - The admin gate is enforced **at the IAM layer** (`ref:refs/heads/main` sub), so it does not
   depend on GitHub environment protection — which this repo's plan cannot provide. Only code
-  merged to `main` can assume admin, so main's branch protection + PR review are the human
-  gate. (Earlier revisions of this ADR gated on `environment:prod`; that was dropped because
+  on `main` can assume admin. (Earlier revisions gated on `environment:prod`; dropped because
   the environment had no enforceable protection here — see the trust bullet above.)
+- **ACCEPTED TRADE-OFF (2026-07-13): main branch protection is NOT enforceable on this repo
+  either.** ai-trader-web is a private repo on a plan that supports neither environment
+  protection nor branch protection / rulesets (`gh api .../branches/main/protection` → HTTP
+  403 "Upgrade to GitHub Pro or make this repository public"). So the "only code merged to
+  main, gated by review" gate is aspirational, not enforced: **anyone who can push to `main`
+  (a collaborator, or a stolen collaborator credential) gets `AdministratorAccess` in this
+  account with no review** — and this account hosts the whole platform (EKS hub, Atlantis,
+  shared tfstate). This is accepted for now because (a) the plan/apply split already closed
+  the arbitrary-PR path (the untrusted `plan` role is read-only + demo-platform-data-denied),
+  (b) the residual path requires main-push rights, and (c) this is a non-production account.
+  To actually close it: upgrade the plan (or make the repo public) and enable a
+  required-review branch/ruleset on `main`, then this bullet can be retired. Until then, treat
+  admin as gated only by ai-trader-web's collaborator list.
 - Follow-up (ai-trader-web PR): `terraform.yml` plan job → `role-to-assume:
   arn:aws:iam::180294183052:role/ai-trader-web-terraform-plan`; apply job →
   `arn:aws:iam::180294183052:role/ai-trader-web-terraform-admin` (ARNs exported as
@@ -237,9 +249,19 @@ flowchart TD
 - 공격자가 통제하는 plan 코드는 읽기 전용으로 한정되고 demo-platform state/데이터를 읽을 수
   없다 — PR 트리거로 분리를 우회할 수 없다.
 - admin 게이트는 **IAM 계층**(`ref:refs/heads/main` sub)에서 강제되므로 GitHub environment
-  protection(이 repo 플랜이 제공 불가)에 의존하지 않는다. `main`에 병합된 코드만 admin을 assume할
-  수 있어 main의 branch protection + PR 리뷰가 사람 게이트다. (이전 리비전은 `environment:prod`로
-  게이트했으나, 여기서 강제 가능한 environment protection이 없어 폐기 — 위 trust 불릿 참조.)
+  protection(이 repo 플랜이 제공 불가)에 의존하지 않는다. `main`의 코드만 admin을 assume할 수
+  있다. (이전 리비전은 `environment:prod`로 게이트했으나 강제 가능한 environment protection이
+  없어 폐기 — 위 trust 불릿 참조.)
+- **수용된 트레이드오프(2026-07-13): 이 repo는 main branch protection도 강제 불가.**
+  ai-trader-web는 environment protection도 branch protection/ruleset도 지원하지 않는 플랜의
+  private repo다(`gh api .../branches/main/protection` → HTTP 403 "Upgrade to GitHub Pro or
+  make this repository public"). 따라서 "main에 병합된 리뷰된 코드만"이라는 게이트는 강제되지
+  않는 목표일 뿐 — **main에 push 가능한 사람(collaborator 또는 탈취된 자격증명)은 리뷰 없이 이
+  계정의 `AdministratorAccess`를 획득**하며, 이 계정은 플랫폼 전체(EKS hub·Atlantis·공유 tfstate)를
+  호스팅한다. 현재 수용하는 이유: (a) plan/apply 분리로 임의-PR 경로는 이미 닫힘(비신뢰 `plan`은
+  read-only + demo-platform 데이터 Deny), (b) 잔여 경로는 main-push 권한을 전제, (c) non-production
+  계정. 실제 차단하려면 플랜 업그레이드(또는 repo 공개) 후 `main`에 required-review branch/ruleset을
+  설정하면 이 불릿을 폐기 가능. 그 전까지 admin은 ai-trader-web collaborator 목록만이 게이트.
 - 후속(ai-trader-web PR): `terraform.yml` plan job → `role-to-assume:
   arn:aws:iam::180294183052:role/ai-trader-web-terraform-plan`, apply job →
   `arn:aws:iam::180294183052:role/ai-trader-web-terraform-admin` (ARN은
