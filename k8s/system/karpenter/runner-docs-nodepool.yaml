@@ -16,6 +16,7 @@ spec:
         - key: karpenter.sh/capacity-type
           operator: In
           values:
+            - spot
             - on-demand
         - key: kubernetes.io/arch
           operator: In
@@ -24,19 +25,20 @@ spec:
         - key: karpenter.k8s.aws/instance-family
           operator: In
           values:
-            - r8g
+            - r6g
         - key: karpenter.k8s.aws/instance-size
           operator: In
           values:
-            - xlarge
+            - 2xlarge
       taints:
         - key: workload-type
           value: ci-runner-docs
           effect: NoSchedule
   limits:
     # Dedicated single-purpose pool -- no CPU cap; memory alone bounds how many
-    # r8g.xlarge nodes Karpenter can provision concurrently.
-    memory: 64Gi
+    # r6g.2xlarge (64GiB) nodes Karpenter can provision concurrently. 128Gi caps
+    # concurrency at 2 nodes (was 2x r8g.xlarge @ 32GiB under the old sizing).
+    memory: 128Gi
   disruption:
     consolidationPolicy: WhenEmpty
     consolidateAfter: 30s
