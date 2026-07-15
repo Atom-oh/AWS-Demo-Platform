@@ -25,6 +25,11 @@ is embedded directly as capped argv text instead. See PR #63 review for the rati
 (prompt-injection-driven absolute-path credential read via `fs_read`). The roster/`--v3`
 decision below is unaffected; only the `--trust-tools=fs_read` references are stale.
 
+**Amended in part by [ADR-013](ADR-013-pr-review-gpt56-model-bump.md)** (2026-07-15): the
+`gpt-5.5` roster slot below is stale — bumped to `gpt-5.6-sol` (Codex's own model) /
+`gpt-5.6-terra` (Kiro's roster slot). ADR-013 is the live source of truth for those ids;
+everything else in this ADR (roster structure, `--v3` drop) is unaffected.
+
 ## Context
 
 `kimi-k2.5` was flagged in ADR-007 itself as a risk ("may be account-tier gated → silent
@@ -80,6 +85,11 @@ Kiro 셀은 이제 어떤 툴도 부여받지 않고(`--trust-tools=`, 빈 값),
 argv 텍스트로 직접 embed 된다. 근거는 PR #63 리뷰 참조(프롬프트 인젝션이 유도하는
 `fs_read` 절대경로 credential read). 로스터/`--v3` 결정 자체는 영향받지 않음 —
 `--trust-tools=fs_read` 언급만 stale.
+
+**[ADR-013](ADR-013-pr-review-gpt56-model-bump.md)로 일부 개정** (2026-07-15): 아래 로스터의
+`gpt-5.5` 슬롯은 stale — `gpt-5.6-sol`(Codex 자체 모델) / `gpt-5.6-terra`(Kiro 로스터 슬롯)로
+범프됨. 해당 id들의 현행 source of truth는 ADR-013이며, 이 ADR의 나머지(로스터 구조,
+`--v3` 제거)는 영향받지 않음.
 
 ## Context
 
