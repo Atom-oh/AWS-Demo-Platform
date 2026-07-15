@@ -72,7 +72,8 @@ RUN curl -fsSL https://chatgpt.com/codex/install.sh -o /tmp/codex-install.sh \
  && codex --version
 
 # 6) Kiro CLI — 바이너리명은 정확히 `kiro-cli`. stable/latest 채널의 ARM64 zip 을 설치(latest).
-# `--v3` 는 더 좁은 모델 카탈로그로 라우팅해 gpt-5.6-terra(구 gpt-5.5) 를 거부한다(ADR-011) — run-panel.sh 는
+# `--v3` 는 더 좁은 모델 카탈로그로 라우팅해 gpt-5.5 를 거부했다(ADR-011) — gpt-5.6-terra(ADR-013)도
+# 동일 카탈로그 제약을 받을 것으로 추정(재검증 안 함). run-panel.sh 는
 # `kiro-cli chat`(v3 없이)로 호출하므로 실제 사용 플래그를 빌드에서 검증한다.
 RUN test "$TARGETARCH" = "arm64" \
  && curl -fsSL "https://prod.download.cli.kiro.dev/stable/latest/kirocli-aarch64-linux.zip" -o /tmp/kirocli.zip \

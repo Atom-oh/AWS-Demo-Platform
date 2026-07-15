@@ -7,8 +7,8 @@
 # diff 전달 경로는 CLI 별로 다름: Codex·Claude 셀프리뷰는 stdin(`< "$DIFF"` 직접
 # 리다이렉트, 파일이라 TTY 아님 → no-hang); Kiro 는 stdin 을 무시하고 어떤 툴도 못 받으므로
 # (아래 Kiro 셀 주석 참조) size-capped argv 텍스트로 직접 embed 한다. timeout 백스톱 +
-# 비대화형 플래그로 멈춤 방지. 셀이 비면 최대 PANEL_RETRIES 회 재시도(gpt-5.6-terra/bedrock-mantle
-# 등 transient 흡수). 매 시도마다 재실행.
+# 비대화형 플래그로 멈춤 방지. 셀이 비면 최대 PANEL_RETRIES 회 재시도(codex의
+# gpt-5.6-sol/bedrock-mantle 등 transient 흡수). 매 시도마다 재실행.
 # 모든 셀(모델 수 × lens 수)이 병렬(&+wait) — 벽시계 ≈ 최슬로우 셀 하나, 순차합 아님.
 set -uo pipefail
 DIFF="$(realpath "$1" 2>/dev/null)" \

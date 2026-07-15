@@ -46,9 +46,18 @@ those list APIs (ADR-011 predates this ADR and never surfaced that gap either).
 
 ## Consequences
 
-- The runner image must be rebuilt (weekly cron or on-demand — `runner-image.yml`
-  `workflow_dispatch`) before this takes effect; `config.toml` is baked into the image at
-  build time, so editing it here alone doesn't change an already-built image's Codex model.
+- **Both ids were smoke-tested live before merge** (locally, ahead of the PR-review panel
+  flagging this as unverified): `kiro-cli chat --model gpt-5.6-terra --mode default
+  --no-interactive --trust-tools= --wrap never "Reply with exactly: OK"` returned `OK`;
+  `codex exec -s read-only --skip-git-repo-check -c model=openai.gpt-5.6-sol "Reply with
+  exactly: OK"` (Bedrock, `amazon-bedrock` provider) also returned `OK`. Local `~/.codex/config.toml`
+  additionally already lists `"openai.gpt-5.6-sol" = 4` under `[tui.model_availability_nux]`,
+  consistent with the id being live.
+- The two slots take effect at different times: `KIRO_MODELS` is read from the repo checkout,
+  so it takes effect **immediately on merge**; `config.toml` is baked into the runner image at
+  build time, so the Codex slot only takes effect **after the next image rebuild** (weekly
+  cron or on-demand `runner-image.yml` `workflow_dispatch`) — editing it here alone doesn't
+  change an already-built image's Codex model.
 - Unrelated to this ADR: `codex`/`claude-code`/`kiro-cli` themselves install via vendor
   `latest` scripts with no version pin (Dockerfile comment: "주간 빌드의 목적이 최신
   유지이므로 핀은 설계상 모순") — they already pick up upstream CLI updates on every
@@ -100,10 +109,17 @@ list API들에 안 뜨던 것과 동일한 패턴이다(ADR-011은 이 ADR보다
 
 ## Consequences
 
-- 이 결정이 실제로 적용되려면 러너 이미지가 재빌드되어야 한다(주간 cron 또는
-  `runner-image.yml`의 `workflow_dispatch` 수동 트리거) — `config.toml`은 빌드 타임에
-  이미지에 baking되므로, 여기서 파일만 고쳐서는 이미 빌드된 이미지의 Codex 모델이
-  바뀌지 않는다.
+- **두 id 모두 머지 전 라이브 스모크 테스트를 마쳤다**(로컬, PR 리뷰 패널이 미검증으로
+  지적하기 전에 이미 수행): `kiro-cli chat --model gpt-5.6-terra --mode default
+  --no-interactive --trust-tools= --wrap never "Reply with exactly: OK"`가 `OK`를 반환;
+  `codex exec -s read-only --skip-git-repo-check -c model=openai.gpt-5.6-sol "Reply with
+  exactly: OK"`(Bedrock, `amazon-bedrock` provider)도 `OK`를 반환. 로컬
+  `~/.codex/config.toml`에도 `[tui.model_availability_nux]` 아래 `"openai.gpt-5.6-sol" = 4`가
+  이미 등재돼 있어, id가 live임을 뒷받침한다.
+- 두 슬롯은 발효 시점이 다르다: `KIRO_MODELS`는 repo 체크아웃에서 읽으므로 **머지 즉시**
+  발효되고, `config.toml`은 러너 이미지 빌드 타임에 baking되므로 Codex 슬롯은 **다음
+  이미지 재빌드 후**(주간 cron 또는 `runner-image.yml`의 `workflow_dispatch` 수동 트리거)에만
+  발효된다 — 여기서 파일만 고쳐서는 이미 빌드된 이미지의 Codex 모델이 바뀌지 않는다.
 - 이 ADR과 무관: `codex`/`claude-code`/`kiro-cli` 자체는 vendor `latest` 스크립트로
   설치되며 버전 핀이 없다(Dockerfile 주석: "주간 빌드의 목적이 최신 유지이므로 핀은
   설계상 모순") — 이 CLI들은 재빌드마다 코드 변경 없이 자동으로 최신 버전을 받는다.
