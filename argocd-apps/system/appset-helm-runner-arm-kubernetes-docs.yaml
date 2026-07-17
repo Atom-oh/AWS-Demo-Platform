@@ -46,11 +46,15 @@ spec:
                 nodeSelector:
                   node-pool: platform
             # No DinD sidecar: VitePress frontend build has no docker step.
-            # Dedicated r6g.2xlarge spot/on-demand node (64GiB) via runner-docs-arm
+            # Dedicated r6g.xlarge spot/on-demand node (32GiB) via runner-docs-arm
             # NodePool — the 1800m/3500Mi shared ci-runner pool is too small for this
-            # build. Bumped from 26Gi/r8g.xlarge (32GiB) after 2291 markdown files
-            # across 5 locales (ko/en/cn/es/jp) drove the single-process VitePress
-            # build to OOM (Node heap hit ~24GiB before "Ineffective mark-compacts").
+            # build. kubernetes-docs' deploy.yml split its single 5-locale build
+            # (which held the whole page graph in one process and drove Node heap
+            # to ~24GiB OOM) into 5 sequential per-locale builds merged after the
+            # fact -- peak RSS measured at ~8GiB per locale, so 16Gi/r6g.xlarge
+            # replaces the earlier 52Gi/r6g.2xlarge sizing (itself a bump from the
+            # original 26Gi/r8g.xlarge) with solid headroom instead of matching
+            # the old single-process build's much larger footprint.
             template:
               spec:
                 nodeSelector:
@@ -62,8 +66,8 @@ spec:
                     command: ["/home/runner/run.sh"]
                     resources:
                       requests:
-                        cpu: "6000m"
-                        memory: "52Gi"
+                        cpu: "3000m"
+                        memory: "16Gi"
                 tolerations:
                   - key: workload-type
                     value: ci-runner-docs

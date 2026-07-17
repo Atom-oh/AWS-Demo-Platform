@@ -29,16 +29,19 @@ spec:
         - key: karpenter.k8s.aws/instance-size
           operator: In
           values:
-            - 2xlarge
+            - xlarge
       taints:
         - key: workload-type
           value: ci-runner-docs
           effect: NoSchedule
   limits:
     # Dedicated single-purpose pool -- no CPU cap; memory alone bounds how many
-    # r6g.2xlarge (64GiB) nodes Karpenter can provision concurrently. 128Gi caps
-    # concurrency at 2 nodes (was 2x r8g.xlarge @ 32GiB under the old sizing).
-    memory: 128Gi
+    # r6g.xlarge (32GiB) nodes Karpenter can provision concurrently. 64Gi caps
+    # concurrency at 2 nodes -- downsized from r6g.2xlarge (64GiB) now that
+    # kubernetes-docs' deploy.yml builds one VitePress locale at a time instead
+    # of all five in a single process (~8GiB peak per locale vs. the ~50GiB+
+    # the old single-process build needed).
+    memory: 64Gi
   disruption:
     consolidationPolicy: WhenEmpty
     consolidateAfter: 30s
