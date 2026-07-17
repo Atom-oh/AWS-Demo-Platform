@@ -12,7 +12,7 @@ name: AI Code Review
 on:
   pull_request_target:
     types: [opened, synchronize]
-    branches: [main]
+    branches: [main] # 이 repo의 유일한 PR 타겟(main→dev, tag→prod) — non-main PR은 없음
 
 jobs:
   review:
@@ -44,10 +44,10 @@ jobs:
       # http.<host>.extraheader(AUTHORIZATION: basic <base64>)로 남긴다. Kiro가
       # base 체크아웃 전체를 read/grep/fs_read 하도록 의도적으로 허용돼 있어(diff
       # 파일 경로를 kiro에게 직접 넘기는 설계), diff 인젝션이 Kiro를 유도해
-      # .git/config를 읽고 그 값을 셀 출력에 뱉으면 scrub_secrets의 정규식이 이
-      # 토큰 포맷을 잡지 못해 pull-requests:write 토큰이 그대로 새어나간다.
-      # 체크아웃 시점에 자격증명을 아예 남기지 않는 것이 예방 계층 —
-      # scrub_secrets는 그 뒤의 last-line-of-defense.
+      # .git/config를 읽고 그 값을 셀 출력에 뱉으면 pull-requests:write 토큰이
+      # 그대로 새어나간다(lib.sh의 scrub_secrets가 이 토큰 포맷을 잡는 규칙을
+      # 이 PR에서 함께 추가했지만, 그건 last-line-of-defense일 뿐 예방이 아니다).
+      # 체크아웃 시점에 자격증명을 아예 남기지 않는 것이 예방 계층.
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -178,7 +178,7 @@ jobs:
         run: |
           # 마지막 non-empty 줄만 신뢰 — 본문 어딘가(패널 인용 등)에 "VERDICT: FAIL" 문자열이
           # 나타나도 실제 판정 줄이 아니면 오검출되지 않도록. verdict_count==1 로 중복/부재도 배제.
-          # awk 로 trailing 빈 줄을 건너뛴다 — synthesize.sh:112-115 의 chair_valid() 와
+          # awk 로 trailing 빈 줄을 건너뛴다 — synthesize.sh의 chair_valid() 와
           # 동일한 정규화라야 "chair_valid는 통과, gate는 오차단" 불일치가 생기지 않는다.
           last_line="$(awk 'NF{last=$0} END{print last}' /tmp/review.md)"
           # grep -c 는 0-match 시 exit 1 — errexit(set -e) 하에서 command substitution
