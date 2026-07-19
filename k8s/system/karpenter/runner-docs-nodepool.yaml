@@ -25,23 +25,29 @@ spec:
         - key: karpenter.k8s.aws/instance-family
           operator: In
           values:
-            - r6g
+            - r8g
         - key: karpenter.k8s.aws/instance-size
           operator: In
           values:
-            - xlarge
+            - large
       taints:
         - key: workload-type
           value: ci-runner-docs
           effect: NoSchedule
   limits:
-    # Dedicated single-purpose pool -- no CPU cap; memory alone bounds how many
-    # r6g.xlarge (32GiB) nodes Karpenter can provision concurrently. 64Gi caps
-    # concurrency at 2 nodes -- downsized from r6g.2xlarge (64GiB) now that
-    # kubernetes-docs' deploy.yml builds one VitePress locale at a time instead
-    # of all five in a single process (~8GiB peak per locale vs. the ~50GiB+
-    # the old single-process build needed).
-    memory: 64Gi
+    # Dedicated single-purpose pool (taint above keeps every other pod off
+    # these nodes) -- no CPU cap; memory alone bounds how many r8g.large
+    # (16GiB) nodes Karpenter can provision concurrently. 32Gi caps
+    # concurrency at 2 nodes. Downsized from r6g.xlarge (32GiB) since the
+    # per-locale VitePress build measures ~8GiB peak RSS, comfortably under
+    # r8g.large's ~14.5GiB safe ceiling (16GiB minus ~700Mi kubelet/system
+    # reserve and the EC2NodeClass's 5% evictionHard threshold, see
+    # runner-arm-ec2nodeclass.yaml). The runner pod itself sets no memory
+    # limit (see appset-helm-runner-arm-kubernetes-docs.yaml), so it can
+    # burst up to that ceiling if a build ever runs hotter than measured --
+    # the backstop against a runaway build is the node's own eviction/OOM
+    # protection, not a pod-level cap, since it's the only pod on the node.
+    memory: 32Gi
   disruption:
     consolidationPolicy: WhenEmpty
     consolidateAfter: 30s
