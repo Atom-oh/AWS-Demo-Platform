@@ -25,29 +25,27 @@ spec:
         - key: karpenter.k8s.aws/instance-family
           operator: In
           values:
-            - r8g
+            - r6g
         - key: karpenter.k8s.aws/instance-size
           operator: In
           values:
-            - large
+            - xlarge
       taints:
         - key: workload-type
           value: ci-runner-docs
           effect: NoSchedule
   limits:
-    # Dedicated single-purpose pool (taint above keeps every other pod off
-    # these nodes) -- no CPU cap; memory alone bounds how many r8g.large
-    # (16GiB) nodes Karpenter can provision concurrently. 32Gi caps
-    # concurrency at 2 nodes. Downsized from r6g.xlarge (32GiB) since the
-    # per-locale VitePress build measures ~8GiB peak RSS, comfortably under
-    # r8g.large's ~14.5GiB safe ceiling (16GiB minus ~700Mi kubelet/system
-    # reserve and the EC2NodeClass's 5% evictionHard threshold, see
-    # runner-arm-ec2nodeclass.yaml). The runner pod itself sets no memory
-    # limit (see appset-helm-runner-arm-kubernetes-docs.yaml), so it can
-    # burst up to that ceiling if a build ever runs hotter than measured --
-    # the backstop against a runaway build is the node's own eviction/OOM
-    # protection, not a pod-level cap, since it's the only pod on the node.
-    memory: 32Gi
+    # Dedicated single-purpose pool -- no CPU cap; memory alone bounds how many
+    # r6g.xlarge (32GiB) nodes Karpenter can provision concurrently. 64Gi caps
+    # concurrency at 2 nodes. r8g.large (16GiB) was tried and reverted here --
+    # Karpenter couldn't schedule the runner pod at all ("no instance type has
+    # enough resources", computed requirement ~1971m/8826Mi once mandatory
+    # daemonsets -- CNI, kube-proxy, etc. -- are counted against the node's
+    # allocatable capacity), even though the pod's own request (1500m/8Gi) and
+    # the measured build peak (~8GiB) both looked like they should fit on
+    # paper. r6g.xlarge has enough headroom over that same daemonset overhead
+    # for the pod to actually schedule.
+    memory: 64Gi
   disruption:
     consolidationPolicy: WhenEmpty
     consolidateAfter: 30s
