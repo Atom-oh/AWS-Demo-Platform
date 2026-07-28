@@ -18,13 +18,16 @@ Anthropic model ids used in the panel.
 
 ## Context
 
-Claude Opus 5 shipped and is GA in both places this panel depends on:
+Claude Opus 5 is available in both places this panel depends on — but at **different
+maturity levels**, which matters for how much this ADR should be leaned on:
 
-- Bedrock `us-east-1`: `us.anthropic.claude-opus-5` and `global.anthropic.claude-opus-5` both
-  `ACTIVE` in `aws bedrock list-inference-profiles`.
-- Kiro's model catalog (`kiro-cli chat --list-models`): `claude-opus-5` listed at `2.20x`
-  credits — the same rate as `claude-opus-4.8`, so this is a pure version bump with no cost
-  change.
+- Bedrock `us-east-1`: **GA** — `us.anthropic.claude-opus-5` and `global.anthropic.claude-opus-5`
+  both `ACTIVE` in `aws bedrock list-inference-profiles`. This is the chair's path.
+- Kiro's model catalog (`kiro-cli chat --list-models`): **listed, but labelled "Experimental
+  preview of Claude Opus 5 model with 1M context window"** — not GA on Kiro's side. Priced at
+  `2.20x` credits, the same rate as `claude-opus-4.8`, so the bump costs nothing extra. This is
+  the `kiro-opus` panel cell's path, and the preview label is the reason the last Consequence
+  below keeps a re-verify note instead of treating the id as stable.
 
 Two independent slots in the panel still pinned `claude-opus-4.8`:
 
@@ -39,8 +42,9 @@ choice isn't being revisited here, only the fallback and the Kiro slot.
 Separately, the runner image (`docker/actions-runner-claude/`) ships `@anthropic-ai/claude-code`
 itself, installed via the vendor `latest` script with no version pin — same pattern as
 ADR-013 noted for the CLIs. It already tracks the latest release on every weekly rebuild
-(confirmed live: the 2026-07-25 cron build baked `claude-code 2.1.220`, matching current npm
-`latest` as of this ADR) — no code change was needed for that slot.
+(confirmed live: the cron build that fired 2026-07-25 18:00 UTC — i.e. 2026-07-26 03:00 KST,
+the "Sun 03:00 KST" slot — baked `claude-code 2.1.220`, matching current npm `latest` as of
+this ADR) — no code change was needed for that slot.
 
 ## Decision
 
@@ -64,8 +68,11 @@ ADR-013 noted for the CLIs. It already tracks the latest release on every weekly
   run time — unlike `config.toml` (baked into the runner image), this change takes effect
   **immediately on merge**, no image rebuild needed.
 - Unrelated to this ADR: the runner image itself didn't need a rebuild for this change — it
-  was already rebuilt by the 2026-07-25 weekly cron with current `claude-code`/`kiro-cli`/
-  `codex` releases baked in. The next scheduled rebuild is 2026-08-01 (Sun 03:00 KST).
+  was already rebuilt by the weekly cron that fired 2026-07-25 18:00 UTC with current
+  `claude-code`/`kiro-cli`/`codex` releases baked in. The next firing is 2026-08-01 18:00 UTC
+  = **2026-08-02 03:00 KST (Sun)** — the cron is `0 18 * * 6`, so the UTC date is always the
+  Saturday and the KST date the following Sunday; do not label the UTC date with the KST
+  weekday.
 - If Bedrock/Kiro later drop `claude-opus-4.8` entirely, no further action is needed here —
   this ADR already moved both slots off it. If `claude-opus-5` turns out to be a short-lived
   preview id (as Kiro's catalog description hints — "Experimental preview" — similar to
@@ -86,12 +93,15 @@ Context/Decision은 historical record로 남기고, 이 ADR이 패널이 쓰는 
 
 ## Context
 
-Claude Opus 5가 출시됐고, 이 패널이 의존하는 두 곳 모두에서 GA 상태다:
+Claude Opus 5는 이 패널이 의존하는 두 경로 모두에서 사용 가능하지만 **성숙도가 다르다** —
+이 ADR을 어디까지 신뢰할지에 영향을 주므로 구분해 적는다:
 
-- Bedrock `us-east-1`: `us.anthropic.claude-opus-5`·`global.anthropic.claude-opus-5` 모두
-  `aws bedrock list-inference-profiles`에서 `ACTIVE`.
-- Kiro 모델 카탈로그(`kiro-cli chat --list-models`): `claude-opus-5`가 `2.20x` 크레딧으로
-  등재 — `claude-opus-4.8`과 동일 단가라 비용 변화 없는 순수 버전 교체.
+- Bedrock `us-east-1`: **GA** — `us.anthropic.claude-opus-5`·`global.anthropic.claude-opus-5`
+  모두 `aws bedrock list-inference-profiles`에서 `ACTIVE`. 의장이 쓰는 경로다.
+- Kiro 모델 카탈로그(`kiro-cli chat --list-models`): **등재돼 있으나 "Experimental preview of
+  Claude Opus 5 model with 1M context window"로 표기** — Kiro 쪽은 GA가 아니다. 단가는
+  `2.20x`로 `claude-opus-4.8`과 동일해 추가 비용은 없다. `kiro-opus` 패널 셀이 쓰는 경로이며,
+  아래 마지막 Consequence가 id를 안정적인 것으로 취급하지 않고 재검증 노트를 남겨두는 이유다.
 
 패널의 독립된 두 슬롯이 여전히 `claude-opus-4.8`을 고정하고 있었다:
 
@@ -106,8 +116,8 @@ Chair *primary*(`us.anthropic.claude-fable-5`)는 그대로다 — ADR-007의 ch
 별개로, 러너 이미지(`docker/actions-runner-claude/`)가 굽는 `@anthropic-ai/claude-code`
 자체는 vendor `latest` 스크립트로 설치되며 버전 핀이 없다 — ADR-013이 CLI들에 대해 지적한
 패턴과 동일. 매 주간 재빌드마다 이미 최신 릴리스를 자동으로 따라간다(실측:
-2026-07-25 cron 빌드가 `claude-code 2.1.220`을 baking했고, 이 ADR 작성 시점 npm
-`latest`와 동일) — 이 슬롯은 코드 변경이 필요 없었다.
+2026-07-25 18:00 UTC에 발화한 cron 빌드(= 2026-07-26 03:00 KST, "일 03:00 KST" 슬롯)가
+`claude-code 2.1.220`을 baking했고, 이 ADR 작성 시점 npm `latest`와 동일) — 이 슬롯은 코드 변경이 필요 없었다.
 
 ## Decision
 
@@ -130,9 +140,10 @@ Chair *primary*(`us.anthropic.claude-fable-5`)는 그대로다 — ADR-007의 ch
 - 수정된 두 파일(`run-panel.sh`, `synthesize.sh`)은 job 실행 시점에 repo 체크아웃에서
   읽힌다 — `config.toml`(러너 이미지에 baking)과 달리 **머지 즉시** 발효되며 이미지
   재빌드가 필요 없다.
-- 이 ADR과 무관: 이 변경을 위해 러너 이미지 재빌드가 필요하지 않았다 — 2026-07-25 주간
-  cron이 이미 현재 `claude-code`/`kiro-cli`/`codex` 릴리스를 baking해 재빌드해뒀다. 다음
-  예정 재빌드는 2026-08-01(일 03:00 KST).
+- 이 ADR과 무관: 이 변경을 위해 러너 이미지 재빌드가 필요하지 않았다 — 2026-07-25 18:00 UTC에
+  발화한 주간 cron이 이미 현재 `claude-code`/`kiro-cli`/`codex` 릴리스를 baking해 재빌드해뒀다.
+  다음 발화는 2026-08-01 18:00 UTC = **2026-08-02 03:00 KST(일)**. cron 이 `0 18 * * 6`이므로
+  UTC 날짜는 항상 토요일, KST 날짜는 그 다음 일요일이다 — UTC 날짜에 KST 요일 라벨을 붙이지 말 것.
 - Bedrock/Kiro가 나중에 `claude-opus-4.8`을 완전히 제거해도 추가 조치 불필요 — 이 ADR이
   이미 두 슬롯 모두 그 밖으로 옮겼다. `claude-opus-5`가 (Kiro 카탈로그 설명의 "Experimental
   preview" 문구처럼) 단명 preview id로 끝나면, ADR-013의 `gpt-5.5`/`gpt-5.6-*`처럼 다음
