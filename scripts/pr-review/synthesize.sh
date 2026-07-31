@@ -12,6 +12,15 @@ RESP="$(tr '\n' ',' < "$WORK/responded.txt" 2>/dev/null | sed 's/,$//')"
 # 셀당 바이트 캡(belt-and-braces) — 매트릭스가 4→20 출력으로 늘어난 뒤에도 체어 입력을
 # 유한하게 유지(폭주한 셀 하나가 체어 컨텍스트/처리시간을 지배하지 않도록).
 PANEL_CELL_CAP="${PANEL_CELL_CAP:-20000}"
+# 총량 캡 — 셀당 캡만으로는 셀 개수(4→16→20…)가 늘어난 만큼 합본 총량도 그대로 늘어나,
+# chair 입력이 무한정 커질 수 있었다(PR#195: 16셀 정상 응답 + 정상 diff 인데도 chair가
+# 600s timeout — 근본 원인은 입력 크기). 셀 수로 나눠 합본 상한(기본 200KB)을 지키도록
+# 유효 캡을 셀당 캡과 다시 min 한다 — 셀이 적으면 기존 20000B 캡이 그대로 이김.
+CHAIR_PANEL_TOTAL_CAP="${CHAIR_PANEL_TOTAL_CAP:-200000}"
+CELL_COUNT="$(printf '%s\n' "$SLOT"/*.md | wc -l)"
+[ "$CELL_COUNT" -gt 0 ] || CELL_COUNT=1
+FAIR_CAP=$(( CHAIR_PANEL_TOTAL_CAP / CELL_COUNT ))
+[ "$FAIR_CAP" -lt "$PANEL_CELL_CAP" ] && PANEL_CELL_CAP="$FAIR_CAP"
 PANEL=""
 # 셀 순서를 C 로케일 바이트 정렬로 고정 — 셸 glob 순서는 로케일(LC_COLLATE)에 따라 달라질
 # 수 있어, 안 그러면 같은 셀 집합인데도 실행마다 체어 입력의 셀 순서가 바뀔 수 있다.
@@ -21,8 +30,10 @@ while IFS= read -r f; do
   # 크리덴셜 스크럽(마지막 방어선) — Kiro fs_read 잔여 위험(diff 인젝션 → 절대경로 read →
   # 셀 출력에 크리덴셜 노출 → 체어 종합 → 공개 PR 코멘트/외부 Kiro 유출) 체인을 여기서 끊는다.
   # 캡 적용 전체 스크럽 후 캡을 적용해야 잘린 경계에서 패턴이 쪼개져 탐지를 피하는 걸 막고,
-  # 절단 여부도 스크럽된 길이 기준으로 정확히 판단할 수 있다.
-  scrub_secrets < "$f" > "$SCRUB_TMP"
+  # 절단 여부도 스크럽된 길이 기준으로 정확히 판단할 수 있다. ANSI 이스케이프(Kiro `--wrap
+  # never`는 줄바꿈만 끄고 색 코드는 남김 — 실측: `kiro-cli chat` 출력이 `\x1b[38;5;141m…`류로
+  # 가득함)도 같은 단계에서 제거 — 순수 오버헤드가 셀마다 수백~수천 바이트씩 캡을 갉아먹는다.
+  scrub_secrets < "$f" | sed -E 's/\x1b\[[0-9;?]*[ -\/]*[@-~]//g' > "$SCRUB_TMP"
   CELL="$(head -c "$PANEL_CELL_CAP" "$SCRUB_TMP")"
   SCRUBBED_LEN="$(wc -c < "$SCRUB_TMP")"
   [ "$SCRUBBED_LEN" -gt "$PANEL_CELL_CAP" ] && CELL+=$'\n[...TRUNCATED at '"$PANEL_CELL_CAP"'B — full output not retained...]'
@@ -36,9 +47,9 @@ rm -f "$SCRUB_TMP"
 cat > "$WORK/synth-prompt.txt" <<PROMPT_EOF
 You are the CHAIR reviewing PR #${PR_NUMBER}: ${PR_TITLE}.
 Read CLAUDE.md + docs/architecture.md + .claude/skills/code-review/SKILL.md.
-Below are independent panel reviews of the diff — 5 panel members (codex, kiro-opus,
-kiro-gpt, kiro-glm, claude-self), each run once per lens (L2/L3/L4/L5). One review per
-(model, lens) cell — filename = <model>-<lens>.md.
+The diff under review and the independent panel reviews are provided via STDIN (not in this
+prompt) — 5 panel members (codex, kiro-opus, kiro-gpt, kiro-glm, claude-self), each run once
+per lens (L2/L3/L4/L5). One review per (model, lens) cell — filename = <model>-<lens>.md.
 패널: ${RESP}
 
 Synthesize ONE final review, grouped by lens (L2/L3/L4/L5):
@@ -66,13 +77,25 @@ IMPORTANT: 마지막 줄은 정확히 하나:
   VERDICT: PASS
   VERDICT: FAIL
 CRITICAL/MAJOR 있으면 FAIL, 아니면 PASS.
-
-=== PANEL REVIEWS ===
 PROMPT_EOF
 
-# 패널 원문(${PANEL})은 heredoc 밖에서 append: 패널 출력에 'PROMPT_EOF' 단독 라인이
-# 있어도 heredoc 가 조기 종료되지 않도록 (m3).
-printf '%s\n' "$PANEL" >> "$WORK/synth-prompt.txt"
+# stdin 페이로드(diff + 패널 리뷰)는 argv 가 아니라 파일로 만들어 stdin 으로 넘긴다 —
+# awsops 포크의 동일 스크립트가 이미 발견한 함정(run-panel.sh ROOT CAUSE #2 주석)과
+# 같은 원인: 패널 20셀 합본을 프롬프트 argv 에 그대로 붙이면(과거 buggy 버전은
+# `claude -p "$(cat synth-prompt.txt)"` 로 $PANEL 까지 전부 argv 에 실었다) 커널
+# MAX_ARG_STRLEN(128KiB)을 넘는 순간 `claude` 프로세스 자체가 "Argument list too long"
+# 으로 즉사한다 — chair 가 코드 지적이 아니라 이 이유로 실패하면 로그엔 진짜 원인이
+# 안 보이고 fallback도 같은 함정을 반복해 결국 "리뷰 생성 실패"만 남는다(PR#195 재현).
+# 패널이 커질수록(모델×lens 매트릭스가 늘수록) argv 크기가 그대로 늘어나는 구조라 반드시
+# stdin 으로 옮긴다. ${PANEL} 안에 'PROMPT_EOF' 단독 라인이 있어도 안전하도록 이 파일은
+# heredoc 이 아니라 직접 쓴다(m3 과 동일한 우려, heredoc 밖에서 처리).
+{
+  echo "=== DIFF UNDER REVIEW ==="
+  cat "$DIFF"
+  echo ""
+  echo "=== PANEL REVIEWS ==="
+  printf '%s\n' "$PANEL"
+} > "$WORK/synth-stdin.txt"
 
 # claude 실패해도 fallback 이 돌도록 || true (set -e 우회)
 # 의도적으로 job 전역 ANTHROPIC_MODEL 을 참조하지 않는다 — 그 값은 job 의 다른
@@ -92,11 +115,11 @@ chair_label() { case "$1" in
   *)         echo "$1" ;;
 esac ; }
 
-run_chair() {  # $1=model → "$OUT" 에 기록(scrub 통과). claude 실패해도 || true 로 계속.
+run_chair() {  # $1=model $2=err-file → "$OUT" 에 기록(scrub 통과). claude 실패해도 || true 로 계속.
   ANTHROPIC_MODEL="$1" timeout "$CHAIR_TIMEOUT" \
     claude -p "$(cat "$WORK/synth-prompt.txt")" --output-format text \
     --allowedTools "Read Grep Glob Bash(gh pr diff:*) Bash(gh pr view:*) mcp__github__get_file_contents mcp__github__search_code" \
-    < "$DIFF" 2>"$WORK/chair.err" | scrub_secrets > "$OUT" || true
+    < "$WORK/synth-stdin.txt" 2>"$2" | scrub_secrets > "$OUT" || true
 }
 
 # 요구사항: 마지막 non-empty 줄이 정확히 VERDICT: PASS 또는 VERDICT: FAIL, 그리고 PASS
@@ -122,8 +145,15 @@ chair_valid() {
   fi
 }
 
-run_chair "$PRIMARY_MODEL"
+# chair 입력 실측 — 실패 시 "입력이 컸는가"를 로그만으로 바로 판정할 수 있게(이전엔 이
+# 수치가 어디에도 안 남아 PR#195 의 46초 만에 죽은 fallback 원인이 사후 규명 불가였다).
+echo "chair input: $(wc -c < "$WORK/synth-stdin.txt") bytes (cells: $CELL_COUNT, cell cap: ${PANEL_CELL_CAP}B)"
+
+# primary/fallback 이 같은 chair.err 를 공유하면 fallback 이 primary 의 stderr 를 덮어써
+# 실패 원인이 사후에 안 보였다(PR#195) — 시도별로 분리.
+run_chair "$PRIMARY_MODEL" "$WORK/chair-primary.err"
 CHAIR_USED="$PRIMARY_MODEL"
+FALLBACK_RAN=0
 # PRIMARY_MODEL/FALLBACK_MODEL 이 같은 모델로 resolve 되면(예: job env 의
 # ANTHROPIC_MODEL 이 이미 fallback 기본값과 동일) 재시도는 동일 호출을 그대로
 # 반복할 뿐이라 CHAIR_TIMEOUT 을 두 번 태우고도 아무 이득이 없다 — skip.
@@ -131,17 +161,30 @@ if ! chair_valid && [ "$FALLBACK_MODEL" != "$PRIMARY_MODEL" ]; then
   # panel/chair stdout 은 scrub_secrets 를 통과시키는데 이 fallback 경고의 stderr 발췌만
   # 빠져 있었다 — claude CLI 에러 메시지에 credential/env 정보가 섞이면 public Actions
   # 로그로 그대로 새는 경로였다(cc-on-bedrock PR#107 리뷰 M4).
-  CHAIR_ERR_EXCERPT="$(head -c 500 "$WORK/chair.err" 2>/dev/null | scrub_secrets)"
+  CHAIR_ERR_EXCERPT="$(head -c 500 "$WORK/chair-primary.err" 2>/dev/null | scrub_secrets)"
   echo "::warning::chair '$(chair_label "$PRIMARY_MODEL")' degraded (connection/timeout/empty/no-verdict, ${CHAIR_TIMEOUT}s cap): $CHAIR_ERR_EXCERPT — falling back to '$(chair_label "$FALLBACK_MODEL")'"
-  run_chair "$FALLBACK_MODEL"
+  FALLBACK_RAN=1
+  run_chair "$FALLBACK_MODEL" "$WORK/chair-fallback.err"
   if chair_valid; then
     CHAIR_USED="$FALLBACK_MODEL"
+  else
+    FALLBACK_ERR_EXCERPT="$(head -c 500 "$WORK/chair-fallback.err" 2>/dev/null | scrub_secrets)"
+    echo "::warning::chair '$(chair_label "$FALLBACK_MODEL")' fallback also degraded (connection/timeout/empty/no-verdict, ${CHAIR_TIMEOUT}s cap): $FALLBACK_ERR_EXCERPT"
   fi
 fi
 
 if ! chair_valid; then
-  echo "리뷰 생성 실패 — $(chair_label "$PRIMARY_MODEL")·$(chair_label "$FALLBACK_MODEL") 모두 유효한 응답(빈 응답 또는 VERDICT 없음)을 반환하지 않음." > "$OUT"
+  {
+    echo "리뷰 생성 실패 — $(chair_label "$PRIMARY_MODEL")·$(chair_label "$FALLBACK_MODEL") 모두 유효한 응답(빈 응답 또는 VERDICT 없음)을 반환하지 않음."
+    echo "이는 코드 지적이 아니라 워크플로우 인프라 실패(모델 timeout/연결 오류) — 재실행 필요."
+    echo ""
+    echo "primary($(chair_label "$PRIMARY_MODEL")) stderr: $(head -c 500 "$WORK/chair-primary.err" 2>/dev/null | scrub_secrets)"
+    if [ "$FALLBACK_RAN" = "1" ]; then
+      echo "fallback($(chair_label "$FALLBACK_MODEL")) stderr: $(head -c 500 "$WORK/chair-fallback.err" 2>/dev/null | scrub_secrets)"
+    fi
+  } > "$OUT"
   echo "VERDICT: FAIL" >> "$OUT"
+  : > "$WORK/chair-failed.flag"
 fi
 
 # 커버리지 저하 가시화 — 모델 하나가 전체 lens 에서 응답 없이 조용히 빠졌으면(run-panel.sh
@@ -218,5 +261,8 @@ fi
 
 if [ -n "${GITHUB_ENV:-}" ]; then
   echo "chair_used=$(chair_label "$CHAIR_USED")" >> "$GITHUB_ENV"
+  # chair-failed.flag(위) — 코드 지적으로 인한 FAIL과 chair 자체의 인프라 실패(timeout/연결
+  # 오류)를 워크플로가 게이트 판정과 별개로 PR 코멘트 배지 문구에서 구분하도록 신호 전달.
+  [ -f "$WORK/chair-failed.flag" ] && echo "chair_failed=1" >> "$GITHUB_ENV"
 fi
 echo "Synthesis: $(wc -c < "$OUT") bytes (chair: $(chair_label "$CHAIR_USED"), panel: ${RESP})"
