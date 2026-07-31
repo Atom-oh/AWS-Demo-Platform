@@ -28,6 +28,12 @@
 # Node
 node_modules/
 .next/
+# root-only: local MCP tool deps (headroom-ai), not this repo's package — dashboard/backend/ pnpm workspace still tracked
+/package.json
+/package-lock.json
+
+# tokensave MCP code-graph cache
+.tokensave/
 
 # Playwright MCP scratch (snapshots/screenshots/console logs)
 .playwright-mcp/
