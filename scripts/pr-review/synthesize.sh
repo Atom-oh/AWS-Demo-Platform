@@ -115,10 +115,15 @@ chair_label() { case "$1" in
   *)         echo "$1" ;;
 esac ; }
 
+# mcp__github__* 는 --allowedTools 에서 뺀다 — chair 는 diff 파일 + 패널 요약만 종합하면
+# 되고 GitHub 파일/코드 검색은 필요 없는데, github MCP 플러그인 인증이 깨지면(관찰된 실패:
+# "HTTP 400: Authorization header is badly formatted") claude CLI 가 그 도구 확보를 기다리며
+# CHAIR_TIMEOUT(600s) 까지 응답 없이 멈춘다 — primary/fallback 둘 다 같은 --allowedTools 를
+# 쓰므로 한 번 걸리면 두 chair 가 통째로 죽어 fail-closed 게이트가 코드와 무관하게 FAIL.
 run_chair() {  # $1=model $2=err-file → "$OUT" 에 기록(scrub 통과). claude 실패해도 || true 로 계속.
   ANTHROPIC_MODEL="$1" timeout "$CHAIR_TIMEOUT" \
     claude -p "$(cat "$WORK/synth-prompt.txt")" --output-format text \
-    --allowedTools "Read Grep Glob Bash(gh pr diff:*) Bash(gh pr view:*) mcp__github__get_file_contents mcp__github__search_code" \
+    --allowedTools "Read Grep Glob Bash(gh pr diff:*) Bash(gh pr view:*)" \
     < "$WORK/synth-stdin.txt" 2>"$2" | scrub_secrets > "$OUT" || true
 }
 

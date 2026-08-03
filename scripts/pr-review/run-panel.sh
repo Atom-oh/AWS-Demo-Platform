@@ -135,19 +135,22 @@ for lens_file in "${LENS_FILES[@]}"; do
   # Claude 셀프리뷰 셀(5번째 패널 멤버 — 이 repo만의 quirk) — 플러그인 장착 컨테이너에서
   # 독립 리뷰(의장과 별개 voice). Codex 와 마찬가지로 diff 는 stdin(`claude -p` 가 stdin 을
   # 정상적으로 읽으므로 Kiro 의 fs_read 경로로 강제할 필요 없음). --allowedTools 는
-  # read-only GitHub 컨텍스트 도구로 고정.
+  # read-only GitHub 컨텍스트 도구로 고정 — mcp__github__* 는 제외한다: github MCP
+  # 플러그인 인증이 깨지면(관찰된 실패: "HTTP 400: Authorization header is badly
+  # formatted") claude CLI 가 그 도구 확보를 기다리며 T(PANEL_TIMEOUT) 까지 응답 없이
+  # 멈춘다 — gh pr diff/view/search/issue view 로도 동일한 read-only 컨텍스트는 충분.
   if command -v claude >/dev/null 2>&1; then
     CLAUDE_SELF_PROMPT="$LENS_PROMPT
 
 [Claude 셀프리뷰 — 플러그인이 설치된 러너에서 실행됨]
-- 필요하면 read-only 도구(gh pr diff/view·gh search, Read/Grep/Glob, 가능 시 github MCP)로
-  변경 너머의 파일·PR 맥락을 직접 확인하라.
+- 필요하면 read-only 도구(gh pr diff/view·gh search, Read/Grep/Glob)로 변경 너머의
+  파일·PR 맥락을 직접 확인하라.
 - code-review 방법론: 큰 버그·로직 오류·보안·CLAUDE.md 위반에 집중. 사소한 nitpick, 린터/타입체커가
   잡을 것, 기존(pre-existing) 이슈, PR 이 수정하지 않은 줄의 문제는 제외. false positive 는 버려라.
 - findings 만 CRITICAL/MAJOR/MINOR 로 출력. 어떤 GitHub 코멘트도 게시하지 말고 VERDICT 도 출력하지 마라."
     ( try_panel "$SLOT/claude-self-$lens.md" "$SLOT/claude-self-$lens.err" \
         timeout "$T" claude -p "$CLAUDE_SELF_PROMPT" --output-format text \
-          --allowedTools "Read Grep Glob Bash(gh pr diff:*) Bash(gh pr view:*) Bash(gh search:*) Bash(gh issue view:*) mcp__github__get_file_contents mcp__github__search_code mcp__github__get_pull_request mcp__github__list_commits" ) &
+          --allowedTools "Read Grep Glob Bash(gh pr diff:*) Bash(gh pr view:*) Bash(gh search:*) Bash(gh issue view:*)" ) &
   else echo "[skip] claude-self/$lens (binary absent)" >&2; : > "$SLOT/claude-self-$lens.md"; fi
 done
 
