@@ -67,6 +67,9 @@ spec:
             # checking `kubectl describe node <a real runner-docs-arm node>` for
             # its true allocatable vs. what's already claimed by daemonsets.
             template:
+              metadata:
+                annotations:
+                  karpenter.sh/do-not-disrupt: "true"
               spec:
                 nodeSelector:
                   kubernetes.io/arch: arm64

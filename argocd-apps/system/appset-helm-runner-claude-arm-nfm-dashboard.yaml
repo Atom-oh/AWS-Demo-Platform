@@ -46,6 +46,9 @@ spec:
                 nodeSelector:
                   node-pool: platform
             template:
+              metadata:
+                annotations:
+                  karpenter.sh/do-not-disrupt: "true"
               spec:
                 # AWS 자격증명(Bedrock) 수령용 공유 SA. EKS Pod Identity Association
                 # claude-runner -> mall-apne2-mgmt-ci-runner. 누락 시 Pod 이 default SA 로
