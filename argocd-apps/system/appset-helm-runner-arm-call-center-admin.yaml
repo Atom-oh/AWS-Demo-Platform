@@ -46,6 +46,9 @@ spec:
                 nodeSelector:
                   node-pool: platform
             template:
+              metadata:
+                annotations:
+                  karpenter.sh/do-not-disrupt: "true"
               spec:
                 nodeSelector:
                   kubernetes.io/arch: arm64

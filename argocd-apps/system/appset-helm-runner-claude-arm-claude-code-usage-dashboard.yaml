@@ -48,6 +48,9 @@ spec:
                 nodeSelector:
                   node-pool: platform
             template:
+              metadata:
+                annotations:
+                  karpenter.sh/do-not-disrupt: "true"
               spec:
                 serviceAccountName: claude-runner
                 nodeSelector:
