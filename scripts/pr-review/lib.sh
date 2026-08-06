@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # 공용 헬퍼: 슬롯 디렉터리, 스킵 로깅, 패널 로스터.
-# (trigger: ADR-015 panel×4 + chair 토폴로지가 main 에서 실제로 도는지 확인용 PR)
 set -uo pipefail
 
 # 패널 로스터 단일 소스. run-panel.sh(셀 실행)와 aggregate.sh(집계/floor 판정)가 같은
