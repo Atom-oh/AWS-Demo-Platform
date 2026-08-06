@@ -1,11 +1,13 @@
 name: AI Code Review
 
-# PR마다 lens×모델 매트릭스 패널(Codex + Kiro x3 + Claude 셀프리뷰, L2~L5 각 lens 독립
-# 에이전트 — 5모델×4lens=20셀)이 리뷰하고 Claude 의장이 lens별로 종합해 코멘트로 게시.
+# PR마다 lens×모델 매트릭스 패널(Codex + Kiro x2 + Claude 셀프리뷰, L2~L5 각 lens 독립
+# 에이전트 — 4모델×4lens=16셀)이 리뷰하고 Claude 의장이 lens별로 종합해 코멘트로 게시.
 # multi-region-architecture(PR #25)·aws-fsi-demo(PR #425) 의 lens×model 매트릭스 설계를
-# 이 repo(Codex + Kiro x3 + Claude 셀프리뷰 5-패널 구성)로 포팅한 뒤(ADR-007/011/013/014),
-# 단일 job(20셀 전부 `&`+`wait` 백그라운드)에서 모델별 5개 병렬 job + artifact + chair job
-# 으로 재구성(ADR-015) — 이유:
+# 이 repo(당초 Codex + Kiro x3 + Claude 셀프리뷰 5-패널 구성)로 포팅했다가(ADR-007/011/013/014),
+# 단일 job(20셀 전부 `&`+`wait` 백그라운드)에서 모델별 병렬 job + artifact + chair job 으로
+# 재구성(ADR-015). 같은 PR 리뷰에서 kiro-glm(glm-5) 만 4건의 오탐을 내 로스터에서 제외하고
+# 남은 두 Kiro 슬롯을 Kiro 카탈로그 최상위 모델(claude-fable-5/gpt-5.6-sol, 태그
+# kiro-fable/kiro-sol)로 교체해 현재 4모델 구성이 됐다 — 이유:
 #   - 자원 경합: 러너 요청 cpu=1800m 인데 파드 하나에 LLM CLI 20개가 동시에 뜨던 것을
 #     4개(모델당 lens 4개)로 줄임.
 #   - 관측성: 모델별 job 이 Actions UI 에 개별 로그/타이밍/재실행으로 보임.
@@ -53,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false # 한 벤더가 실패해도 나머지 4개 모델 job 은 계속 — chair 의 coverage floor 가 결측을 판정
       matrix:
-        model: [codex, kiro-opus, kiro-gpt, kiro-glm, claude-self]
+        model: [codex, kiro-fable, kiro-sol, claude-self]
     steps:
       # 보안(M1): pull_request_target 는 시크릿/쓰기권한 컨텍스트다. PR head 코드를
       # 실행하면 push 권한자가 scripts/*.sh 를 바꿔 패널 키/노드 IAM 을 탈취할 수 있다.
@@ -92,41 +94,60 @@ jobs:
       - name: "Run panel cell (model: ${{ matrix.model }}, all lenses)"
         env:
           PANEL_TIMEOUT: "300"
-          GH_TOKEN: ${{ github.token }}
-          GITHUB_PERSONAL_ACCESS_TOKEN: ${{ github.token }}
+          # codex 는 -s read-only(Bedrock 만), kiro 는 --trust-tools=(툴 자체가 없음) — 이
+          # 토큰을 실제로 쓰는 건 claude-self 뿐이다(gh/MCP read-only 컨텍스트 도구). 나머지
+          # 4개 모델의 LLM CLI 프로세스 env 에는 애초에 안 올려 노출면을 줄인다(least
+          # privilege, PR#88 리뷰 MINOR).
+          GH_TOKEN: ${{ matrix.model == 'claude-self' && github.token || '' }}
+          GITHUB_PERSONAL_ACCESS_TOKEN: ${{ matrix.model == 'claude-self' && github.token || '' }}
         run: |
           bash scripts/pr-review/run-panel.sh /tmp/pr-review/pr-diff-truncated.txt \
             /tmp/pr-review/lenses /tmp/pr-review "${{ matrix.model }}"
 
-      - name: Scrub cell outputs before upload
+      - name: Scrub + shrink cell outputs before upload
         run: |
           # .err 는 지금까지 파드를 떠난 적이 없다(로그에 찍을 때만 scrub_secrets 를
           # 통과). artifact 로 올리면 저장소 read 권한자 누구나 원문을 내려받을 수 있어
-          # — public repo 면 전원 — 새 노출 경로가 생긴다. 업로드 직전 in-place scrub.
-          # (synthesize.sh 의 셀 scrub 은 그대로 유지 — idempotent, defense in depth.)
-          DIR="$(pwd)/scripts/pr-review"; . "$DIR/lib.sh"
-          for f in /tmp/pr-review/slot/*.md /tmp/pr-review/slot/*.err; do
+          # — public repo 면 전원 — 새 노출 경로가 생긴다. 업로드 직전 in-place scrub +
+          # tail 로 축소(전문 스택트레이스/에러 로그를 그대로 공개하지 않도록 노출면 최소화;
+          # 실패 원인 파악에는 마지막 부분이면 충분 — 나머지는 원래도 워크플로 로그에만 있었다).
+          # DIR 은 pwd 암묵 의존 대신 github.workspace 로 고정(PR#88 리뷰 MINOR).
+          DIR="${GITHUB_WORKSPACE}/scripts/pr-review"; . "$DIR/lib.sh"
+          for f in /tmp/pr-review/slot/*.md; do
             [ -f "$f" ] || continue
             scrub_secrets < "$f" > "$f.scrubbed" && mv "$f.scrubbed" "$f"
           done
+          for f in /tmp/pr-review/slot/*.err; do
+            [ -f "$f" ] || continue
+            tail -c 4000 "$f" | scrub_secrets > "$f.scrubbed" && mv "$f.scrubbed" "$f"
+          done
 
+      # 업로드는 $SLOT 디렉터리 하나만 통째로 — 개별 파일/와일드카드 여러 개를 나열하면
+      # upload-artifact@v4 가 "실제로 매치된 파일들의 LCA(least common ancestor)"를 아티팩트
+      # 루트로 잡기 때문에, kiro-diff-truncated.flag 처럼 존재 여부가 실행마다 달라지는
+      # 파일이 하나라도 섞이면 매치 집합이 바뀌어 LCA(=아티팩트 내부 디렉터리 구조)도 같이
+      # 바뀐다 — diff 가 KIRO_DIFF_CAP 이하인 보통 케이스엔 그 flag 파일이 전혀 없어 LCA 가
+      # $SLOT 자체로 붕괴되고, chair 의 aggregate.sh 가 "$WORK/slot" 을 못 찾아 매 실행
+      # 실패했다(PR#88 리뷰 CRITICAL). 단일 디렉터리 경로는 그 디렉터리 자체가 항상 LCA이므로
+      # 내부에 무엇이 있든(.md/.err/flag 유무 무관) 구조가 고정된다 — kiro-diff-truncated.flag
+      # 를 $SLOT 안으로 옮긴 것(run-panel.sh)과 쌍을 이루는 수정.
       - uses: actions/upload-artifact@v4
         with:
           name: pr-review-slot-${{ matrix.model }}
-          path: |
-            /tmp/pr-review/slot/*.md
-            /tmp/pr-review/slot/*.err
-            /tmp/pr-review/kiro-diff-truncated.flag
+          path: /tmp/pr-review/slot
           if-no-files-found: warn # 셀 전멸도 chair 의 coverage floor 가 판정한다 — 여기선 막지 않음
-          retention-days: 7
+          retention-days: 1 # 노출 최소화 — 정상 흐름은 같은 워크플로 실행 내에서 즉시 소비됨
 
   chair:
     name: Chair Synthesis
     needs: panel
-    # always(): panel job 이 전부 실패/취소돼도 chair 가 돌아 coverage floor 로
-    # fail-closed 한다. needs 만 두면(if 없이) matrix 전체 실패 시 chair 가 skip 되고
-    # 게이트 자체가 조용히 사라진다.
-    if: always() && github.event.pull_request.head.repo.full_name == github.repository
+    # !cancelled(): panel job 이 (취소가 아니라) 실패/타임아웃으로 죽어도 chair 가 돌아
+    # coverage floor 로 fail-closed 한다. always() 는 워크플로 자체가 취소된 경우에도 실행돼,
+    # synchronize push 로 이전 실행이 취소되면(workflow-level concurrency) panel 이 전부
+    # 취소된 채 chair 만 살아나 구 SHA 기준 코멘트를 새 실행과 경합 upsert 하는 문제가
+    # 있었다(PR#88 리뷰 MAJOR) — needs 만 두면(if 없이) matrix 전체 실패 시 chair 가 skip
+    # 되고 게이트 자체가 조용히 사라지므로, "취소는 제외하되 실패는 포함"하는 !cancelled() 로.
+    if: ${{ !cancelled() && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: aws-demo-platform-claude-arm
     # 정상 상한은 CHAIR_TIMEOUT×2(primary+fallback, 600×2=20분) + 노드 부팅.
     timeout-minutes: 25
@@ -156,17 +177,25 @@ jobs:
             /tmp/pr-review
           echo "panel_truncated=$([ -f /tmp/pr-review/diff-truncated.flag ] && echo 1 || echo 0)" >> "$GITHUB_ENV"
 
-      # 다운로드 경로는 slot/ 이 아니라 그 부모 — 업로드가 /tmp/pr-review 를 공통 조상으로
-      # 잡아 slot/*.md·slot/*.err·kiro-diff-truncated.flag(둘 다 아티팩트 안에서 이
-      # 상대구조를 유지) 를 그대로 보존하므로, 다운로드도 같은 부모에 풀어야 slot/*.md 가
-      # slot/slot/*.md 로 중첩되지 않는다. merge-multiple: true 로 5개 아티팩트가 같은
-      # slot/ 아래로 합쳐진다(파일명이 모델별로 겹치지 않으므로 충돌 없음; flag 파일만
-      # 여러 kiro artifact 가 동일 이름으로 덮어써도 무해 — 존재 여부만 의미 있음).
+      # 다운로드 경로도 $SLOT 그 자체 — 업로드가 $SLOT 디렉터리 하나를 통째로 올렸으므로
+      # (그 안의 파일들이 아티팩트 루트에 flatten 됨), 대칭적으로 $SLOT 에 풀어야 파일이
+      # $SLOT/*.md 로 복원된다(부모 디렉터리에 풀면 flatten 이 그대로 유지돼 $SLOT/*.md 가
+      # 아니라 $WORK/*.md 로 떨어진다 — PR#88 리뷰 CRITICAL, run-panel.sh/upload 스텝의
+      # 단일 디렉터리 수정과 쌍을 이룸). merge-multiple: true 로 4개 아티팩트가 같은 $SLOT
+      # 아래로 합쳐진다(모델마다 파일명이 겹치지 않으므로 충돌 없음).
+      # panel job 이 전부 실패/취소돼 아티팩트가 하나도 없으면 이 스텝 자체가 실패할 수
+      # 있는데, continue-on-error 로 넘겨 다음 단계(aggregate.sh)가 "$SLOT 자체가 없음"을
+      # 정상 입력(=전 모델 degraded → coverage-severe)으로 처리하게 한다 — 그래야 ADR-015
+      # 가 약속한 fail-closed 경로가 이 최악 케이스에서도 실제로 도달한다(PR#88 리뷰 MAJOR).
+      - name: Reset slot dir (defense-in-depth against a reused/non-ephemeral runner workspace)
+        run: rm -rf /tmp/pr-review/slot && mkdir -p /tmp/pr-review/slot
+
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           pattern: pr-review-slot-*
           merge-multiple: true
-          path: /tmp/pr-review
+          path: /tmp/pr-review/slot
 
       - name: "Aggregate panel results + synthesize (Claude chair)"
         env:

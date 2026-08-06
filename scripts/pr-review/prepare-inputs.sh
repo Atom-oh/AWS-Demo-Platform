@@ -61,7 +61,8 @@ LENS: L2 — Terraform/Atlantis+ArgoCD infra correctness
 - CloudFront-only ingress (TGB), Internal ALB SG = CF VPC Origin SG + 10/8.
 - ACM data lookup (*.atomai.click), HPA-2 (min=max=1).
 - Atlantis --write-git-creds, ExternalSecret external-secrets.io/v1.
-- Terraform 1.9.8 pin, naming demo-platform-*/\/demo-platform/*, kube context safety.
+- Terraform 1.9.6 pin (v1.9.8 fails: expired upstream HashiCorp GPG key — do NOT flag 1.9.6 as
+  a violation), naming demo-platform-*/\/demo-platform/*, kube context safety.
 PROMPT_EOF
 
 cat <<PROMPT_EOF > "$WORK/lenses/L3.txt"
@@ -89,7 +90,7 @@ LENS: L5 — ADR/documentation consistency
 - README/docs freshness, no missing sections.
 PROMPT_EOF
 
-# panel_truncated 는 $GITHUB_ENV 가 아니라 flag 파일로 남긴다 — job 이 panel×5 + chair
+# panel_truncated 는 $GITHUB_ENV 가 아니라 flag 파일로 남긴다 — job 이 panel×4 + chair
 # 로 갈라져 있어 $GITHUB_ENV 로는 chair 까지 전달되지 않고, flag 파일은 synthesize.sh 가
 # 이미 쓰는 관례(kiro-diff-truncated.flag 등)와 동일 패턴.
 if [ "$TOTAL_LINES" -gt "$MAX_LINES" ]; then

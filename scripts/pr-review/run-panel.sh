@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 한 모델의 lens×model 셀만 실행. 인자: <diff> <lenses_dir> <workdir> <model_tag>
-# model_tag: codex | kiro-opus | kiro-gpt | kiro-glm | claude-self (lib.sh PANEL_TAGS 참조)
+# model_tag: codex | kiro-fable | kiro-sol | claude-self (lib.sh PANEL_TAGS 참조)
 # lenses_dir 안의 각 *.txt 가 lens 하나(파일명 stem = lens 태그, 예: L2/L3/L4/L5) —
 # 그 lens 전용 리뷰 프롬프트(자체 완결형: "이 lens만 봐"). 워크플로가 모델별 병렬 job
 # (matrix.model)으로 이 스크립트를 5번 부르므로, 한 호출은 그 모델의 lens 전체(4셀)만
@@ -109,7 +109,13 @@ if [ -n "$KIRO_TAG" ]; then
   if [ "$(wc -c < "$DIFF")" -gt "$KIRO_DIFF_CAP" ]; then
     KIRO_DIFF_TEXT+=$'\n[...TRUNCATED at '"$KIRO_DIFF_CAP"'B — full diff not sent to Kiro...]'
     echo "::warning::diff exceeds KIRO_DIFF_CAP (${KIRO_DIFF_CAP}B) — Kiro cells only see a truncated prefix" >&2
-    : > "$WORK/kiro-diff-truncated.flag"
+    # $SLOT 안에 둔다(예전엔 $WORK 루트) — panel job 이 artifact 로 올리는 건 $SLOT 디렉터리
+    # 하나뿐이라, 이 플래그가 $SLOT 밖에 있으면 존재 여부에 따라 upload-artifact 의 LCA(least
+    # common ancestor)가 달라져 매 실행마다 아티팩트 내부 구조가 바뀐다(PR#88 리뷰 CRITICAL —
+    # 진단: diff 가 KIRO_DIFF_CAP 이하인 보통 케이스엔 이 파일이 전혀 없어 LCA 가 $SLOT 자체로
+    # 붕괴, chair 의 aggregate.sh 가 $SLOT 을 못 찾고 매 실행 실패). $SLOT 안에 두면 항상 같은
+    # 디렉터리 하나만 올리므로 존재 여부와 무관하게 구조가 고정된다.
+    : > "$SLOT/kiro-diff-truncated.flag"
   fi
 fi
 
@@ -117,8 +123,12 @@ for lens_file in "${LENS_FILES[@]}"; do
   lens="$(basename "$lens_file" .txt)"
   LENS_PROMPT="$(cat "$lens_file")"
 
-  case "$MODEL_TAG" in
-  codex)
+  # case 대신 if/elif — kiro 분기를 태그 리스트로 다시 나열하면(예전 `kiro-fable|kiro-sol)`)
+  # KIRO_MODELS 의 사본이 하나 더 생긴다. 로스터에 3번째 Kiro 모델을 추가하면 이 사본이
+  # 어느 arm 에도 안 걸려 그 모델 셀이 조용히 0개가 되는 회귀가 있었다(PR#88 리뷰 MINOR) —
+  # 위에서 이미 KIRO_MODELS 를 순회해 파생해 둔 $KIRO_TAG(빈 문자열이면 이 태그가 Kiro가
+  # 아니라는 뜻)로만 분기해 로스터 사본을 하나 없앤다.
+  if [ "$MODEL_TAG" = codex ]; then
     # Codex 셀 (Bedrock, config.toml). --skip-git-repo-check 필수. AWS_REGION 강제:
     # gpt-5.6-sol(bedrock-mantle)는 In-Region(us-east-1) 만 지원 — 잡 region 무관하게 고정.
     # diff 는 stdin.
@@ -127,8 +137,7 @@ for lens_file in "${LENS_FILES[@]}"; do
           env AWS_REGION="${CODEX_AWS_REGION:-us-east-1}" AWS_DEFAULT_REGION="${CODEX_AWS_REGION:-us-east-1}" \
           timeout "$T" codex exec -s read-only --skip-git-repo-check "$LENS_PROMPT" ) &
     else echo "[skip] codex/$lens (binary absent)" >&2; : > "$SLOT/codex-$lens.md"; fi
-    ;;
-  kiro-opus|kiro-gpt|kiro-glm)
+  elif [ -n "$KIRO_TAG" ]; then
     # Kiro 셀. Kiro's non-interactive `chat` reads ONLY the prompt arg — it ignores stdin,
     # so diff 는 argv 에 직접 embed(캡됨, 툴 미부여 — 위 KIRO_DIFF_TEXT/`--trust-tools=` 주석 참조).
     KIRO_INSTRUCTION="$LENS_PROMPT"$'\n\n'"Review ONLY the diff below; do not read or reference any other files:"$'\n\n'"$KIRO_DIFF_TEXT"
@@ -138,9 +147,8 @@ for lens_file in "${LENS_FILES[@]}"; do
           kiro_env "$CELL_CWD" timeout "$T" kiro-cli chat "$KIRO_INSTRUCTION" --model "$KIRO_MODEL_ID" \
           --mode default --no-interactive --trust-tools= --wrap never ) &
     else echo "[skip] $MODEL_TAG/$lens (binary absent)" >&2; : > "$SLOT/$MODEL_TAG-$lens.md"; fi
-    ;;
-  claude-self)
-    # Claude 셀프리뷰 셀(5번째 패널 멤버 — 이 repo만의 quirk) — 플러그인 장착 컨테이너에서
+  elif [ "$MODEL_TAG" = claude-self ]; then
+    # Claude 셀프리뷰 셀(패널 4번째 멤버 — 이 repo만의 quirk) — 플러그인 장착 컨테이너에서
     # 독립 리뷰(의장과 별개 voice). Codex 와 마찬가지로 diff 는 stdin(`claude -p` 가 stdin 을
     # 정상적으로 읽으므로 Kiro 의 fs_read 경로로 강제할 필요 없음). --allowedTools 는
     # read-only GitHub 컨텍스트 도구로 고정.
@@ -160,8 +168,7 @@ Respond in English only (token/context efficiency — do not mix in other langua
           timeout "$T" claude -p "$CLAUDE_SELF_PROMPT" --output-format text \
             --allowedTools "Read Grep Glob Bash(gh pr diff:*) Bash(gh pr view:*) Bash(gh search:*) Bash(gh issue view:*) mcp__github__get_file_contents mcp__github__search_code mcp__github__get_pull_request mcp__github__list_commits" ) &
     else echo "[skip] claude-self/$lens (binary absent)" >&2; : > "$SLOT/claude-self-$lens.md"; fi
-    ;;
-  esac
+  fi
 done
 
 # NOTE: Antigravity(agy) 는 제거됨 — OAuth 인터랙티브 로그인 전용(API 키 인증 모드 없음)

@@ -51,14 +51,14 @@ cat > "$WORK/synth-prompt.txt" <<PROMPT_EOF
 You are the CHAIR reviewing PR #${PR_NUMBER}: ${PR_TITLE}.
 Read CLAUDE.md + docs/architecture.md + .claude/skills/code-review/SKILL.md.
 The diff under review and the independent panel reviews are provided via STDIN (not in this
-prompt) — 5 panel members (codex, kiro-opus, kiro-gpt, kiro-glm, claude-self), each run once
+prompt) — 4 panel members (codex, kiro-fable, kiro-sol, claude-self), each run once
 per lens (L2/L3/L4/L5). One review per (model, lens) cell — filename = <model>-<lens>.md.
 Panel: ${RESP}
 
 Synthesize ONE final review, grouped by lens (L2/L3/L4/L5):
 1. **Summary** (2-3 sentences)
 2. **Issues per lens** — CRITICAL/MAJOR/MINOR. Show agreement/disagreement across the models
-   that covered the same lens (e.g. "3/5 models flagged CRITICAL, 2/5 didn't mention it").
+   that covered the same lens (e.g. "3/4 models flagged CRITICAL, 1/4 didn't mention it").
    Note when different models independently reached the same finding as a stronger signal, but
    don't treat agreement itself as proof — cross-check against the diff (shared training bias
    can make several models converge on the same false positive).
@@ -68,7 +68,8 @@ Synthesize ONE final review, grouped by lens (L2/L3/L4/L5):
 Project rules (AWS-Demo-Platform), redistributed by lens:
 - L2 (Terraform/Atlantis+ArgoCD infra correctness): CloudFront-only ingress(TGB), Internal ALB
   SG=CF VPC Origin SG+10/8, ACM data lookup(*.atomai.click), HPA-2(min=max=1), Atlantis
-  --write-git-creds, ExternalSecret external-secrets.io/v1, Terraform 1.9.8 pin, naming
+  --write-git-creds, ExternalSecret external-secrets.io/v1, Terraform 1.9.6 pin (v1.9.8 fails:
+  expired GPG key — 1.9.6 is correct, not a violation), naming
   demo-platform-*/\/demo-platform/*, kube context safety.
 - L3 (Security): cross-account ExternalId, Security Group rules.
 - L4 (Code correctness): admin-platform logic bugs.
@@ -226,7 +227,7 @@ fi
 # 수 있어 무조건 참이 아니다(AWS-Demo-Platform PR#63 리뷰 L4-1) — degraded-models.txt 와
 # 교차해 실제로 살아있는 벤더만 커버리지 주장에 넣는다. 둘 다 degraded 면 truncation 뒷부분을
 # 아무도 못 본 것이므로 그 사실을 명시한다.
-if [ -f "$WORK/kiro-diff-truncated.flag" ]; then
+if [ -f "$SLOT/kiro-diff-truncated.flag" ]; then
   TAIL_COVERAGE="codex/claude-self saw the full diff sent to the panel, so tail-end issues are covered by them (unless the workflow's own 3000-line pre-truncation already cut it — in which case even that isn't the full original PR)."
   if [ -s "$WORK/degraded-models.txt" ]; then
     CODEX_DEAD=0; SELF_DEAD=0

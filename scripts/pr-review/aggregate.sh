@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# 5개 panel job 의 artifact 를 합친 뒤(chair job 이 $WORK/slot 에 다운로드) 집계 +
+# 4개 panel job 의 artifact 를 합친 뒤(chair job 이 $WORK/slot 에 다운로드) 집계 +
 # 커버리지 floor 판정. 인자: <lenses_dir> <workdir>
-# run-panel.sh 는 이제 자기 모델의 셀만 알기 때문에 이 판정을 할 수 없다 — 전체 5모델
+# run-panel.sh 는 이제 자기 모델의 셀만 알기 때문에 이 판정을 할 수 없다 — 전체 4모델
 # 셋이 한 곳에 모인 뒤에만(=여기, chair job) 가능.
 set -uo pipefail
 LENSES_DIR="$1"; WORK="$2"
@@ -10,7 +10,15 @@ LENSES_DIR="$1"; WORK="$2"
 WORK="$(realpath "$WORK")" || { echo "aggregate.sh: realpath failed to resolve workdir: $WORK" >&2; exit 1; }
 DIR="$(cd "$(dirname "$0")" && pwd)"; . "$DIR/lib.sh"
 SLOT="$WORK/slot"
-[ -d "$SLOT" ] || { echo "aggregate.sh: $SLOT does not exist — did download-artifact run?" >&2; exit 1; }
+# $SLOT 부재("$SLOT 자체가 없음")는 하드 실패가 아니라 "전 모델 무응답"과 동일하게 취급한다
+# — panel job 4개가 전부 실패/취소돼 artifact 가 하나도 없으면 download-artifact 스텝이
+# continue-on-error 로 넘어와 여기 도달하는데, 예전엔 여기서 exit 1 해 aggregate.sh 자체가
+# 안 돌았다. 그러면 coverage-severe.flag 도, 강제 FAIL 배너도, 코멘트 upsert 도 없이 그냥
+# job 이 빨갛게만 끝나 ADR-015 가 약속한 "coverage floor 가 판정하고 사유가 리뷰 본문에
+# 보인다"는 fail-closed 경로가 최악 케이스에서 도달 불가였다(PR#88 리뷰 MAJOR). 빈 슬롯을
+# 만들어 그대로 진행하면, 아래 degraded-model floor 가 4/4 모델 결측을 그대로 잡아
+# coverage-severe.flag 를 세운다.
+mkdir -p "$SLOT"
 RESP="$WORK/responded.txt"; : > "$RESP"
 rm -f "$WORK/coverage-severe.flag"
 
@@ -25,8 +33,11 @@ fi
 # 로스터-밖 태그 가드 — matrix.model 이 lib.sh 의 PANEL_TAGS 와 어긋나면(둘 다 개별
 # 워크플로/스크립트 리터럴이라 드리프트 가능) merged slot 에 미지 태그 파일이 나타난다.
 # 반대 방향(로스터엔 있는데 매트릭스가 안 돌림)은 아래 degraded-model floor 가 잡는다.
+# 파일 크기와 무관하게 검사 — [ -s ] 로 빈 파일을 건너뛰면 드리프트된 태그가 매번 빈 셀로
+# 응답해도 조용히 통과해버린다(PR#88 리뷰 MINOR): 이 가드의 목적은 "존재하는 셀이 로스터에
+# 속하는가"이지 "그 셀이 응답했는가"가 아니다.
 for f in "$SLOT"/*.md; do
-  [ -s "$f" ] || continue
+  [ -f "$f" ] || continue
   base="$(basename "$f" .md)"
   tag="${base%-*}"
   known=0
