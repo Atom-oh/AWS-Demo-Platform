@@ -17,7 +17,10 @@ PANEL_CELL_CAP="${PANEL_CELL_CAP:-20000}"
 # 600s timeout — 근본 원인은 입력 크기). 셀 수로 나눠 합본 상한(기본 200KB)을 지키도록
 # 유효 캡을 셀당 캡과 다시 min 한다 — 셀이 적으면 기존 20000B 캡이 그대로 이김.
 CHAIR_PANEL_TOTAL_CAP="${CHAIR_PANEL_TOTAL_CAP:-200000}"
-CELL_COUNT="$(printf '%s\n' "$SLOT"/*.md | wc -l)"
+# 빈 .md(스킵된 셀)는 세지 않는다 — 응답한 셀 수로만 나눠야 FAIR_CAP 이 실제 응답
+# 분량 기준으로 잡힌다. job 분할 이후 결측 셀 수가 실행마다 달라지므로(panel job 하나가
+# 죽으면 그 모델의 4셀이 통째로 비거나 아예 없음) 이 구분이 더 눈에 띈다.
+CELL_COUNT="$(find "$SLOT" -maxdepth 1 -name '*.md' -size +0c | wc -l)"
 [ "$CELL_COUNT" -gt 0 ] || CELL_COUNT=1
 FAIR_CAP=$(( CHAIR_PANEL_TOTAL_CAP / CELL_COUNT ))
 [ "$FAIR_CAP" -lt "$PANEL_CELL_CAP" ] && PANEL_CELL_CAP="$FAIR_CAP"

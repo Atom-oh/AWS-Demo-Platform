@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
-# 공용 헬퍼: 슬롯 디렉터리, 스킵 로깅.
+# 공용 헬퍼: 슬롯 디렉터리, 스킵 로깅, 패널 로스터.
 set -uo pipefail
+
+# 패널 로스터 단일 소스. run-panel.sh(셀 실행)와 aggregate.sh(집계/floor 판정)가 같은
+# 배열을 읽어야 태그 불일치가 안 생긴다(ADR-013/014 가 지적한 "모델 id 가 여러 곳에 산다"
+# 문제의 완화). 워크플로 matrix.model 리스트는 여전히 별도 YAML 리터럴이라 6번째 사본이지만,
+# 그 드리프트는 aggregate.sh 의 degraded-model floor(로스터에 있는데 결측)와 로스터-밖 태그
+# 가드(matrix 에만 있는데 로스터엔 없음)가 양방향으로 잡는다.
+KIRO_MODELS=("claude-opus-5:kiro-opus" "gpt-5.6-terra:kiro-gpt" "glm-5:kiro-glm")
+PANEL_TAGS=(codex "${KIRO_MODELS[@]##*:}" claude-self)
 
 # slot 디렉터리 보장 — 비-ephemeral 러너에서 $WORK 가 재사용될 수 있으므로, 이전 실행의
 # 셀 파일이 남아 새 실행의 체어 입력에 섞이지 않도록 매번 비우고 새로 만든다. 유일한
