@@ -147,12 +147,15 @@ for lens_file in "${LENS_FILES[@]}"; do
     if command -v claude >/dev/null 2>&1; then
       CLAUDE_SELF_PROMPT="$LENS_PROMPT
 
-[Claude 셀프리뷰 — 플러그인이 설치된 러너에서 실행됨]
-- 필요하면 read-only 도구(gh pr diff/view·gh search, Read/Grep/Glob, 가능 시 github MCP)로
-  변경 너머의 파일·PR 맥락을 직접 확인하라.
-- code-review 방법론: 큰 버그·로직 오류·보안·CLAUDE.md 위반에 집중. 사소한 nitpick, 린터/타입체커가
-  잡을 것, 기존(pre-existing) 이슈, PR 이 수정하지 않은 줄의 문제는 제외. false positive 는 버려라.
-- findings 만 CRITICAL/MAJOR/MINOR 로 출력. 어떤 GitHub 코멘트도 게시하지 말고 VERDICT 도 출력하지 마라."
+[Claude self-review — running on the plugin-equipped runner]
+- If needed, use read-only tools (gh pr diff/view, gh search, Read/Grep/Glob, github MCP
+  where available) to check files/PR context beyond the diff directly.
+- code-review methodology: focus on real bugs, logic errors, security, CLAUDE.md violations.
+  Exclude minor nitpicks, anything a linter/type-checker would catch, pre-existing issues, and
+  problems on lines the PR didn't touch. Discard false positives.
+- Output findings only, grouped CRITICAL/MAJOR/MINOR. Do not post any GitHub comment and do
+  not output a VERDICT line.
+Respond in English only (token/context efficiency — do not mix in other languages)."
       ( try_panel "$SLOT/claude-self-$lens.md" "$SLOT/claude-self-$lens.err" \
           timeout "$T" claude -p "$CLAUDE_SELF_PROMPT" --output-format text \
             --allowedTools "Read Grep Glob Bash(gh pr diff:*) Bash(gh pr view:*) Bash(gh search:*) Bash(gh issue view:*) mcp__github__get_file_contents mcp__github__search_code mcp__github__get_pull_request mcp__github__list_commits" ) &
