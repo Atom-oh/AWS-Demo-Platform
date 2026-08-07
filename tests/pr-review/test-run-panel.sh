@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # run-panel.sh 단위 테스트. harness(run-all.sh 가 source) + standalone 모두 지원.
-# 실제 CLI 대신 PATH 모킹으로 (a)전원응답 (b)일부skip (c)전원실패 (d)미지 모델 태그 거부
-# (e)빈 lenses_dir 거부를 검증.
+# 실제 CLI 대신 PATH 모킹으로 (a)codex 태그 응답 (b)kiro-sol 태그 응답·형제 kiro 태그 미간섭
+# (c)claude-self 재시도 소진 후 빈 슬롯(비차단) (d)미지 모델 태그 거부 (e)빈 lenses_dir 거부를
+# 검증한다 — "전원실패" 검증은 이제 한 모델짜리 호출 범위 밖(aggregate.sh 의 커버리지 floor
+# 소관, test-aggregate.sh 참조).
 #
 # per-model 병렬 job 분리(ADR-015)로 인자/책임이 바뀜: 4번째 인자 <model_tag> 로 한 모델의
 # lens 전체(4셀)만 실행하고, responded.txt/degraded-*/coverage-severe 집계는 더 이상

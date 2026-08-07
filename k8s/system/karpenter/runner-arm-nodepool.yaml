@@ -51,8 +51,8 @@ spec:
     memory: 256Gi
   disruption:
     consolidationPolicy: WhenEmpty
-    # 30s → 5m (ADR-015): pr-review.yml 이 단일 job 에서 panel(모델별 5개 병렬 job)+chair
-    # job 으로 쪼개지면서, panel 5파드가 끝난 뒤 chair 파드가 뒤이어 같은 노드에 뜬다.
+    # 30s → 5m (ADR-015): pr-review.yml 이 단일 job 에서 panel(모델별 4개 병렬 job)+chair
+    # job 으로 쪼개지면서, panel 4파드가 끝난 뒤 chair 파드가 뒤이어 같은 노드에 뜬다.
     # 30s 는 chair 가 스케줄되기 전에 노드가 이미 consolidate 돼(WhenEmpty) 매번 새 노드
     # 콜드스타트를 유발했다 — 5m 으로 늘려 chair 가 panel 이 쓰던 노드를 재사용하게 한다.
     consolidateAfter: 5m

@@ -183,7 +183,7 @@ graph LR
 - The workflow now has multiple job-runs' worth of Karpenter cold-start exposure instead of 1 —
   offset by the `consolidateAfter` bump, but not eliminated; a PR that arrives when the
   runner-arm NodePool is fully scaled down still pays for at least one on-demand node boot.
-- The three Kiro-tagged jobs still share one underlying `kiro-cli` + one `KIRO_API_KEY` — a
+- The two Kiro-tagged jobs still share one underlying `kiro-cli` + one `KIRO_API_KEY` — a
   Kiro-service-wide outage degrades both Kiro jobs at once, not "exactly one job" as an earlier
   draft of this ADR claimed. With 2 Kiro models out of 4 total vendors, that's still below the
   ≥3-degraded severe threshold, so a Kiro-wide outage alone does not force fail-closed — worth
