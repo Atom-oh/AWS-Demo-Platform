@@ -95,6 +95,5 @@ Read in order:
 ## Resources
 
 - Spec: `docs/superpowers/specs/2026-05-26-aws-demo-platform-design.md`
-- Plan: `docs/superpowers/plans/2026-05-26-stage-1-infra-migration.md`
 - Retrospective: `docs/superpowers/retrospectives/2026-05-26-stage-1.md`
 - Friend onboarding: `docs/onboarding/friend-account-setup.md`

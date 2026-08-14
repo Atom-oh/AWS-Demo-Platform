@@ -1,4 +1,4 @@
-<!-- generated-by: co-agent · source: CLAUDE.md · claude-md-sha: 96fa60adb6f4 · generated-at: 2026-06-08 · DO NOT EDIT — edit CLAUDE.md then run /co-agent sync-context -->
+<!-- generated-by: co-agent · source: CLAUDE.md · claude-md-sha: 3f0c6107e534 · generated-at: 2026-08-14 · DO NOT EDIT — edit CLAUDE.md then run /co-agent sync-context -->
 > You are Codex, an external reviewer — project context below.
 
 # AWS Demo Platform — reviewer context
@@ -6,7 +6,7 @@
 Admin platform to manage GitHub-linked AWS demo projects across accounts: discover repos, toggle demo resources (ECS/EC2/RDS/ArgoCD) on/off, surface demo & code-server URLs, manage Secrets Manager, operate cross-account via assume-role. **Non-production** — brief outages/disruption are explicitly acceptable; relaxed HA/multi-AZ/replicas is intentional (do **not** flag as a bug).
 
 ## Stack / runtime
-- **IaC**: Terraform **1.9.8** (Atlantis bundles 1.9.6), AWS provider, shared S3 backend `multi-region-mall-terraform-state` (unique `key` per module). Do **NOT** use `use_lockfile` (TF 1.10+); locks via `dynamodb_table`.
+- **IaC**: Terraform **1.9.6** pinned in Atlantis (1.9.8 currently fails to download — expired upstream GPG key), AWS provider, shared S3 backend `multi-region-mall-terraform-state` (unique `key` per module). Do **NOT** use `use_lockfile` (TF 1.10+); locks via `dynamodb_table`.
 - **Backend** (`dashboard/backend/`): Node 20, TypeScript, **pnpm workspaces monorepo** = `shared` / `api` (Fastify REST) / `worker` (SQS consumer). **Node16 ESM — every relative import needs a `.js` extension.**
 - **Frontend** (`dashboard/frontend/`): Next.js 14 App Router, TypeScript (strict).
 - **Compute**: ECS Fargate, **ARM64/Graviton** (images built `linux/arm64`). EKS hub `mall-apne2-mgmt` + spokes; ArgoCD (App-of-Apps); Atlantis (PR-driven TF); External Secrets Operator. **Scope: ap-northeast-2 only.**

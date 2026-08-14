@@ -185,9 +185,9 @@ resource "aws_iam_role_policy" "ci_runner_bedrock" {
         Resource = "*"
       },
       {
-        # bedrock-mantle 은 bedrock 과 별개 IAM 서비스. codex 의 openai.gpt-5.6-sol
-        # (bedrock-mantle Responses API, us-east-1 In-Region)는 bedrock-mantle:CreateInference
-        # 가 필요하다 — bedrock:InvokeModel 로는 안 됨(401 Unauthorized).
+        # bedrock-mantle is a separate IAM service from bedrock. codex's openai.gpt-5.6-sol
+        # (bedrock-mantle Responses API, us-east-1 In-Region) requires bedrock-mantle:CreateInference —
+        # bedrock:InvokeModel alone does not work (401 Unauthorized).
         Effect   = "Allow"
         Action   = ["bedrock-mantle:*"]
         Resource = "*"
@@ -459,11 +459,11 @@ resource "aws_iam_role_policy" "ci_runner_ami_build" {
 # Pod Identity Associations — one per runner service account
 locals {
   runner_service_accounts = [
-    # 공유 SA — 모든 claude-arm 러너 스케일셋이 사용(k8s/system/actions-runner/claude-runner-sa.yaml).
-    # 이게 빠지면 러너 파드가 ci_runner 역할을 못 받아 Bedrock/bedrock-mantle 자격증명 부재 →
-    # codex(gpt-5.6-sol은 bedrock-mantle 필수) 및 Claude 의장 호출 실패. (노드 역할에는 Bedrock 권한 없음.)
+    # Shared SA — used by all claude-arm runner scale sets (k8s/system/actions-runner/claude-runner-sa.yaml).
+    # Without this, runner pods can't get the ci_runner role, leaving them without Bedrock/bedrock-mantle
+    # credentials → codex (gpt-5.6-sol requires bedrock-mantle) and Claude chair calls fail. (The node role has no Bedrock permissions.)
     "claude-runner",
-    # 레거시 per-scaleset SA(no-permission) — 아직 claude-runner 로 마이그레이션되지 않은 러너 대비 유지.
+    # Legacy per-scaleset SA (no-permission) — kept for runners not yet migrated to claude-runner.
     "ttobak-x86-gha-rs-no-permission",
     "ttobak-arm-gha-rs-no-permission",
     "cc-bedrock-x86-gha-rs-no-permission",

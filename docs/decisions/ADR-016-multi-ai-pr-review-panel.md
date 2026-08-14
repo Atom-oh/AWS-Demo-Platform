@@ -1,0 +1,77 @@
+# ADR-016: Multi-AI co-agent PR review panel (Codex + Kiro) with a Claude chair
+
+## Status
+Accepted (2026-06-14). Superseded in part by [ADR-011](ADR-011-pr-review-kiro-roster-gpt55-drop-v3.md)
+(Kiro roster `kimi-k2.5` → `gpt-5.5`, drop `--v3`) — this document's roster/flag
+references below are historical.
+
+## Context
+
+`pr-review.yml` runs a single `claude` CLI review (Bedrock Opus 4.8) on the
+self-hosted `aws-demo-platform-claude-arm` runner and gates the PR on a final
+`VERDICT: PASS|FAIL` line. We want a multi-AI panel — Codex and Kiro — to feed a
+Claude chair that synthesizes one review, mirroring the `/co-agent review`
+pattern. The runner image (`actions-runner-claude`) was previously built outside
+this repo; we also fold its build into this repo as the management area
+consolidates here.
+
+```mermaid
+flowchart LR
+  PR[pull_request_target] --> RUN[runner: aws-demo-platform-claude-arm]
+  RUN --> P[run-panel.sh parallel + timeout]
+  P -->|codex exec, Bedrock us-east-1 gpt-5.5| C[slot/codex.md]
+  P -->|kiro-cli --model claude-opus-4.8/kimi-k2.5/glm-5, KIRO_API_KEY| K[slot/kiro-*.md]
+  C --> S[synthesize.sh]
+  K --> S
+  S -->|claude -p, Bedrock ap-northeast-2 Opus 4.8| R[review.md + VERDICT]
+  R --> G[fail-closed gate + comment upsert]
+```
+
+## Options Considered
+
+### Option 1: Independent verdicts, combined gate
+- **Pros**: simple; each AI emits its own VERDICT; gate = AND/majority.
+- **Cons**: no synthesis; noisy comment; disagreement handling is mechanical.
+
+### Option 2: Claude chairs & synthesizes (chosen)
+- **Pros**: one coherent review; matches `/co-agent`; chair reconciles panel agreement/dissent; single VERDICT keeps the existing fail-closed gate unchanged.
+- **Cons**: chair is a single point; 5 model calls/PR latency.
+
+### Option 3: Panel + synthesis, both shown
+- **Pros**: transparency of raw panel takes.
+- **Cons**: bulky comment; raw panel output rarely actionable vs the synthesis.
+
+## Decision
+
+**Option 2.** Panel = Codex (1) + Kiro (`claude-opus-4.8`, `kimi-k2.5`, `glm-5`).
+Panelists emit findings only; **Claude Opus 4.8 is the chair** and produces the
+single review + `VERDICT`. Orchestration lives in repo scripts
+(`scripts/pr-review/`), not inline YAML. Auth: **Codex uses Bedrock
+natively** via baked `~/.codex/config.toml` (`model_provider = "amazon-bedrock"`,
+`openai.gpt-5.5`, `us-east-1`) — no key, reusing the runner node IAM, whose
+`ci_runner_bedrock` policy is already `Resource=*` (all regions). **Kiro uses
+`KIRO_API_KEY`** read from the existing Secrets Manager secret
+`/demo-platform/actions/AI-key` via an `external-secrets.io/v1` ExternalSecret
+(`ai-panel-keys`) into the runner pod env — no new slot. The runner stays in **ap-northeast-2**
+(cross-region Bedrock latency is negligible vs generation time; relocating would
+need a new cluster/ECR/secrets in us-east). The runner image is built in this
+repo (`docker/actions-runner-claude/` + `runner-image.yml`, ADR-003 OIDC→ECR).
+
+No-hang is guaranteed by non-interactive flags (`codex exec`, `kiro-cli
+--no-interactive --trust-tools=read,grep`) + `timeout` + stdin isolation; any
+panelist failure/absence is a graceful `[skip]`, and an all-skip degrades to the
+prior Claude-solo behavior.
+
+## Consequences
+
+### Positive
+- Cross-family review diversity (OpenAI gpt-5.5 + Kiro opus/kimi/glm) with one synthesized verdict.
+- Existing gate (fail-closed), comment upsert, and concurrency invariants are untouched.
+- Runner image and its build pipeline are now owned and PR-reviewed in this repo.
+- No new secret slot — reuses the existing `/demo-platform/actions/AI-key` secret.
+
+### Negative
+- Up to 5 model calls per PR (latency; acceptable for non-prod async review).
+- Chair is a single synthesis point; a bad chair run still fail-closes via the VERDICT rule.
+- `kimi-k2.5` may be account-tier gated → that panelist silently skips.
+- Adds an ExternalSecret-syncing ArgoCD Application to operate.
