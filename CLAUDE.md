@@ -77,6 +77,7 @@ tests/                    - Harness validation suite
 - **ACM cert**: always use the pre-existing `*.atomai.click` wildcard via `data "aws_acm_certificate"` lookup. Don't issue new certs.
 - **kube context safety**: always verify `kubectl config current-context` before running cluster-scoped operations. Available contexts are full EKS ARNs (e.g., `arn:aws:eks:ap-northeast-2:180294183052:cluster/mall-apne2-mgmt`) and the short aliases `az-a` / `az-c` for spokes.
 - **Naming**: Terraform resources prefixed with `demo-platform-`. AWS Secrets Manager paths under `/demo-platform/...`.
+- **Docs are English-only**: ADRs, `README.md`, `CHANGELOG.md`, runbooks, and code comments are English-only — no bilingual English/Korean sections. (Docs used to carry a parallel Korean half; dropped for token efficiency, matching ADR-015's English-only pipeline rule. `AskUserQuestion` prompts to the user are the one exception and may still be Korean.)
 
 ## Key Commands
 
