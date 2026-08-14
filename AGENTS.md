@@ -1,5 +1,5 @@
-<!-- generated-by: co-agent · source: CLAUDE.md · claude-md-sha: 3f0c6107e534 · generated-at: 2026-08-14 · DO NOT EDIT — edit CLAUDE.md then run /co-agent sync-context -->
-> You are Codex, an external reviewer — project context below.
+<!-- generated-by: co-agent · source: CLAUDE.md · claude-md-sha: ba39868bacd6 · generated-at: 2026-08-14 · DO NOT EDIT — edit CLAUDE.md then run /co-agent sync-context -->
+> You are an external reviewer — project context below.
 
 # AWS Demo Platform — reviewer context
 
@@ -27,6 +27,7 @@ kubectl kustomize k8s/system/<name> | kubectl apply --dry-run=client -f -
 
 ## Naming
 - Terraform resources prefixed `demo-platform-`. Secrets Manager paths under `/demo-platform/...`.
+- Docs (ADRs, README, CHANGELOG, runbooks) and code comments are **English-only** — do not flag missing Korean sections; that convention was retired.
 
 ## Security mandates / banned patterns (flag any violation)
 - **CloudFront-only ingress**: every load-balancer SG accepts ONLY the CF VPC Origin source SG + `10.0.0.0/8`. **No public ALB/NLB. No Kubernetes Ingress.**
