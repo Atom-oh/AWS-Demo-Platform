@@ -1,20 +1,13 @@
 name: Build Runner Image
-# Builds the actions-runner-claude image (official ARC runner ghcr.io/actions/actions-runner base
-# + gh/aws/node + claude-code + baked Codex/code-review/github plugins + codex/kiro-cli) in this
-# repo and pushes it to ECR. Native ARM64 build (no emulation), OIDC -> ECR (ADR-003 pattern).
-# NOTE: FROM is the upstream official image, not this workflow's own output (:latest)
-#   -> no recursive stacking on weekly builds. The runner agent/OS/.NET are delegated to upstream.
+# Builds the actions-runner-claude image and pushes it to ECR (native ARM64, OIDC -> ECR,
+# ADR-003 pattern). Weekly rebuild keeps base image/CLIs/plugins current.
 
 on:
-  # Manual trigger.
   workflow_dispatch:
-  # Weekly rebuild — keeps the base image/CLIs/plugins current.
-  # best-effort: `docker push` only runs after a successful build, so if install/verification
-  # breaks, the build step fails and push is never reached -> the live `:latest` in ECR is left
-  # untouched and running runners are unaffected. The cron only fires on the default branch
-  # (main).
   schedule:
-    - cron: "0 18 * * 6"   # Sat 18:00 UTC = Sun 03:00 KST
+    # Sat 18:00 UTC = Sun 03:00 KST. Best-effort: push only runs after a successful
+    # build, so a broken install leaves the live :latest untouched.
+    - cron: "0 18 * * 6"
 
 jobs:
   build:
@@ -35,9 +28,7 @@ jobs:
       - name: Build & push (native ARM64)
         run: |
           set -euo pipefail
-          # Tag follows the `sha-<sha>` convention (same as backend-ci, matches the ECR
-          # lifecycle tagPrefix 'sha').
-          TAG="sha-${GITHUB_SHA::12}"
+          TAG="sha-${GITHUB_SHA::12}" # matches ECR lifecycle tagPrefix 'sha'
           docker build --pull --platform=linux/arm64 \
             -t "$ECR_REGISTRY/$REPO:latest" \
             -t "$ECR_REGISTRY/$REPO:$TAG" \

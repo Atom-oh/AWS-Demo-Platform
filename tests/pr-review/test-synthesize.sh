@@ -1,12 +1,9 @@
 #!/usr/bin/env bash
-# Unit tests for synthesize.sh. Supports both harness (sourced by run-all.sh) and
-# standalone. Regression targets when the chair's input grows large: (a) it doesn't leak
-# via argv (stdin path), (b) the combined total doesn't exceed the cap, (c) ANSI escapes
-# get stripped, (d) if both primary+fallback fail, chair-failed.flag still records the
-# cause distinctly — reproduces AWS-Demo-Platform PR#195 (even with 16 cells responding
-# normally and a normal diff, the chair hit a 600s timeout, the fallback also failed in
-# just 46s, the stderr behind it was never recorded anywhere, and only a 151-byte
-# "review generation failed" was posted).
+# Unit tests for synthesize.sh (standalone or sourced by run-all.sh). Regression
+# targets for a large chair input: stdin (not argv) delivery, total-cap trimming,
+# ANSI stripping, and chair-failed.flag on primary+fallback failure — reproduces PR#195
+# (chair timeout + fallback failure both silently swallowed, only a 151-byte generic
+# failure was posted).
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$(cd "$HERE/../../scripts/pr-review" && pwd)/synthesize.sh"
 
@@ -32,10 +29,7 @@ setup() { # $1 = cell count (default 20), $2 = bytes per cell (default 25000), $
   done
 }
 
-# claude stub: prints the stdin byte count to stderr (for verification), returns a
-# normal VERDICT on stdout. No matter how much (or how large) is passed via argv, this
-# stub itself never hits the MAX_ARG_STRLEN a real claude invocation would (bash function
-# call limits are far larger), so instead it records the stdin size to a file to verify.
+# claude stub: records stdin byte count to $STDIN_SIZE_FILE, then emits a normal VERDICT.
 mkclaude_ok() {
   cat > "$BIN/claude" <<'EOF'
 #!/usr/bin/env bash
@@ -45,7 +39,7 @@ echo "VERDICT: PASS"
 EOF
   chmod +x "$BIN/claude"
 }
-mkclaude_fail() { # simulates a timeout — always an empty response, exit 1
+mkclaude_fail() { # simulates a timeout: empty response, exit 1
   cat > "$BIN/claude" <<'EOF'
 #!/usr/bin/env bash
 wc -c < /dev/stdin > "$STDIN_SIZE_FILE" 2>/dev/null
@@ -55,9 +49,8 @@ EOF
   chmod +x "$BIN/claude"
 }
 
-# (a) 20 cells x 25KB (with ANSI) — checks that the combined bundle doesn't leak via
-# argv, is delivered to the chair via stdin, and doesn't exceed the total cap
-# (CHAIR_PANEL_TOTAL_CAP, default 200000B).
+# (a) 20 cells x 25KB: bundle goes via stdin (no argv leak), stays under
+# CHAIR_PANEL_TOTAL_CAP (default 200000B).
 setup 20 25000; mkclaude_ok
 export STDIN_SIZE_FILE="$WORK/stdin-size.txt"
 "$SCRIPT" "$DIFF" "$WORK" 1 "test pr" "$WORK/review.md" >/tmp/synth-a.log 2>&1
@@ -69,8 +62,7 @@ rc=$?
   && pass "synthesize (a) chair received input via stdin" \
   || fail "synthesize (a) chair received input via stdin" "stdin size file empty/missing"
 STDIN_BYTES="$(cat "$WORK/stdin-size.txt" 2>/dev/null || echo 0)"
-# 20 cells at 25000B each raw (=500KB), but it must be trimmed down to at most the total
-# cap (200000B) plus a few bytes of diff.
+# raw input is 500KB (20x25000B); must be trimmed to ~200KB cap + diff
 [ "$STDIN_BYTES" -gt 0 ] && [ "$STDIN_BYTES" -lt 210000 ] \
   && pass "synthesize (a) panel bundle respects total cap (~200KB)" \
   || fail "synthesize (a) panel bundle respects total cap (~200KB)" "stdin was ${STDIN_BYTES}B"
@@ -78,7 +70,7 @@ grep -q "VERDICT: PASS" "$WORK/review.md" 2>/dev/null \
   && pass "synthesize (a) valid VERDICT written" \
   || fail "synthesize (a) valid VERDICT written" "no VERDICT: PASS in review.md"
 
-# (b) ANSI strip — checks that no escape sequences (\x1b) remain in the chair's input.
+# (b) no \x1b escape sequences remain in the chair's input
 if [ -s "$WORK/synth-stdin.txt" ]; then
   if grep -qP '\x1b\[' "$WORK/synth-stdin.txt" 2>/dev/null; then
     fail "synthesize (b) ANSI escapes stripped from panel bundle" "raw \\x1b[ sequence found in synth-stdin.txt"
@@ -89,9 +81,7 @@ else
   fail "synthesize (b) ANSI escapes stripped from panel bundle" "synth-stdin.txt missing"
 fi
 
-# (c) both primary+fallback fail (simulating timeout/connection error) -> chair-failed.flag
-# distinguishes the cause, and both stderrs must be left in the review.md body (so the
-# cause can be diagnosed after the fact).
+# (c) both primary+fallback fail -> chair-failed.flag set, both stderrs kept in review.md
 setup 3 100; mkclaude_fail
 "$SCRIPT" "$DIFF" "$WORK" 1 "test pr" "$WORK/review.md" >/tmp/synth-c.log 2>&1
 [ -f "$WORK/chair-failed.flag" ] \

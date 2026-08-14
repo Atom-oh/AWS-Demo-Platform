@@ -1,49 +1,24 @@
 name: AI Code Review
 
-# A lens×model matrix panel reviews every PR (Codex + Kiro x2 + Claude self-review, L2-L5
-# each lens an independent agent — 4 models x 4 lenses = 16 cells), and the Claude chair
-# synthesizes per lens and posts it as a comment.
-# Ported the lens×model matrix design from multi-region-architecture (PR #25) and
-# aws-fsi-demo (PR #425) into this repo (originally a 5-panel setup: Codex + Kiro x3 +
-# Claude self-review) (ADR-016/011/013/014), then restructured from a single job (all 20
-# cells backgrounded with `&`+`wait`) into per-model parallel jobs + artifact + chair job
-# (ADR-015). In that same PR review, only kiro-glm (glm-5) produced 4 false positives, so
-# it was dropped from the roster and the two remaining Kiro slots were replaced with the
-# top models in the Kiro catalog (claude-fable-5/gpt-5.6-sol, tags kiro-fable/kiro-sol),
-# giving the current 4-model setup — reasons:
-#   - Resource contention: the runner requests cpu=1800m, but one pod used to run 20 LLM
-#     CLI processes simultaneously; reduced to 4 (4 lenses per model).
-#   - Observability: per-model jobs show up in the Actions UI as individual
-#     logs/timing/reruns.
-#   - Pod-death resilience: panel job artifacts persist, so the chair's coverage floor
-#     detects the gap as-is -> fail-closed. Previously, if one pod died all 20 cells
-#     vanished at once.
-#   - Least privilege: the panel job runs without pull-requests:write — only the chair
-#     job upserts the comment.
-#   - VERDICT: the last-line PASS|FAIL rule decides the job exit code — the gate logic
-#     itself is unchanged.
-#   - Comment upsert via the <!-- aws-demo-platform-pr-review --> marker (no new comment
-#     piles up on every PR update)
-# An investigation of marketplace actions (kiro-cli-review-action/codex-action/
-# claude-code-action) found all of them a downgrade vs. the current setup (review text
-# not surfaced/no Bedrock support/wrapper dependency) — kept direct CLI invocation.
+# Lens×model matrix panel review for every PR: Codex + Kiro x2 + Claude self-review, each
+# across lenses L2-L5 (4 models x 4 lenses = 16 cells), run as 4 parallel per-model `panel`
+# jobs; a `chair` job aggregates the artifacts and posts a synthesized, fail-closed
+# VERDICT comment. Direct CLI invocation (not marketplace actions) — see ADR-007/011/
+# 013/014/015/016 for design history.
 
 on:
   pull_request_target:
     types: [opened, synchronize]
-    branches: [main] # this repo's only PR target (main->dev, tag->prod) — there are no non-main PRs
+    branches: [main] # only main->dev, tag->prod — no non-main PRs
 
 concurrency:
   group: pr-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 env:
-  # All us-east-1: endpoint/AWS_REGION match -> no SigV4 signing-region mismatch.
-  # Claude chair/self-review: US geo inference profile `us.anthropic.claude-fable-5`
-  #   (non-global, supports on-demand — a bare In-Region id doesn't support on-demand).
-  #   Called via the us-east-1 endpoint (verified locally). codex (openai.gpt-5.6-sol /
-  #   bedrock-mantle, In-Region only) also uses AWS_REGION=us-east-1. Node IAM
-  #   (ci_runner, bedrock Resource=*) SigV4.
+  # Must stay us-east-1: codex (openai.gpt-5.6-sol/bedrock-mantle) is In-Region only, and
+  # claude-fable-5 needs the on-demand US geo inference profile — both endpoint and
+  # AWS_REGION must match or SigV4 signing fails.
   ANTHROPIC_MODEL: us.anthropic.claude-fable-5
   CLAUDE_CODE_USE_BEDROCK: 1
   ANTHROPIC_BEDROCK_BASE_URL: https://bedrock-runtime.us-east-1.amazonaws.com
@@ -54,43 +29,31 @@ jobs:
     name: "AI Panel (${{ matrix.model }})"
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: aws-demo-platform-claude-arm
-    # Hang backstop: the normal ceiling is PANEL_TIMEOUT x PANEL_RETRIES (300x3=15min) +
-    # node boot time, so 20 minutes cuts off only a hang, not a normal run.
+    # Ceiling is PANEL_TIMEOUT x PANEL_RETRIES (300x3=15min) + node boot; 20min backstops a hang.
     timeout-minutes: 20
     permissions:
-      # No write — even if a panel cell is tricked by prompt injection into leaking
-      # credentials, this job's GITHUB_TOKEN has no write access to PR comments/content.
-      # Only the chair job upserts the comment.
+      # No write: even if a cell is prompt-injected into leaking credentials, this
+      # GITHUB_TOKEN can't touch PR comments/content. Only the chair job upserts.
       pull-requests: read
       contents: read
     strategy:
-      fail-fast: false # even if one vendor fails, the other model jobs keep going — the chair's coverage floor judges the gaps
+      fail-fast: false # one vendor failing shouldn't stop the others; chair's coverage floor judges the gaps
       matrix:
         model: [codex, kiro-fable, kiro-sol, claude-self]
     steps:
-      # Security (M1): pull_request_target runs in a secrets/write-permission context.
-      # Running PR head code would let anyone with push access rewrite scripts/*.sh and
-      # steal the panel keys/node IAM. So we check out base (the merge target, trusted)
-      # to use scripts/* + CLAUDE.md/AGENTS.md as the trusted context, and receive the
-      # PR's changes only as 'data' via prepare-inputs.sh's `gh api compare` (never
-      # executed). persist-credentials: false — the default (true) leaves GH_TOKEN behind
-      # in .git/config's http.<host>.extraheader (AUTHORIZATION: basic <base64>). Kiro is
-      # intentionally allowed to read/grep/fs_read the entire base checkout (the design
-      # hands the diff file path straight to Kiro), so a diff injection that tricks Kiro
-      # into reading .git/config and echoing it into a cell's output would leak the token
-      # as-is (lib.sh's scrub_secrets does have a rule that catches this token format, but
-      # that's only a last line of defense, not prevention). Never leaving credentials
-      # behind at checkout time is the prevention layer — this job is doubly defended
-      # since it has no write token to begin with.
+      # pull_request_target runs with secrets/write perms, so we check out base (trusted)
+      # rather than PR head — PR head code could rewrite scripts/*.sh and steal panel
+      # keys/node IAM. The PR's changes reach us only as diff data via prepare-inputs.sh's
+      # `gh api compare` (never executed). persist-credentials: false so GH_TOKEN isn't
+      # left in .git/config for an injected Kiro cell to exfiltrate.
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
 
       - name: Verify panel CLI present (pre-installed on runner)
         run: |
-          # The panel CLI must be baked into the image. If absent, graceful skip
-          # (non-blocking — run-panel.sh leaves that model's cell as an empty slot ->
-          # aggregate.sh's degraded floor detects it).
+          # Missing CLI is non-blocking: run-panel.sh leaves that cell empty and
+          # aggregate.sh's degraded floor catches it.
           for c in codex kiro-cli claude; do
             command -v "$c" >/dev/null 2>&1 || echo "::warning::$c not found on runner (image needs rebuild)"
           done
@@ -107,10 +70,8 @@ jobs:
       - name: "Run panel cell (model: ${{ matrix.model }}, all lenses)"
         env:
           PANEL_TIMEOUT: "300"
-          # codex is -s read-only (Bedrock only), kiro is --trust-tools= (no tools at
-          # all) — only claude-self actually uses this token (gh/MCP read-only context
-          # tools). We don't put it on the other models' LLM CLI process env in the first
-          # place, reducing exposure (least privilege, PR#88 review MINOR).
+          # Only claude-self uses this token (read-only gh/MCP tools); codex/kiro run
+          # with no tool access, so we don't expose the token to their process env.
           GH_TOKEN: ${{ matrix.model == 'claude-self' && github.token || '' }}
           GITHUB_PERSONAL_ACCESS_TOKEN: ${{ matrix.model == 'claude-self' && github.token || '' }}
         run: |
@@ -119,14 +80,9 @@ jobs:
 
       - name: Scrub + shrink cell outputs before upload
         run: |
-          # .err has never left the pod until now (it only passes through scrub_secrets
-          # when printed to the log). Uploading it as an artifact would let anyone with
-          # repo read access download the raw text — everyone, on a public repo — opening
-          # a new exposure path. Scrub in-place + tail-truncate right before upload
-          # (minimizing exposure so full stack traces/error logs aren't published as-is;
-          # the tail is enough to diagnose a failure — the rest was only ever in the
-          # workflow log anyway). DIR is pinned to github.workspace instead of an implicit
-          # pwd dependency (PR#88 review MINOR).
+          # .err has never been exposed as an artifact before; scrub secrets and
+          # tail-truncate in place so raw stack traces aren't published to anyone with
+          # repo read access.
           DIR="${GITHUB_WORKSPACE}/scripts/pr-review"; . "$DIR/lib.sh"
           for f in /tmp/pr-review/slot/*.md; do
             [ -f "$f" ] || continue
@@ -137,39 +93,26 @@ jobs:
             tail -c 4000 "$f" | scrub_secrets > "$f.scrubbed" && mv "$f.scrubbed" "$f"
           done
 
-      # Upload only the single $SLOT directory as a whole — if you instead list several
-      # individual files/wildcards, upload-artifact@v4 takes the LCA (least common
-      # ancestor) of the files that actually matched as the artifact root, so if even one
-      # file whose existence varies run-to-run (like kiro-diff-truncated.flag) is mixed
-      # in, the matched set changes and the LCA (= the artifact's internal directory
-      # structure) changes along with it — in the normal case where the diff is under
-      # KIRO_DIFF_CAP that flag file doesn't exist at all, so the LCA collapses to $SLOT
-      # itself, and the chair's aggregate.sh couldn't find "$WORK/slot" and failed on
-      # every run (PR#88 review CRITICAL). A single directory path is always its own LCA,
-      # so the structure stays fixed no matter what's inside it (.md/.err/flag present or
-      # not) — this pairs with moving kiro-diff-truncated.flag into $SLOT (run-panel.sh).
+      # Upload the $SLOT directory as a single path, not individual files/wildcards —
+      # upload-artifact@v4 roots the artifact at the LCA of matched files, which shifts
+      # if an optional file (e.g. kiro-diff-truncated.flag) is sometimes absent, breaking
+      # aggregate.sh's fixed "$WORK/slot" path (PR#88 CRITICAL).
       - uses: actions/upload-artifact@v4
         with:
           name: pr-review-slot-${{ matrix.model }}
           path: /tmp/pr-review/slot
-          if-no-files-found: warn # even a total cell wipeout is judged by the chair's coverage floor — not blocked here
-          retention-days: 1 # minimize exposure — the normal flow consumes it immediately within the same workflow run
+          if-no-files-found: warn # a total cell wipeout is judged by the chair's coverage floor, not blocked here
+          retention-days: 1
 
   chair:
     name: Chair Synthesis
     needs: panel
-    # !cancelled(): even if the panel job dies from failure/timeout (not cancellation),
-    # the chair still runs and fails closed via the coverage floor. always() also runs
-    # when the workflow itself is cancelled, and there was a problem where a
-    # synchronize push cancelling the previous run (workflow-level concurrency) left all
-    # panel jobs cancelled but the chair alone alive, racing to upsert a comment against
-    # the new run using the old SHA (PR#88 review MAJOR) — with only needs (no if), the
-    # chair would be skipped when the whole matrix fails and the gate itself would
-    # silently disappear, so we use !cancelled(), which excludes cancellation but
-    # includes failure.
+    # !cancelled() (not always()): runs the chair on panel failure/timeout so the
+    # fail-closed gate still fires, but skips it on cancellation — always() would let a
+    # stale chair from a cancelled run race to comment on the new run's SHA (PR#88 MAJOR).
     if: ${{ !cancelled() && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: aws-demo-platform-claude-arm
-    # The normal ceiling is CHAIR_TIMEOUT x 2 (primary+fallback, 600x2=20min) + node boot.
+    # Ceiling is CHAIR_TIMEOUT x 2 (primary+fallback, 600x2=20min) + node boot.
     timeout-minutes: 25
     permissions:
       pull-requests: write # only this job is granted comment upsert
@@ -197,18 +140,12 @@ jobs:
             /tmp/pr-review
           echo "panel_truncated=$([ -f /tmp/pr-review/diff-truncated.flag ] && echo 1 || echo 0)" >> "$GITHUB_ENV"
 
-      # The download path is also $SLOT itself — since the upload sent the single $SLOT
-      # directory as a whole (flattening the files inside it to the artifact root),
-      # symmetrically extracting into $SLOT is what restores the files to $SLOT/*.md
-      # (extracting into the parent directory would keep that flattening, landing them at
-      # $WORK/*.md instead of $SLOT/*.md — PR#88 review CRITICAL, paired with the
-      # single-directory fix in run-panel.sh/the upload step). merge-multiple: true merges
-      # the 4 artifacts into the same $SLOT (no collisions since filenames don't overlap
-      # across models). If every panel job fails/is cancelled and there are no artifacts
-      # at all, this step itself could fail, so continue-on-error lets it through and has
-      # the next step (aggregate.sh) treat "$SLOT itself missing" as normal input (= all
-      # models degraded -> coverage-severe) — otherwise the fail-closed path ADR-015
-      # promises would never actually be reached in this worst case (PR#88 review MAJOR).
+      # Extract into $SLOT itself (matching the single-directory upload) so files land at
+      # $SLOT/*.md, not $WORK/*.md (PR#88 CRITICAL). merge-multiple: true merges the 4
+      # per-model artifacts (filenames don't collide). continue-on-error: if every panel
+      # job failed/was cancelled and no artifacts exist, let this step pass through so
+      # aggregate.sh treats a missing $SLOT as all-models-degraded (PR#88 MAJOR) rather
+      # than failing before the fail-closed gate is reached.
       - name: Reset slot dir (defense-in-depth against a reused/non-ephemeral runner workspace)
         run: rm -rf /tmp/pr-review/slot && mkdir -p /tmp/pr-review/slot
 
@@ -223,10 +160,8 @@ jobs:
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
-          # Token the Claude chair uses to fetch PR/repo context read-only.
-          # GH_TOKEN: gh CLI auth. GITHUB_PERSONAL_ACCESS_TOKEN: github plugin (MCP) auth.
-          # Both are job-scoped tokens (pull-requests: write, contents: read) — not a
-          # pod-wide PAT.
+          # GH_TOKEN for gh CLI, GITHUB_PERSONAL_ACCESS_TOKEN for the github MCP plugin —
+          # both job-scoped (pull-requests: write, contents: read), not a pod-wide PAT.
           GH_TOKEN: ${{ github.token }}
           GITHUB_PERSONAL_ACCESS_TOKEN: ${{ github.token }}
         run: |
@@ -239,16 +174,12 @@ jobs:
       - name: Check for blocking issues
         id: gate
         run: |
-          # Trust only the last non-empty line — so that if the string "VERDICT: FAIL"
-          # appears anywhere in the body (e.g. quoted from a panel cell) it isn't
-          # misdetected as the real verdict line unless it actually is one.
-          # verdict_count==1 also rules out duplicates/absence. awk skips trailing blank
-          # lines — it must use the same normalization as synthesize.sh's chair_valid(),
-          # or we'd get a mismatch where chair_valid passes but the gate wrongly blocks.
+          # Only the last non-empty line counts, so a quoted "VERDICT: FAIL" elsewhere in
+          # the body isn't misdetected. Must match synthesize.sh's chair_valid()
+          # normalization exactly, or the two could disagree on the same file.
           last_line="$(awk 'NF{last=$0} END{print last}' /tmp/review.md)"
-          # grep -c exits 1 on a 0-match — under errexit (set -e) that command
-          # substitution failure would kill the step itself (making the fail-closed else
-          # branch unreachable). || true prevents that.
+          # || true: grep -c returns exit 1 on zero matches, which would otherwise abort
+          # under set -e before the fail-closed else branch runs.
           verdict_count="$(grep -c '^VERDICT:' /tmp/review.md || true)"
           if [ "$last_line" = "VERDICT: FAIL" ]; then
             echo "result=fail" >> "$GITHUB_OUTPUT"
@@ -271,20 +202,16 @@ jobs:
         run: |
           MARKER="<!-- aws-demo-platform-pr-review -->"
           if [ "$GATE_RESULT" = "fail" ] && [ "${chair_failed:-0}" = "1" ]; then
-            # Case where the chair (both Fable 5/Opus 5) failed to produce a review due
-            # to a timeout/connection error — fail-closed still means BLOCKED, but that
-            # doesn't mean the code has CRITICAL/MAJOR issues, so the wording is
-            # distinguished (synthesize.sh's chair-failed.flag -> chair_failed).
+            # Chair itself failed (timeout/connection error, not a code issue) — still
+            # fail-closed BLOCKED, but worded differently from a real CRITICAL/MAJOR fail.
             STATUS_BADGE="**Status: BLOCKED** — review generation failed (model timeout/error) — not a code issue, re-run the workflow"
           elif [ "$GATE_RESULT" = "fail" ]; then
             STATUS_BADGE="**Status: BLOCKED** — CRITICAL/MAJOR issues must be resolved before merge"
           else
             STATUS_BADGE="**Status: PASSED** — No blocking issues found"
           fi
-          # Strip only the VERDICT line at the last non-empty line from the comment (it
-          # was only for the gate signal) — same criterion as the gate step's awk
-          # normalization above: it must filter precisely even with trailing blank lines,
-          # or the VERDICT line accidentally ends up left in the PR comment.
+          # Must use the same last-non-empty-line normalization as the gate step above,
+          # or the VERDICT line can end up left in the posted comment.
           last_verdict_ln="$(awk '/^VERDICT:/{ln=NR} END{print ln+0}' /tmp/review.md)"
           if [ "$last_verdict_ln" -gt 0 ]; then
             sed "${last_verdict_ln}d" /tmp/review.md > /tmp/review-clean.md

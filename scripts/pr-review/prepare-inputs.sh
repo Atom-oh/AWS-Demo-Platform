@@ -1,13 +1,9 @@
 #!/usr/bin/env bash
 # Fetches the PR diff + generates lens prompts. Args: <head_sha> <base_sha> <workdir>
-# Both the panel jobs (one per model) and the chair job each call this script
-# independently to regenerate the same inputs — we chose to have each pod build its
-# own inputs rather than have a separate prep job, because a separate prep job would
-# put a Karpenter cold start serially in front of the pipeline (minRunners:0,
-# on-demand-only).
-# Determinism is achieved by taking the head/base SHAs as arguments and pinning via
-# `gh api compare`, instead of `gh pr diff` (which always follows the latest head) —
-# so even if new commits are pushed to the PR mid-run, all 6 jobs see the same diff.
+# Each panel/chair job calls this independently (rather than a shared prep job) to avoid
+# a serial Karpenter cold start (minRunners:0, on-demand-only) in front of the pipeline.
+# Uses `gh api compare` pinned to head/base SHAs, not `gh pr diff` (follows latest head) —
+# so all jobs see the same diff even if new commits land mid-run.
 set -euo pipefail
 HEAD_SHA="$1"; BASE_SHA="$2"; WORK="$3"
 [ -n "$HEAD_SHA" ] || { echo "prepare-inputs.sh: head_sha (\$1) must not be empty" >&2; exit 1; }
@@ -16,13 +12,11 @@ HEAD_SHA="$1"; BASE_SHA="$2"; WORK="$3"
 mkdir -p "$WORK"
 WORK="$(realpath "$WORK")"
 
-# Three-dot compare (based on merge-base), so this produces the same result as `gh pr diff` — just a version pinned to SHAs.
+# Three-dot compare (merge-base based) — same result as `gh pr diff`, pinned to SHAs.
 gh api "repos/${GH_REPO:?}/compare/${BASE_SHA}...${HEAD_SHA}" \
   -H "Accept: application/vnd.github.v3.diff" > "$WORK/pr-diff-raw.txt"
 
-# Strip generated-artifact/lockfile/Lambda build-dir hunks — without this, regenerating
-# taxonomy_tree.json (~128KB) or a staging build would dominate the diff and obscure the
-# actual review surface.
+# Strip generated-artifact/lockfile/build-dir hunks so they don't dominate the diff and obscure the actual review surface.
 awk '
   /^diff --git/ {
     path = substr($3, 3)
@@ -93,9 +87,8 @@ LENS: L5 — ADR/documentation consistency
 - README/docs freshness, no missing sections.
 PROMPT_EOF
 
-# panel_truncated is recorded as a flag file rather than via $GITHUB_ENV — since the job
-# is split into panel×4 + chair, $GITHUB_ENV wouldn't propagate to the chair job, and a
-# flag file matches the convention synthesize.sh already uses (e.g. kiro-diff-truncated.flag).
+# Recorded as a flag file, not $GITHUB_ENV — $GITHUB_ENV wouldn't propagate across the
+# panel×4 + chair job split; matches synthesize.sh's flag-file convention.
 if [ "$TOTAL_LINES" -gt "$MAX_LINES" ]; then
   for f in "$WORK"/lenses/*.txt; do
     echo "WARNING: diff was ${TOTAL_LINES} lines; only the first ${MAX_LINES} were reviewed." >> "$f"

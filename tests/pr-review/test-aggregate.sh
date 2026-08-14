@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
-# Unit tests for aggregate.sh. Supports both harness (sourced by run-all.sh) and
-# standalone. Verifies the aggregation/coverage-floor judging (responded.txt,
-# degraded-models.txt, degraded-lenses.txt, coverage-severe.flag) that moved out of
-# run-panel.sh with ADR-015 (per-model parallel job split) — the chair job merges the 4
-# panel artifacts into $WORK/slot and then calls this script. Purely file-based, so no
-# LLM/CLI mocking is needed.
+# Unit tests for aggregate.sh (standalone or sourced by run-all.sh). File-based only —
+# no CLI mocking needed. Covers the coverage-floor judging (responded.txt,
+# degraded-models.txt, degraded-lenses.txt, coverage-severe.flag) moved here from
+# run-panel.sh under ADR-015.
 # Roster (lib.sh): codex, kiro-fable (claude-fable-5), kiro-sol (gpt-5.6-sol), claude-self.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$(cd "$HERE/../../scripts/pr-review" && pwd)/aggregate.sh"
@@ -25,7 +23,7 @@ fill() { # $1 model_tag $2 lens $3 content (empty file if omitted)
   if [ -n "${3:-}" ]; then echo "$3" > "$f"; else : > "$f"; fi
 }
 
-# (a) all 4 models x 2 lenses respond — no degradation, no severe, responded=8
+# (a) all 4 models x 2 lenses respond -> no degradation, no severe
 setup "L2 L3"
 for m in codex kiro-fable kiro-sol claude-self; do
   for l in L2 L3; do fill "$m" "$l" "finding"; done
@@ -38,13 +36,12 @@ done
 [ ! -f "$WORK/coverage-severe.flag" ] \
   && pass "aggregate (a) no coverage-severe" || fail "aggregate (a) no coverage-severe" "flag unexpectedly set"
 
-# (b) only kiro-sol is wiped out entirely (simulating a panel job pod death: that model's
-# files simply don't exist) — the other 3 models still cross-verify each lens -> warn-only, not promoted to severe
+# (b) kiro-sol's files don't exist at all (panel job pod death) — 3/4 models still
+# cover each lens -> warn-only, not promoted to severe
 setup "L2 L3"
 for m in codex kiro-fable claude-self; do
   for l in L2 L3; do fill "$m" "$l" "finding"; done
 done
-# kiro-sol-*.md files don't exist at all (the artifact itself never got uploaded) — not even empty files are left
 "$SCRIPT" "$LENSES" "$WORK" >/dev/null 2>&1
 grep -qx "kiro-sol" "$WORK/degraded-models.txt" 2>/dev/null \
   && pass "aggregate (b) kiro-sol flagged degraded (missing artifact = missing model)" \
@@ -52,7 +49,7 @@ grep -qx "kiro-sol" "$WORK/degraded-models.txt" 2>/dev/null \
 [ ! -f "$WORK/coverage-severe.flag" ] \
   && pass "aggregate (b) not severe (3/4 vendors still respond)" || fail "aggregate (b) not severe (3/4 vendors still respond)" "flag unexpectedly set"
 
-# (c) 3 models missing (only 1 model survives) — promoted to severe
+# (c) only 1/4 models survives -> promoted to severe
 setup "L2"
 fill codex L2 "finding"
 "$SCRIPT" "$LENSES" "$WORK" >/dev/null 2>&1
@@ -60,11 +57,11 @@ fill codex L2 "finding"
   && pass "aggregate (c) coverage-severe forced (only 1/4 vendor alive)" \
   || fail "aggregate (c) coverage-severe forced (only 1/4 vendor alive)" "flag not set"
 
-# (d) one entire lens gets no response (other lenses are normal) — passes the per-model floor but the lens floor immediately goes severe
+# (d) one lens gets no response from any model -> lens floor goes severe immediately
 setup "L2 L3"
 for m in codex kiro-fable kiro-sol claude-self; do
   fill "$m" "L2" "finding"
-  fill "$m" "L3" ""   # L3 gets an empty response from every model
+  fill "$m" "L3" ""
 done
 "$SCRIPT" "$LENSES" "$WORK" >/dev/null 2>&1
 grep -qx "L3" "$WORK/degraded-lenses.txt" 2>/dev/null \
@@ -73,9 +70,7 @@ grep -qx "L3" "$WORK/degraded-lenses.txt" 2>/dev/null \
   && pass "aggregate (d) lens collapse forces coverage-severe immediately" \
   || fail "aggregate (d) lens collapse forces coverage-severe immediately" "flag not set despite empty lens"
 
-# (e) a tag outside the roster — guards against matrix.model/lib.sh drift, fails
-# immediately instead of silently passing. Empty cells are checked too (regardless of
-# file size) — a drifted tag must be caught even if it always produces an empty response.
+# (e) unknown model tag in slot fails loudly (even if empty), guards matrix.model drift
 setup "L2"
 fill codex L2 "finding"
 fill "totally-unknown-model" L2 ""
@@ -90,10 +85,8 @@ setup "L2"; rm -f "$LENSES"/*.txt
 rc=$?
 [ "$rc" -ne 0 ] && pass "aggregate (f) empty lenses_dir fails loudly" || fail "aggregate (f) empty lenses_dir fails loudly" "exited 0 with no lens files"
 
-# (g) $WORK/slot itself doesn't exist (simulating panel job total failure +
-# download-artifact having nothing to match) — this must not hard-fail; it should be
-# treated as "all models unresponsive" and still reach coverage-severe.flag (PR#88 review
-# MAJOR: previously this exited 1 here, leaving no severe flag/comment/gate reason at all).
+# (g) $WORK/slot missing entirely (panel job total failure) -> must not hard-fail;
+# treat as all-models-unresponsive and still set coverage-severe.flag (regression: PR#88 exited 1 here)
 setup "L2"; rm -rf "$WORK/slot"
 "$SCRIPT" "$LENSES" "$WORK" >/dev/null 2>&1
 rc=$?

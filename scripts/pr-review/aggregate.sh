@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
-# Aggregates the artifacts from the 4 panel jobs (downloaded by the chair job into
+# Aggregates artifacts from the 4 panel jobs (downloaded by the chair job into
 # $WORK/slot) and applies the coverage-floor verdict. Args: <lenses_dir> <workdir>
-# run-panel.sh can no longer make this determination, since it now only knows its own
-# model's cells — this is only possible once the full 4-model set is gathered in one
-# place (i.e. here, in the chair job).
+# Coverage floor requires the full 4-model set, so it can only run here (not in run-panel.sh).
 set -uo pipefail
 LENSES_DIR="$1"; WORK="$2"
 [ -n "$LENSES_DIR" ] || { echo "aggregate.sh: lenses_dir (\$1) must not be empty" >&2; exit 1; }
@@ -11,16 +9,9 @@ LENSES_DIR="$1"; WORK="$2"
 WORK="$(realpath "$WORK")" || { echo "aggregate.sh: realpath failed to resolve workdir: $WORK" >&2; exit 1; }
 DIR="$(cd "$(dirname "$0")" && pwd)"; . "$DIR/lib.sh"
 SLOT="$WORK/slot"
-# The absence of $SLOT (i.e. $SLOT itself doesn't exist) is treated the same as
-# "all models unresponsive" rather than a hard failure — if all 4 panel jobs fail/are
-# cancelled and there are no artifacts at all, the download-artifact step's
-# continue-on-error lets execution reach here, but previously this used to exit 1,
-# meaning aggregate.sh itself never ran. That left no coverage-severe.flag, no forced
-# FAIL banner, and no comment upsert — the job just ended red, meaning the fail-closed
-# path that ADR-015 promises ("the coverage floor decides, and the reason is visible in
-# the review body") was unreachable in the worst case (PR#88 review MAJOR). By creating
-# an empty slot and continuing, the degraded-model floor below catches the 4/4
-# model-missing case and sets coverage-severe.flag as normal.
+# A missing $SLOT (all 4 panel jobs failed/cancelled, no artifacts) is treated as "all
+# models unresponsive", not a hard failure — otherwise the fail-closed coverage-floor path
+# below never runs and the job just ends red with no explanation (PR#88 review MAJOR).
 mkdir -p "$SLOT"
 RESP="$WORK/responded.txt"; : > "$RESP"
 rm -f "$WORK/coverage-severe.flag"
@@ -33,14 +24,10 @@ if [ "${#LENS_FILES[@]}" -eq 0 ]; then
   exit 1
 fi
 
-# Off-roster tag guard — if matrix.model drifts from lib.sh's PANEL_TAGS (both are
-# separate workflow/script literals, so they can drift), an unknown-tag file shows up in
-# the merged slot. The opposite direction (in the roster but the matrix doesn't run it)
-# is caught by the degraded-model floor below.
-# Checked regardless of file size — skipping empty files with [ -s ] would let a drifted
-# tag pass silently every time it responds with an empty cell (PR#88 review MINOR): this
-# guard's purpose is "does the cell that exists belong to the roster", not "did that cell
-# respond".
+# Off-roster tag guard — matrix.model and lib.sh's PANEL_TAGS are separate literals and can
+# drift. Checked regardless of file size (not `[ -s ]`): purpose is "does this cell belong
+# to the roster", not "did it respond" (PR#88 review MINOR). Opposite drift direction
+# (roster entry the matrix never runs) is caught by the degraded-model floor below.
 for f in "$SLOT"/*.md; do
   [ -f "$f" ] || continue
   base="$(basename "$f" .md)"
@@ -65,20 +52,13 @@ done
 TOTAL_MODELS=${#PANEL_TAGS[@]}
 echo "Panel responded ($(wc -l < "$RESP") / $(( TOTAL_MODELS * ${#LENS_FILES[@]} )) cells): $(tr '\n' ' ' < "$RESP")"
 
-# Coverage floor — if a single model (invalidated flag / binary missing / full auth
-# failure / that panel job's pod dying, etc.) produces no responses across all lenses,
-# the matrix could silently shrink without that model and still end up at VERDICT: PASS.
-# If a model's row is entirely empty, warn + pass a file so synthesize.sh can call it out
-# explicitly in the review body. (Side benefit of the job split: if a panel job dies and
-# its artifact is missing entirely, that model's cells are all missing too → this floor
-# catches it the same way.)
+# Coverage floor — if a model produces zero responses across all lenses (dead binary, auth
+# failure, panel job's pod dying, missing artifact, etc.), warn + record it so
+# synthesize.sh can call it out in the review body instead of a silent VERDICT: PASS.
 : > "$WORK/degraded-models.txt"
 for model_tag in "${PANEL_TAGS[@]}"; do
-  # grep -c prints "0" and exits 1 even when there are zero matches (no match = "failure"
-  # from grep's perspective) — appending a `|| echo 0` fallback can regress into that "0"
-  # being followed by the fallback's own "0", producing "0\n0". $RESP is always created
-  # above, so a "file missing" fallback is unnecessary in the first place — just use grep's
-  # stdout as-is.
+  # No `|| echo 0` fallback: grep -c exits 1 on zero matches but still prints "0", and a
+  # fallback would double it into "0\n0". $RESP always exists, so grep's stdout is enough.
   row_count="$(grep -c "^${model_tag}/" "$RESP" 2>/dev/null)"
   if [ "${row_count:-0}" -eq 0 ]; then
     echo "::warning::model '$model_tag' produced zero responses across all ${#LENS_FILES[@]} lenses — coverage degraded" >&2
@@ -86,30 +66,20 @@ for model_tag in "${PANEL_TAGS[@]}"; do
   fi
 done
 
-# Severity escalation — if the number of degraded models is (total - 1) or more, at
-# most 1 vendor survives, so the warn-only premise ("the matrix itself cross-checks per
-# lens" — i.e. other models still see the same lens) no longer holds. Only in this case do
-# we escalate to severe, leaving a signal for synthesize.sh to force VERDICT: FAIL (a
-# single model dropping out still stays warn-only — that's common with intermittent
-# rate-limits, and since the remaining models still cross-check each lens, the original
-# design decision from when this PR was introduced — that a human noticing via the banner
-# alone is sufficient — remains valid).
+# Escalate to severe (force VERDICT: FAIL via synthesize.sh) only once (total - 1) or more
+# models are degraded, i.e. at most 1 vendor survives and cross-lens checking no longer
+# holds. A single dropout stays warn-only — common with rate-limits, and other models still
+# cross-check that lens.
 DEGRADED_COUNT=$(wc -l < "$WORK/degraded-models.txt")
 if [ "$DEGRADED_COUNT" -ge "$((TOTAL_MODELS - 1))" ]; then
   echo "::error::coverage collapsed to ≤1 vendor ($DEGRADED_COUNT/$TOTAL_MODELS models degraded) — forcing VERDICT: FAIL, no cross-model check remains for any lens" >&2
   : > "$WORK/coverage-severe.flag"
 fi
 
-# Per-lens floor — the per-model floor above only checks "did this model die across all
-# lenses". Conversely, even if one lens is entirely empty (across all models), a model's
-# row may still be non-zero (thanks to responses for other lenses) and pass the check
-# above — that lens went unreviewed by anyone, yet the matrix looks fine. Why the
-# model-floor stays warn-only up to (total - 1) dropouts while this one goes severe
-# immediately: when one model dies, the other models still cross-check that lens, but
-# when a lens is entirely empty, no vendor looked at it at all — this isn't "one leg of
-# the cross-check got weaker", it's "the cross-check doesn't exist at all" — there's
-# nothing to mitigate against (no other model's response), so warn-only can't be
-# justified.
+# Per-lens floor — a lens with zero responses across all models can hide behind the
+# per-model floor above (each model's row is non-zero thanks to other lenses). Unlike a
+# dead model, there's no other response to cross-check against, so this escalates to
+# severe immediately rather than staying warn-only.
 : > "$WORK/degraded-lenses.txt"
 for lens_file in "${LENS_FILES[@]}"; do
   lens="$(basename "$lens_file" .txt)"

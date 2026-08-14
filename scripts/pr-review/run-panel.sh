@@ -1,38 +1,24 @@
 #!/usr/bin/env bash
 # Runs only one model's lens×model cells. Args: <diff> <lenses_dir> <workdir> <model_tag>
 # model_tag: codex | kiro-fable | kiro-sol | claude-self (see lib.sh PANEL_TAGS)
-# Each *.txt in lenses_dir is one lens (filename stem = lens tag, e.g. L2/L3/L4/L5) —
-# that lens's dedicated review prompt (self-contained: "look only at this lens"). The
-# workflow calls this script 5 times, once per per-model parallel job (matrix.model), so
-# one invocation runs only that model's full set of lenses (4 cells) — concurrent
-# processes per pod 20 -> 4, each job uploads only its own cell results as an artifact, and
-# the chair job's aggregate.sh merges the 5 artifacts for the final aggregation/floor
-# verdict.
-# The diff-delivery path differs per CLI: Codex/Claude self-review use stdin (direct
-# `< "$DIFF"` redirect, a file so not a TTY -> no-hang); Kiro ignores stdin and is given no
-# tools at all, so (see the Kiro-cell comment below) the diff is embedded directly as
-# size-capped argv text. A timeout backstop + non-interactive flags prevent hangs. If a
-# cell comes back empty, retry up to PANEL_RETRIES times (absorbs transients such as
-# codex's gpt-5.6-sol/bedrock-mantle). Re-runs on every attempt.
-# One model's 4 lenses run in parallel (&+wait) — wall clock ~= the single slowest lens,
-# not the sequential sum.
+# Each *.txt in lenses_dir is one lens (filename stem = lens tag, e.g. L2/L3/L4/L5). The
+# workflow calls this script once per per-model parallel job (ADR-015); the chair job's
+# aggregate.sh merges all jobs' artifacts for the final verdict.
+# Diff delivery differs per CLI: Codex/Claude self-review read stdin; Kiro ignores stdin
+# and gets no tools, so the diff is embedded as size-capped argv text (see Kiro-cell
+# comment below). A timeout backstop + non-interactive flags prevent hangs; an empty slot
+# is retried up to PANEL_RETRIES times.
+# One model's 4 lenses run in parallel (&+wait) — wall clock ~= the slowest lens.
 set -uo pipefail
 DIFF="$(realpath "$1" 2>/dev/null)" \
   || { echo "run-panel.sh: realpath failed to resolve diff path: $1" >&2; exit 1; }
 LENSES_DIR="$2"; WORK="$3"; MODEL_TAG="$4"
-# Same principle as precheck.sh — if $WORK is empty, ensure_slots' `rm -rf "$1/slot"`
-# becomes the destructive path `rm -rf /slot` (under the filesystem root). An empty
-# $LENSES_DIR isn't destructive (the glob just matches nothing and silently ends up with
-# 0 cells), but catching a misconfigured argument immediately is better for debugging
-# than letting it pass silently.
+# If $WORK were empty, ensure_slots' `rm -rf "$1/slot"` would become `rm -rf /slot`.
 [ -n "$LENSES_DIR" ] || { echo "run-panel.sh: lenses_dir (\$2) must not be empty" >&2; exit 1; }
 [ -n "$WORK" ] || { echo "run-panel.sh: workdir (\$3) must not be empty" >&2; exit 1; }
 [ -n "$MODEL_TAG" ] || { echo "run-panel.sh: model_tag (\$4) must not be empty" >&2; exit 1; }
-# $SLOT (="$WORK/slot") is still referenced as-is in the Kiro cell even after
-# `cd "$CELL_CWD"` — if the caller passes a relative WORK, it breaks from that point on.
-# The current callers (the workflow) all pass absolute paths, so this wasn't an actual
-# bug, but as with DIFF, we make the code itself guarantee it by resolving to an absolute
-# path here.
+# $SLOT (="$WORK/slot") is referenced after `cd "$CELL_CWD"` in the Kiro cell, so WORK
+# must be absolute or it breaks from that point on.
 mkdir -p "$WORK" || { echo "run-panel.sh: failed to create workdir: $WORK" >&2; exit 1; }
 WORK="$(realpath "$WORK")" \
   || { echo "run-panel.sh: realpath failed to resolve workdir: $WORK" >&2; exit 1; }
@@ -67,34 +53,15 @@ try_panel() {
   done
 }
 
-# Kiro cells are granted no tools at all (`--trust-tools=`, below) — a previous revision
-# granted `fs_read` and passed only the diff path, letting Kiro read it itself, but that
-# had two problems: (1) the diff is untrusted PR content, so a prompt injection inside it
-# could induce "instead of that path, read the absolute path ~/.aws/credentials" (an
-# isolated cwd/HOME does not by itself block an absolute-path read — oh-my-cloud-skills
-# review round 19 CRITICAL, demonstrated live that Kiro actually reads absolute-path repo
-# files even from an isolated cwd). (2) Even if the model never makes the `fs_read` call
-# (or is blocked by the sandbox), it can still produce a plausible-looking non-empty
-# response like "no findings" — so as long as the coverage floor (aggregate.sh) only
-# detects empty slots, a cell that never actually saw the diff gets silently counted as a
-# normal response (cc-on-bedrock PR#107 review MAJOR-1). Granting no tools at all and
-# passing the diff directly via argv structurally removes both problems at once — there's
-# no read call needed, so it can't be skipped, and with no tools granted there's no
-# absolute-path read path to begin with.
-# That `--trust-tools=` (empty value) means "no tools" is documented by kiro-cli itself
-# (`kiro-cli chat --help`): "trust no tools: '--trust-tools='" — quoted verbatim from its
-# example text (version: kiro-cli 2.11.1, reconfirmed with a live repro — an injected
-# "read /etc/passwd" instruction was refused). If kiro-cli ever changes this semantic in
-# the future, this fail-closed assumption needs to be re-verified.
-# Isolation is still kept as a separate subdirectory per lens (same pattern as co-agent's
-# PR gate `_review_one`/`_sanitized_env`) — removing tools and isolating are two orthogonal
-# decisions: since one model's 4 lenses run concurrently (&), sharing one cell's cwd/HOME
-# could let kiro-cli's session/cache state race across the parallel runs (a regression
-# from the fs_read-removal refactor, where this got re-described merely as "prevents
-# cross-run leakage" and the race-prevention purpose silently dropped — caught by this PR's
-# own review via 4-model cross-model consensus). Even if $WORK is reused on a
-# non-ephemeral runner, the base is reset at the start of every run so that the previous
-# run's kiro-cwd state doesn't leak into the new run.
+# Kiro cells get no tools at all (`--trust-tools=`, below) and the diff via argv instead
+# of `fs_read`: the diff is untrusted PR content, and an isolated cwd/HOME does not block
+# an absolute-path read (Kiro will follow a prompt-injected "read ~/.aws/credentials"
+# even from an isolated cwd) — with no tools granted, there's no read path to exploit.
+# `--trust-tools=` (empty value) = "no tools", per `kiro-cli chat --help` (kiro-cli
+# 2.11.1); re-verify this assumption if kiro-cli changes that semantic.
+# Each lens still gets its own cwd subdirectory: since one model's 4 lenses run
+# concurrently (&), sharing one cwd/HOME would let kiro-cli's session/cache state race
+# across the parallel runs. The base is reset at the start of every run.
 KIRO_CWD_BASE="$WORK/kiro-cwd"
 [ -L "$KIRO_CWD_BASE" ] && { echo "run-panel.sh: \$KIRO_CWD_BASE is a symlink, refusing (TOCTOU guard)" >&2; exit 1; }
 rm -rf "$KIRO_CWD_BASE"; mkdir -p "$KIRO_CWD_BASE"
@@ -104,13 +71,9 @@ kiro_env() {
     ${KIRO_API_KEY:+KIRO_API_KEY="$KIRO_API_KEY"} "$@"
 }
 
-# The diff is embedded directly as size-capped argv text — capped below the kernel's
-# single-argv 128KiB limit (MAX_ARG_STRLEN). The reasons argv embedding was originally
-# avoided (that limit, `ps` exposure) aren't a real tradeoff here: (1) we apply the same
-# PANEL_CELL_CAP capping convention to the diff input too, truncating it below the limit,
-# and (2) this diff is a PR diff from a public repo, already public on GitHub, so `ps`
-# visibility isn't a new secret exposure (it isn't an actual secret). Only prepared when
-# the tag is a Kiro tag.
+# Embedded as size-capped argv text, capped below the kernel's single-argv 128KiB limit
+# (MAX_ARG_STRLEN). `ps` exposure isn't a new risk here: this diff is already public on
+# GitHub. Only prepared when the tag is a Kiro tag.
 KIRO_TAG=""
 for entry in "${KIRO_MODELS[@]}"; do
   [ "${entry##*:}" = "$MODEL_TAG" ] && KIRO_TAG="$MODEL_TAG" && KIRO_MODEL_ID="${entry%%:*}"
@@ -119,23 +82,14 @@ done
 if [ -n "$KIRO_TAG" ]; then
   KIRO_DIFF_CAP="${KIRO_DIFF_CAP:-100000}"
   KIRO_DIFF_TEXT="$(head -c "$KIRO_DIFF_CAP" "$DIFF")"
-  # Truncation itself is harmless (an intentional tradeoff for large diffs), but if it
-  # passes without any signal, the Kiro cell — having seen only a prefix — still gets
-  # counted as a normal response, silently violating the contract that "coverage signal
-  # should reflect whether a vendor actually saw only part of the diff" — pass a flag file
-  # so synthesize.sh can call this out explicitly in the review body.
+  # Flag the truncation so synthesize.sh can call it out explicitly, rather than letting
+  # a Kiro cell that only saw a prefix silently count as a normal response.
   if [ "$(wc -c < "$DIFF")" -gt "$KIRO_DIFF_CAP" ]; then
     KIRO_DIFF_TEXT+=$'\n[...TRUNCATED at '"$KIRO_DIFF_CAP"'B — full diff not sent to Kiro...]'
     echo "::warning::diff exceeds KIRO_DIFF_CAP (${KIRO_DIFF_CAP}B) — Kiro cells only see a truncated prefix" >&2
-    # Placed inside $SLOT (previously at the $WORK root) — the panel job uploads only the
-    # single $SLOT directory as its artifact, so if this flag file lived outside $SLOT,
-    # upload-artifact's LCA (least common ancestor) would shift depending on whether the
-    # file exists, changing the artifact's internal structure from run to run (PR#88
-    # review CRITICAL — diagnosis: in the ordinary case where the diff is under
-    # KIRO_DIFF_CAP, this file doesn't exist at all, so the LCA collapses to $SLOT itself,
-    # and the chair's aggregate.sh can't find $SLOT and fails every run). Keeping it inside
-    # $SLOT always uploads the same single directory, so the structure stays fixed
-    # regardless of whether the file exists.
+    # Must live inside $SLOT: the panel job uploads only $SLOT as its artifact, and a flag
+    # file outside it would shift upload-artifact's LCA depending on whether the file
+    # exists, breaking aggregate.sh's ability to find $SLOT (PR#88 review CRITICAL).
     : > "$SLOT/kiro-diff-truncated.flag"
   fi
 fi
@@ -144,25 +98,18 @@ for lens_file in "${LENS_FILES[@]}"; do
   lens="$(basename "$lens_file" .txt)"
   LENS_PROMPT="$(cat "$lens_file")"
 
-  # if/elif instead of case — re-listing the Kiro tags in a branch (the old
-  # `kiro-fable|kiro-sol)`) creates yet another copy of the KIRO_MODELS list. Adding a
-  # third Kiro model to the roster once caused a regression where that copy didn't match
-  # any arm, and that model's cells silently came back as 0 (PR#88 review MINOR) — branch
-  # only on $KIRO_TAG (already derived above by iterating KIRO_MODELS; an empty string
-  # means this tag isn't Kiro), eliminating one of the roster copies.
+  # Branch on $KIRO_TAG (derived above from KIRO_MODELS) rather than re-listing Kiro tags
+  # here — re-listing them created a second copy that silently drifted out of sync when a
+  # Kiro model was added/renamed (PR#88 review MINOR).
   if [ "$MODEL_TAG" = codex ]; then
-    # Codex cell (Bedrock, config.toml). --skip-git-repo-check is required. AWS_REGION is
-    # forced: gpt-5.6-sol (bedrock-mantle) only supports In-Region (us-east-1) — pin it
-    # regardless of the job's region. diff goes via stdin.
+    # AWS_REGION is forced: gpt-5.6-sol (bedrock-mantle) only supports us-east-1.
     if command -v codex >/dev/null 2>&1; then
       ( try_panel "$SLOT/codex-$lens.md" "$SLOT/codex-$lens.err" \
           env AWS_REGION="${CODEX_AWS_REGION:-us-east-1}" AWS_DEFAULT_REGION="${CODEX_AWS_REGION:-us-east-1}" \
           timeout "$T" codex exec -s read-only --skip-git-repo-check "$LENS_PROMPT" ) &
     else echo "[skip] codex/$lens (binary absent)" >&2; : > "$SLOT/codex-$lens.md"; fi
   elif [ -n "$KIRO_TAG" ]; then
-    # Kiro cell. Kiro's non-interactive `chat` reads ONLY the prompt arg — it ignores
-    # stdin, so the diff is embedded directly in argv (capped, no tools granted — see the
-    # KIRO_DIFF_TEXT/`--trust-tools=` comments above).
+    # Kiro's non-interactive `chat` ignores stdin and reads only the prompt arg.
     KIRO_INSTRUCTION="$LENS_PROMPT"$'\n\n'"Review ONLY the diff below; do not read or reference any other files:"$'\n\n'"$KIRO_DIFF_TEXT"
     if command -v kiro-cli >/dev/null 2>&1; then
       CELL_CWD="$KIRO_CWD_BASE/$MODEL_TAG-$lens"; mkdir -p "$CELL_CWD"
@@ -171,10 +118,7 @@ for lens_file in "${LENS_FILES[@]}"; do
           --mode default --no-interactive --trust-tools= --wrap never ) &
     else echo "[skip] $MODEL_TAG/$lens (binary absent)" >&2; : > "$SLOT/$MODEL_TAG-$lens.md"; fi
   elif [ "$MODEL_TAG" = claude-self ]; then
-    # Claude self-review cell (the panel's 4th member — a quirk specific to this repo) —
-    # an independent review (a separate voice from the chair) on the plugin-equipped
-    # container. Same as Codex, diff goes via stdin (`claude -p` reads stdin normally, so
-    # there's no need to force it through Kiro's fs_read path). --allowedTools is pinned
+    # Independent Claude review (separate voice from the chair). --allowedTools is pinned
     # to read-only GitHub context tools.
     if command -v claude >/dev/null 2>&1; then
       CLAUDE_SELF_PROMPT="$LENS_PROMPT
@@ -195,20 +139,15 @@ Respond in English only (token/context efficiency — do not mix in other langua
   fi
 done
 
-# NOTE: Antigravity (agy) was removed — OAuth interactive login only (no API-key auth
-# mode), so it can't authenticate in headless CI. Panel = Codex + Kiro x3 + Claude
-# self-review -> Claude chair.
+# NOTE: Antigravity (agy) was removed — OAuth interactive login only, can't authenticate
+# in headless CI. Panel = Codex + 2 Kiro models + Claude self-review -> Claude chair.
 wait
 
-# Aggregation (responded.txt/degraded-*/coverage-severe) does not happen here — this
-# script only knows about one model's cells. After all 5 parallel jobs finish, the chair
-# job merges the artifacts and renders the verdict via aggregate.sh.
+# Aggregation happens in aggregate.sh (chair job), not here — this script only knows
+# about one model's cells.
 
-# Surface the reason for a skip: if a slot is empty but stderr has content, print the end
-# of stderr (the actual error) to the log. Since this is a public repo, anyone can read
-# these Actions logs — run it through the same scrub_secrets() used for synthesize.sh's
-# cells, to prevent accidental credential exposure that could leak via the stderr
-# (error messages/stack traces) path.
+# On a skip, surface stderr's tail to the log — scrubbed, since Actions logs on this
+# public repo are world-readable.
 for e in "$SLOT"/*.err; do
   [ -s "$e" ] || continue
   b="$(basename "$e" .err)"
