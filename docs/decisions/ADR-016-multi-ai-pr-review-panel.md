@@ -1,5 +1,8 @@
 # ADR-016: Multi-AI co-agent PR review panel (Codex + Kiro) with a Claude chair
 
+> Renumbered from ADR-007 (numbering collision with
+> [ADR-007-mgmt-observability-internal-nlb-exception](ADR-007-mgmt-observability-internal-nlb-exception.md)).
+
 ## Status
 Accepted (2026-06-14). Superseded in part by [ADR-011](ADR-011-pr-review-kiro-roster-gpt55-drop-v3.md)
 (Kiro roster `kimi-k2.5` → `gpt-5.5`, drop `--v3`) — this document's roster/flag
@@ -75,3 +78,28 @@ prior Claude-solo behavior.
 - Chair is a single synthesis point; a bad chair run still fail-closes via the VERDICT rule.
 - `kimi-k2.5` may be account-tier gated → that panelist silently skips.
 - Adds an ExternalSecret-syncing ArgoCD Application to operate.
+
+## Update (2026-06-23) — runner image ownership, Kiro v3
+
+Rebased the runner image off the official ARC image (the previous `FROM
+actions-runner-claude:latest` was self-referential — a weekly cron would keep
+stacking on its own output). Pinned CLI versions, baked Claude Code plugins, and
+added a weekly rebuild (`runner-image.yml` schedule, best-effort — a failed build
+never reaches `docker push`). Panel calls used `kiro-cli --v3 chat` at this point
+(binary `kiro-cli`, never bare `kiro`); `--v3` was dropped later per
+[ADR-011](ADR-011-pr-review-kiro-roster-gpt55-drop-v3.md). Dropped Antigravity
+(`agy`) — headless API-key auth doesn't work and it requires interactive OAuth.
+Fixed a runner-credentials gap: the shared `claude-runner` SA was missing from
+`infra/eks-mgmt` `runner_service_accounts`, so pods had no Bedrock access.
+
+## Update (2026-06-23b) — Claude self-review panelist
+
+Added an independent `claude -p` self-review to the panel, using the code-review
+methodology and read-only tools (gh/Read/Grep/Glob, github MCP read-only) to see
+context beyond the truncated diff — findings only, no comment/VERDICT authority.
+Auth is job-scoped (`github.token`), not a pod-wide PAT; in the
+`pull_request_target` write context, tool access is a read-only allowlist (no
+`gh api`/comment ability). See
+[ADR-010](ADR-010-bedrock-account-data-retention-for-fable-mythos.md) for the
+Bedrock data-retention posture behind the Fable 5 chair model (adopted later per
+[ADR-013](ADR-013-pr-review-gpt56-model-bump.md)/[ADR-014](ADR-014-pr-review-opus5-model-bump.md)).

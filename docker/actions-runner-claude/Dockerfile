@@ -71,9 +71,9 @@ RUN test "$TARGETARCH" = "arm64" \
  && grep -F -- "--mode" /tmp/kiro-chat-help \
  && grep -F -- "--no-interactive" /tmp/kiro-chat-help \
  && grep -F -- "--wrap" /tmp/kiro-chat-help \
- # Fail the build if this exact wording changes — kiro-cli auto-rebuilds weekly, and
- # run-panel.sh's fail-closed no-tools assumption depends on this semantics, not just flag
- # presence (PR#63 review L3-1).
+ # kiro-cli is an unpinned vendor-latest install (no version/SHA pin possible) that
+ # auto-rebuilds weekly, so this exact-wording check is the only guard against a silent
+ # semantics change in the fail-closed no-tools assumption run-panel.sh depends on.
  && grep -F -- "trust no tools: '--trust-tools='" /tmp/kiro-chat-help \
  && rm /tmp/kiro-chat-help
 

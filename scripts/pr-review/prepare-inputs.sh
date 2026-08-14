@@ -83,7 +83,7 @@ cat <<PROMPT_EOF > "$WORK/lenses/L5.txt"
 $COMMON
 
 LENS: L5 — ADR/documentation consistency
-- docs/decisions/ADR-*.md consistency with the actual implementation, Mermaid+bilingual format compliance.
+- docs/decisions/ADR-*.md consistency with the actual implementation, Mermaid format compliance, English-only.
 - README/docs freshness, no missing sections.
 PROMPT_EOF
 

@@ -62,7 +62,7 @@ Project rules (AWS-Demo-Platform), redistributed by lens:
   demo-platform-*/\/demo-platform/*, kube context safety.
 - L3 (Security): cross-account ExternalId, Security Group rules.
 - L4 (Code correctness): admin-platform logic bugs.
-- L5 (ADR/documentation consistency): ADR Mermaid+bilingual.
+- L5 (ADR/documentation consistency): ADR Mermaid, English-only.
 Respond in English only (token/context efficiency — do not mix in other languages). Output
 ONLY the review markdown.
 If panel members disagree or something needs confirming, you may verify directly with

@@ -3,8 +3,8 @@ name: AI Code Review
 # Lens×model matrix panel review for every PR: Codex + Kiro x2 + Claude self-review, each
 # across lenses L2-L5 (4 models x 4 lenses = 16 cells), run as 4 parallel per-model `panel`
 # jobs; a `chair` job aggregates the artifacts and posts a synthesized, fail-closed
-# VERDICT comment. Direct CLI invocation (not marketplace actions) — see ADR-007/011/
-# 013/014/015/016 for design history.
+# VERDICT comment. Direct CLI invocation (not marketplace actions) — see ADR-016/011/
+# 013/014/015 for design history.
 
 on:
   pull_request_target:

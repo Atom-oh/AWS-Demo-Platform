@@ -53,7 +53,7 @@ done
 # --- Project-specific invariants ---
 ROOT_CLAUDE=$(cat CLAUDE.md)
 assert_contains "CLAUDE.md: mentions hub cluster name" "$ROOT_CLAUDE" "mall-apne2-mgmt"
-assert_contains "CLAUDE.md: mentions Terraform 1.9.x pin" "$ROOT_CLAUDE" "Terraform 1.9.6"
+assert_contains "CLAUDE.md: mentions Terraform 1.9.6 pin" "$ROOT_CLAUDE" "Terraform 1.9.6"
 assert_contains "CLAUDE.md: mentions CF-only ingress rule" "$ROOT_CLAUDE" "CloudFront"
 
 ARCH=$(cat docs/architecture.md)
