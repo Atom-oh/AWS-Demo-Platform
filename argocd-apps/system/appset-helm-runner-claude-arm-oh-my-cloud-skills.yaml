@@ -58,10 +58,10 @@ spec:
                     image: 180294183052.dkr.ecr.ap-northeast-2.amazonaws.com/actions-runner-claude:latest
                     command: ["/home/runner/run.sh"]
                     env:
-                      # PR review 패널 AI CLI 인증 (ExternalSecret ai-panel-keys <- /demo-platform/actions/AI-key).
-                      # optional: true — 키/Secret 부재가 러너 fleet 기동을 막지 않게 한다
-                      # (해당 패널은 graceful skip).
-                      # ai-panel-keys 는 actions-runner-system 네임스페이스 공용(스케일셋 간 공유).
+                      # PR-review panel AI CLI auth (ExternalSecret ai-panel-keys <- /demo-platform/actions/AI-key).
+                      # optional: true — a missing key/Secret does not block runner fleet startup
+                      # (that panel just gracefully skips).
+                      # ai-panel-keys is shared within the actions-runner-system namespace (across scale sets).
                       - name: KIRO_API_KEY
                         valueFrom:
                           secretKeyRef:

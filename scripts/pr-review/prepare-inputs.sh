@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
-# PR diff 취득 + lens 프롬프트 생성. 인자: <head_sha> <base_sha> <workdir>
-# panel job(모델당 1개) + chair job 이 전부 이 스크립트를 각자 호출해 동일 입력을
-# 재생성한다 — prep job 을 따로 두면 Karpenter 콜드스타트가 파이프라인 앞단에 직렬로
-# 붙기 때문에(minRunners:0, on-demand-only), 각 파드가 스스로 만드는 쪽을 택했다.
-# 결정성은 `gh pr diff`(항상 최신 head 를 따라감) 대신 head/base SHA 를 넘겨받아
-# `gh api compare` 로 고정하는 것으로 확보 — 실행 중 PR 에 새 커밋이 push 돼도 6개
-# job 이 전부 같은 diff 를 본다.
+# Fetches the PR diff + generates lens prompts. Args: <head_sha> <base_sha> <workdir>
+# Each panel/chair job calls this independently (rather than a shared prep job) to avoid
+# a serial Karpenter cold start (minRunners:0, on-demand-only) in front of the pipeline.
+# Uses `gh api compare` pinned to head/base SHAs, not `gh pr diff` (follows latest head) —
+# so all jobs see the same diff even if new commits land mid-run.
 set -euo pipefail
 HEAD_SHA="$1"; BASE_SHA="$2"; WORK="$3"
 [ -n "$HEAD_SHA" ] || { echo "prepare-inputs.sh: head_sha (\$1) must not be empty" >&2; exit 1; }
@@ -14,12 +12,11 @@ HEAD_SHA="$1"; BASE_SHA="$2"; WORK="$3"
 mkdir -p "$WORK"
 WORK="$(realpath "$WORK")"
 
-# three-dot compare(merge-base 기준)라 `gh pr diff`와 동일한 결과 — SHA 로 고정된 버전.
+# Three-dot compare (merge-base based) — same result as `gh pr diff`, pinned to SHAs.
 gh api "repos/${GH_REPO:?}/compare/${BASE_SHA}...${HEAD_SHA}" \
   -H "Accept: application/vnd.github.v3.diff" > "$WORK/pr-diff-raw.txt"
 
-# 생성 아티팩트/락파일/Lambda build dir hunk 제거 — 미제거 시 taxonomy_tree.json
-# 재생성(~128KB)이나 staging build 가 diff 의 대부분을 점유해 실제 리뷰 surface 가 가려진다.
+# Strip generated-artifact/lockfile/build-dir hunks so they don't dominate the diff and obscure the actual review surface.
 awk '
   /^diff --git/ {
     path = substr($3, 3)
@@ -86,13 +83,12 @@ cat <<PROMPT_EOF > "$WORK/lenses/L5.txt"
 $COMMON
 
 LENS: L5 — ADR/documentation consistency
-- docs/decisions/ADR-*.md consistency with the actual implementation, Mermaid+bilingual format compliance.
+- docs/decisions/ADR-*.md consistency with the actual implementation, Mermaid format compliance, English-only.
 - README/docs freshness, no missing sections.
 PROMPT_EOF
 
-# panel_truncated 는 $GITHUB_ENV 가 아니라 flag 파일로 남긴다 — job 이 panel×4 + chair
-# 로 갈라져 있어 $GITHUB_ENV 로는 chair 까지 전달되지 않고, flag 파일은 synthesize.sh 가
-# 이미 쓰는 관례(kiro-diff-truncated.flag 등)와 동일 패턴.
+# Recorded as a flag file, not $GITHUB_ENV — $GITHUB_ENV wouldn't propagate across the
+# panel×4 + chair job split; matches synthesize.sh's flag-file convention.
 if [ "$TOTAL_LINES" -gt "$MAX_LINES" ]; then
   for f in "$WORK"/lenses/*.txt; do
     echo "WARNING: diff was ${TOTAL_LINES} lines; only the first ${MAX_LINES} were reviewed." >> "$f"

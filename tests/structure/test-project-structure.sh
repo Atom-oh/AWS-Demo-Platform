@@ -53,12 +53,11 @@ done
 # --- Project-specific invariants ---
 ROOT_CLAUDE=$(cat CLAUDE.md)
 assert_contains "CLAUDE.md: mentions hub cluster name" "$ROOT_CLAUDE" "mall-apne2-mgmt"
-assert_contains "CLAUDE.md: mentions Terraform 1.9.8 pin" "$ROOT_CLAUDE" "Terraform 1.9.8"
+assert_contains "CLAUDE.md: mentions Terraform 1.9.6 pin" "$ROOT_CLAUDE" "Terraform 1.9.6"
 assert_contains "CLAUDE.md: mentions CF-only ingress rule" "$ROOT_CLAUDE" "CloudFront"
 
 ARCH=$(cat docs/architecture.md)
-assert_contains "architecture.md: has English section" "$ARCH" "<a id=\"english\">"
-assert_contains "architecture.md: has Korean section" "$ARCH" "<a id=\"korean\">"
+assert_contains "architecture.md: has System Overview section" "$ARCH" "## System Overview"
 
 # --- gitignore covers .env ---
 GITIGNORE=$(cat .gitignore)

@@ -3,7 +3,7 @@
 - **상태**: 설계 승인 (구현 중)
 - **날짜**: 2026-06-23
 - **대상**: `docker/actions-runner-claude/` 이미지, `.github/workflows/runner-image.yml`, `scripts/pr-review/run-panel.sh`
-- **관련 ADR**: [ADR-007 Multi-AI PR Review Panel](../../decisions/ADR-007-multi-ai-pr-review-panel.md)
+- **관련 ADR**: [ADR-016 Multi-AI PR Review Panel](../../decisions/ADR-016-multi-ai-pr-review-panel.md)
 
 ## 배경
 
@@ -105,12 +105,12 @@ RUN CODEX_PLUGIN="$(find /home/runner/.claude -type d -path '*plugins*/codex' | 
 
 ### E. 문서
 
-- ADR-007 갱신(패널이 GitHub/code-review 플러그인 + Kiro v3 획득, 러너 주간 재빌드).
+- ADR-016 갱신(패널이 GitHub/code-review 플러그인 + Kiro v3 획득, 러너 주간 재빌드).
 - CLAUDE.md 러너 라인 갱신.
 
 ## 범위(Scope)
 
-- **In**: 플러그인 베이킹 + codex 구성, 주간 cron, Kiro v3 패널 전환, 죽은 agy 제거, 문서. **리뷰에서 플러그인 활용**(2026-06-23b): 패널에 Claude 셀프리뷰 추가(code-review 방법론 + read-only github 맥락 도구) + 의장 검증용 read-only 도구 + 잡-스코프 토큰. ADR-007 Update(2026-06-23b).
+- **In**: 플러그인 베이킹 + codex 구성, 주간 cron, Kiro v3 패널 전환, 죽은 agy 제거, 문서. **리뷰에서 플러그인 활용**(2026-06-23b): 패널에 Claude 셀프리뷰 추가(code-review 방법론 + read-only github 맥락 도구) + 의장 검증용 read-only 도구 + 잡-스코프 토큰. ADR-016 Update(2026-06-23b).
 - **Out**: codex/kiro 의 CLI 직접 호출(`codex exec`/`kiro-cli --v3 chat`)을 플러그인 슬래시커맨드로 대체하지 않음. `/code-review` 슬래시커맨드는 자체 코멘트/fetch 라 그대로 쓰지 않고 방법론만 적용. codex/github 플러그인은 `codex exec`/`gh` 와 중복 → 고유 가치는 code-review 방법론·인터랙티브 사용.
 
 ## 미해결/검증 항목

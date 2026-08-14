@@ -7,20 +7,20 @@ account: atomoh-main
 display:
   category: showcase
 
-# Atlantis 흐름 — repo 의 atlantis.yaml 이 project list/디렉토리 매핑을 담는다.
-# dev 환경만 Phase 1 에 적용. stg/prd 는 PR10 이후 등록 예정.
+# Atlantis flow — the repo's atlantis.yaml holds the project list/directory mapping.
+# Only the dev environment is applied in Phase 1. stg/prd are planned for registration after PR10.
 
 resources:
-  # PR7 (analytics) 머지 후 활성화 — Glue + Athena + Firehose 가 분석 데이터 흐름을 만든다.
-  # Phase 1 의 핵심 처리 흐름은 SFN Express + Lambda 4종 (pii_guard/classify/verify/persist).
-  # always_on 표시는 단순 dashboard 표기용 — 실제 토글은 Phase 3 (HITL UI / Streamlit) 까지 미정.
+  # Activate after PR7 (analytics) merges — Glue + Athena + Firehose build the analytics data flow.
+  # Phase 1's core processing flow is SFN Express + 4 Lambdas (pii_guard/classify/verify/persist).
+  # The always_on flag is purely for dashboard display — the actual toggle is undecided until Phase 3 (HITL UI / Streamlit).
 
-  # Step Functions Express state machine — 항상 활성 (idle 시 비용 거의 0)
+  # Step Functions Express state machine — always active (near-zero cost when idle)
   - type: stepfunctions
     state_machine_name: callcenter-dev-classify
     always_on: true
 
-  # Lambda 4종 — 호출당 과금
+  # 4 Lambdas — billed per invocation
   - type: lambda
     function_names:
       - callcenter-dev-pii-guard
@@ -29,13 +29,13 @@ resources:
       - callcenter-dev-persist
     always_on: true
 
-  # DynamoDB consult-results — 운영 데이터, on-demand billing
+  # DynamoDB consult-results — operational data, on-demand billing
   - type: dynamodb
     table_names:
       - callcenter-dev-consult-results
     always_on: true
 
-  # Firehose Parquet (PR7) — 분석 데이터
+  # Firehose Parquet (PR7) — analytics data
   - type: firehose
     delivery_stream_names:
       - callcenter-dev-consult-fh
