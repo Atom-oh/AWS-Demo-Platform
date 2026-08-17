@@ -16,23 +16,17 @@ pnpm workspaces monorepo. Three packages:
 | `@demo-platform/worker` | SQS consumer + startup sweep, 4 resource controllers (ECS/EC2/RDS/ArgoCD HPA-2), runJob dispatcher, GitHub discoverer (hourly cron) |
 
 ### Commands (run from `dashboard/backend/`)
-```bash
-pnpm install
-pnpm test          # vitest — unit + LocalStack integration (needs stack up)
-pnpm typecheck     # tsc --noEmit, all 3 packages
-pnpm lint          # eslint
-pnpm build         # tsc -b → dist/
-pnpm stack:up      # docker compose up -d  (LocalStack :4566 for integration tests)
-pnpm stack:down
-```
-Docker images: `docker build -f packages/{api,worker}/Dockerfile -t demo-platform-{api,worker}:dev .`
+
+Install dependencies with `pnpm install`. `pnpm test` runs vitest — unit tests plus LocalStack integration tests, which need the stack up first. `pnpm typecheck` runs `tsc --noEmit` across all three packages, and `pnpm lint` runs eslint. `pnpm build` compiles via `tsc -b` into `dist/`. `pnpm stack:up` brings up LocalStack on `:4566` (`docker compose up -d`) for the integration tests; `pnpm stack:down` tears it back down.
+
+Docker images build per-package: `docker build -f packages/{api,worker}/Dockerfile -t demo-platform-{api,worker}:dev .`
 
 ### Non-obvious patterns
-- **Node16 ESM**: all relative imports need `.js` extensions; `tsc -b` is the real gate (vitest/esbuild skips type errors).
-- **AssumeRole flow**: worker assumes `DemoPlatformOperator` per `accounts.yaml` with the ExternalId from Secrets Manager; creds cached with TTL skew.
-- **HPA-2 (ArgoCD controller)**: turn_off patches HPA `min=max=1` + Deployment `replicas=1` (never true zero).
-- **turn_on restores resources**: `worker/src/job-runner.ts` reads `restoration_data` off the DDB state record and dispatches per-resource into each controller's `turnOn(rd)` (ECS desiredCount / EC2 start / RDS start / ArgoCD HPA-2 restore). RDS `waitForAvailable` is fire-and-forget. Restoration is keyed by a **unique per-resource `stepKey`** (e.g. `argocd-app:<application>`) so same-type resources don't collide. Partial turn_on failure calls `markError` (preserves `restoration_data` for retry) instead of `markOn`.
-- **Job model**: api enqueues to SQS → worker processes (idempotent); SQS visibility 300s, RDS start polling runs in background to avoid redelivery.
+- **Node16 ESM**: relative imports rely on `.js` extensions to resolve; `tsc -b` is the real typecheck gate, since vitest and esbuild both skip type errors.
+- **AssumeRole flow**: the worker assumes `DemoPlatformOperator` per `accounts.yaml`, using the ExternalId stored in Secrets Manager; creds are cached with TTL skew.
+- **HPA-2 (ArgoCD controller)**: the goal of `turn_off` is a scaled-down state that ArgoCD won't fight, so it patches HPA `min=max=1` plus Deployment `replicas=1` rather than a true zero.
+- **turn_on restores resources**: `worker/src/job-runner.ts` reads `restoration_data` off the DDB state record and dispatches per-resource into each controller's `turnOn(rd)` (ECS desiredCount / EC2 start / RDS start / ArgoCD HPA-2 restore). RDS `waitForAvailable` is fire-and-forget. Restoration keys each entry by a **unique per-resource `stepKey`** (e.g. `argocd-app:<application>`) so that same-type resources don't collide. A partial `turn_on` failure calls `markError`, which preserves `restoration_data` for retry, instead of `markOn`.
+- **Job model**: the api enqueues to SQS and the worker processes idempotently; SQS visibility is 300s, and RDS start polling runs in the background so it doesn't trigger redelivery.
 
 ### Tests
 - Unit: vitest + `aws-sdk-client-mock` / fetch mocks.
@@ -48,7 +42,5 @@ Backed in dev by `backend/packages/api/src/dev-server.ts` (real API, in-memory
 state, simulated worker). Full details in `frontend/CLAUDE.md`.
 Not yet: detail view, Cognito login, real-time updates, ECS deploy.
 
-## Rules
-- TypeScript strict on both sides; `.js` import extensions (Node16).
-- No AWS SDK calls from the frontend — all cross-account ops go through the backend (assumes `DemoPlatformOperator` per `accounts.yaml`).
-- Frontend never sees AWS credentials; backend runs as `DashboardEcsTaskRole-dev` → STS AssumeRole into `DemoPlatformOperator`, never persists tokens.
+## Conventions
+The intent is to keep both sides strictly typed and share the Node16 ESM import convention (`.js` extensions) across the boundary. All cross-account operations belong in the backend, which assumes `DemoPlatformOperator` per `accounts.yaml` — the frontend has no AWS SDK dependency and never handles that layer directly. AWS credentials likewise stay out of the frontend entirely: the backend runs as `DashboardEcsTaskRole-dev`, does its STS AssumeRole into `DemoPlatformOperator` there, and doesn't persist the resulting tokens.

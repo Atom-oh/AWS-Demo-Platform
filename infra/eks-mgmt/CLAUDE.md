@@ -6,16 +6,18 @@ hangs off it (ALB controller, OTel/Tempo IRSA, Karpenter, and the shared CI runn
 used by the PR-review / AMI-build self-hosted runners via EKS Pod Identity).
 
 This used to be a duplicate of the same dir in `multi-region-architecture`; that copy was
-removed (2026-06-24) and this repo is now the single owner. Apply **only** via this repo's
-Atlantis — never apply the same state from two places (split-brain).
+removed (2026-06-24) and this repo is now the single owner. This repo's Atlantis is the
+sole applier, which is what keeps the state single-owner and avoids a split-brain where
+the same state gets applied from two places.
 
 ## State
 - **Bucket** `multi-region-mall-terraform-state` (shared, us-east-1)
 - **Key** `production/ap-northeast-2/eks-mgmt/terraform.tfstate`
 - **Lock table** `multi-region-mall-terraform-locks`
-- ⚠️ **Do NOT rename the key.** The spokes `eks-az-a` / `eks-az-c` in
+- The key needs to stay stable: the spokes `eks-az-a` / `eks-az-c` in
   `multi-region-architecture` read this state read-only via `terraform_remote_state`
-  (they consume `cluster_security_group_id`). Renaming the key breaks their plan/apply.
+  (they consume `cluster_security_group_id`), and renaming the key would break their
+  plan/apply.
 
 ## Composition (`main.tf`)
 - `module "eks"` (`../modules/compute/eks`) — cluster `mall-apne2-mgmt`, addons
@@ -34,7 +36,5 @@ Atlantis — never apply the same state from two places (split-brain).
 `environment`, `region`, `acm_certificate_arn`, `tags` (see `terraform.tfvars`).
 
 ## Apply
-```
-atlantis plan -d infra/eks-mgmt
-atlantis apply -d infra/eks-mgmt
-```
+Trigger via PR comments: `atlantis plan -d infra/eks-mgmt` runs the plan, and
+`atlantis apply -d infra/eks-mgmt` applies it.

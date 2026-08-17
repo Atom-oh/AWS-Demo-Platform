@@ -1,62 +1,24 @@
-<!-- generated-by: co-agent · source: CLAUDE.md · claude-md-sha: ba39868bacd6 · generated-at: 2026-08-14 · DO NOT EDIT — edit CLAUDE.md then run /co-agent sync-context -->
+<!-- generated-by: co-agent · source: CLAUDE.md · claude-md-sha: 74e3f7e73683 · generated-at: 2026-08-17 · DO NOT EDIT — edit CLAUDE.md then run /co-agent sync-context -->
 > You are an external reviewer — project context below.
 
 # AWS Demo Platform — reviewer context
 
-Admin platform to manage GitHub-linked AWS demo projects across accounts: discover repos, toggle demo resources (ECS/EC2/RDS/ArgoCD) on/off, surface demo & code-server URLs, manage Secrets Manager, operate cross-account via assume-role. **Non-production** — brief outages/disruption are explicitly acceptable; relaxed HA/multi-AZ/replicas is intentional (do **not** flag as a bug).
+Admin platform for managing GitHub-linked AWS demo projects across accounts: discover repos, toggle demo resources (ECS/EC2/RDS/ArgoCD) on/off, surface demo & code-server URLs, manage Secrets Manager, operate cross-account via assume-role. Non-production — brief outages and relaxed HA/multi-AZ/replicas are intentional, not defects.
 
 ## Stack / runtime
-- **IaC**: Terraform **1.9.6** pinned in Atlantis (1.9.8 currently fails to download — expired upstream GPG key), AWS provider, shared S3 backend `multi-region-mall-terraform-state` (unique `key` per module). Do **NOT** use `use_lockfile` (TF 1.10+); locks via `dynamodb_table`.
-- **Backend** (`dashboard/backend/`): Node 20, TypeScript, **pnpm workspaces monorepo** = `shared` / `api` (Fastify REST) / `worker` (SQS consumer). **Node16 ESM — every relative import needs a `.js` extension.**
-- **Frontend** (`dashboard/frontend/`): Next.js 14 App Router, TypeScript (strict).
-- **Compute**: ECS Fargate, **ARM64/Graviton** (images built `linux/arm64`). EKS hub `mall-apne2-mgmt` + spokes; ArgoCD (App-of-Apps); Atlantis (PR-driven TF); External Secrets Operator. **Scope: ap-northeast-2 only.**
+Terraform 1.9.6 pinned in Atlantis (1.9.8 currently fails to download — expired upstream GPG key), AWS provider, shared S3 backend `multi-region-mall-terraform-state` with a unique `key` per module, DynamoDB-table locking (not TF 1.10+'s `use_lockfile`). Backend (`dashboard/backend/`) is a Node 20 TypeScript pnpm-workspaces monorepo — `shared` / `api` (Fastify) / `worker` (SQS consumer) — running Node16 ESM, so relative imports need a `.js` extension. Frontend (`dashboard/frontend/`) is Next.js 14 App Router, strict TypeScript. Compute is ECS Fargate on ARM64/Graviton, in `ap-northeast-2` only; EKS hub `mall-apne2-mgmt` plus spokes run ArgoCD (App-of-Apps) and Atlantis (PR-driven TF) with External Secrets Operator.
 
-## Commands (copy-paste)
-```bash
-# backend (from dashboard/backend)
-pnpm install && pnpm -r build      # tsc -b is the REAL typecheck gate (vitest/esbuild skip type errors)
-pnpm -r lint && pnpm -r test       # *.int.test.ts need LocalStack on :4566 (skip/fail locally without it)
-# frontend (from dashboard/frontend)
-pnpm install && pnpm typecheck && pnpm lint && pnpm build
-# terraform (from infra/<module>)
-terraform init -backend=false && terraform validate
-# applied via Atlantis PR comments: atlantis plan -d infra/<module>  /  atlantis apply -d infra/<module>
-# k8s manifests
-kubectl kustomize k8s/system/<name> | kubectl apply --dry-run=client -f -
-```
+## Verification
+Real gates: backend `pnpm -r build` (`tsc -b` is the actual typecheck; vitest/esbuild skip type errors) then `pnpm -r lint && pnpm -r test` (`*.int.test.ts` needs LocalStack on :4566 — expect it to fail outside CI's service container). Frontend: `pnpm typecheck && pnpm lint && pnpm build`. Terraform: `terraform init -backend=false && terraform validate` per module, applied for real via Atlantis PR comments. K8s manifests validate with `kubectl kustomize <dir> | kubectl apply --dry-run=client`.
 
 ## Naming
-- Terraform resources prefixed `demo-platform-`. Secrets Manager paths under `/demo-platform/...`.
-- Docs (ADRs, README, CHANGELOG, runbooks) and code comments are **English-only** — do not flag missing Korean sections; that convention was retired.
+Terraform resources take a `demo-platform-` prefix; Secrets Manager paths live under `/demo-platform/...`. Docs (ADRs, README, CHANGELOG, runbooks) and code comments are English-only — a missing Korean section is not a defect, that convention was retired.
 
-## Security mandates / banned patterns (flag any violation)
-- **CloudFront-only ingress**: every load-balancer SG accepts ONLY the CF VPC Origin source SG + `10.0.0.0/8`. **No public ALB/NLB. No Kubernetes Ingress.**
-- **TargetGroupBinding (TGB)**: target groups created in Terraform; pods bound via TGB CRD (never an Ingress controller).
-- **ACM**: always `data "aws_acm_certificate"` for the `*.atomai.click` wildcard. **Never issue a new cert.**
-- **CloudFront origins**: `domain_name` must be a subdomain on the wildcard cert (SNI). For a same-origin distro routing `/api/*` to a different ALB host, the `/api/*` behavior must use **`AllViewerExceptHostHeader`** (so CF sends `Host`=origin domain) + **CachingDisabled** (forwards `Authorization`, never caches POST/auth).
-- **HPA-2 on/off**: demo-off patches HPA `min=max=1` + Deployment `replicas=1` — **never `replicas=0` / true zero.**
-- **Cross-account**: assume `OperatorRole` (read) / `DemoPlatformTerraformer` (write) / `DemoPlatformOperator` (worker toggles); **`ExternalId` is required** on the trust policy, sourced from Secrets Manager `/demo-platform/external-ids/<account>/<role>`.
-- **Frontend never touches AWS**: no AWS SDK in `dashboard/frontend`; all cross-account ops go through the backend (`DashboardEcsTaskRole` → STS AssumeRole `DemoPlatformOperator`); the frontend never sees AWS credentials.
-- **API is fail-closed**: `NODE_ENV=production` enforces Cognito JWT; `skipJwt` only when `NODE_ENV==='development'`. The api verifies the **access** token (`tokenUse:'access'`) and checks `cognito:username` ∈ `ADMIN_USERNAMES`.
-- **CI auth**: no long-lived AWS keys — GitHub OIDC role `demo-platform-gha-ecr-push`, trust scoped to `repo:Atom-oh/AWS-Demo-Platform:ref:refs/heads/main`, `id-token: write` only on the push job.
-- **Atlantis**: keep the `--write-git-creds` flag (GitHub App auth) — don't strip it.
+## What a diff should preserve
+The platform's public entry point is CloudFront only — a load-balancer SG that isn't scoped to the CF VPC Origin source SG plus RFC1918, or a pod reached via Kubernetes Ingress instead of TargetGroupBinding, is a regression. ACM should keep resolving the existing `*.atomai.click` wildcard via a `data` lookup rather than issuing a new cert; a same-origin CloudFront distribution routing `/api/*` elsewhere needs `AllViewerExceptHostHeader` (so `Host` matches the origin) and `CachingDisabled` (so `Authorization` isn't cached). Demo on/off toggles HPA to `min=max=1` plus `replicas=1` — a true `replicas=0` breaks the pattern. Cross-account calls assume `OperatorRole` / `DemoPlatformTerraformer` / `DemoPlatformOperator` with an `ExternalId` sourced from Secrets Manager, never ambient credentials. The frontend never holds AWS credentials directly — cross-account operations route through the backend's `DashboardEcsTaskRole` → `DemoPlatformOperator` assume-role. The API's Cognito JWT check is meant to fail closed: `skipJwt` only applies outside production, and the access token's `cognito:username` must be in `ADMIN_USERNAMES`. CI auth uses GitHub OIDC (`demo-platform-gha-ecr-push`, trust scoped to this repo's main branch), not long-lived keys. Atlantis needs its `--write-git-creds` flag for GitHub App auth to keep working.
 
 ## Architectural boundaries
-- **Backend layering**: `shared` (zod schemas, DDB clients state/jobs/history, ArgoCD & GitHub REST clients, AWS client factory, AssumeRole cache) ⟵ `api` (Fastify routes only; thin — no business logic) + `worker` (SQS consumer + 4 resource controllers ECS/EC2/RDS/ArgoCD).
-- **Async model (ADR-001)**: api validates state → `transition→transitioning` → create DDB job → enqueue SQS → return `202 {job_id}`. Worker long-polls, processes idempotently, startup-sweep re-enqueues `running` jobs, DLQ after 3. `turn_off` captures `restoration_data`; `turn_on` restores per-resource; partial `turn_on` failure → `markError` (preserves restoration_data; api accepts turn_on from `off` OR `error`). Restoration keyed by a **unique per-resource `stepKey`** (same-type resources must not collide).
-- **ArgoCD (ADR-002)**: control via ArgoCD **REST API** (Bearer admin token), not the k8s API.
-- **ECS services** declare `lifecycle { ignore_changes = [task_definition, desired_count] }` — `terraform apply` registers a new task-def revision but does NOT roll the service; rollout is a manual `aws ecs update-service --task-definition <fam>:<rev> --force-new-deployment` (pin the rev; a bare force-deploy keeps the old rev).
-- **Terraform**: one module per dir, each with its own `CLAUDE.md` + unique state key; cross-module refs via `terraform_remote_state` → **apply dependencies first** (a dependent module can't even `plan` until the dependency's output exists).
+Backend layering: `shared` (schemas, DDB clients, ArgoCD/GitHub clients, AWS client factory) underlies `api` (thin Fastify routes, no business logic) and `worker` (SQS consumer + the ECS/EC2/RDS/ArgoCD resource controllers). The async lifecycle model (ADR-001): the API validates state, transitions to `transitioning`, enqueues a job, and returns `202`; the worker processes idempotently, re-enqueues `running` jobs on restart, and DLQs after 3 attempts — `turn_off` captures restoration data keyed by a resource-unique `stepKey`, and a failed `turn_on` preserves that data via `markError` rather than losing it. ArgoCD is controlled through its REST API (ADR-002), not the Kubernetes API. ECS services ignore `task_definition`/`desired_count` drift in Terraform, so a rollout is a manual, revision-pinned `aws ecs update-service --force-new-deployment`. Terraform is one module per directory with its own state key and `CLAUDE.md`; a module that reads another's `terraform_remote_state` output can't plan until the dependency has actually applied.
 
-## Review checklist
-- TF: no new ACM cert; no public LB; LB SG limited to CF VPC origin + RFC1918; `ExternalId` on cross-account trust; `demo-platform-` prefix; task `cpu_architecture` = `ARM64` and matches the image platform.
-- Backend: `.js` import extensions; `tsc -b` clean; shared errors used for error handling; no AWS SDK leaking into the frontend; fail-closed JWT preserved.
-- Cross-module TF ordering respected (don't expect a dependent plan to pass before its remote_state dependency is applied).
-- Frontend: access token (not id token) sent as Bearer; same-origin `/api/*`.
-
-## Known false-positives — do NOT flag these
-- The repo **commit-msg hook strips `Co-Authored-By`** — its absence is expected, not a failure.
-- `shared/**/*.int.test.ts` fail locally with `ECONNREFUSED :4566` (LocalStack) — they pass in CI's service container.
-- A Terraform plan showing **task-definition "destroy and recreate"** is normal (task-defs are immutable); only an `aws_ecs_service` destroy would be alarming.
-- Non-production: relaxed HA/single-AZ/`desiredCount=0`/brief downtime are deliberate, not defects.
-- Several schema resource types (`dynamodb`/`lambda`/`stepfunctions`/`msk`/`firehose`/`elasticache`/`kafka`) are **visibility-only** (`always_on`) with no toggle path — by design.
+## Known non-issues
+The commit-msg hook strips `Co-Authored-By` — its absence in a commit is expected. A Terraform plan showing a task-definition "destroy and recreate" is normal (task defs are immutable); only an `aws_ecs_service` destroy is worth flagging. Several schema resource types (`dynamodb`/`lambda`/`stepfunctions`/`msk`/`firehose`/`elasticache`/`kafka`) are visibility-only by design, with no toggle path.
