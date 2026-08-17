@@ -29,112 +29,61 @@ See `docs/superpowers/specs/2026-05-26-aws-demo-platform-design.md` for the full
 
 ## Project Structure
 
-```
-accounts.yaml             - Target AWS accounts (cross-account assume-role config)
-projects/                 - Per-project metadata (resources, URLs, on/off targets)
-infra/                    - Terraform (hub cluster, network, IAM, dashboard infra)
-  eks-mgmt/               - Hub EKS cluster cross-repo state
-  atlantis-bootstrap/     - AtlantisIRSARole + Secrets Manager slots
-  alb-internal/           - Internal ALB + SG rules
-  cloudfront/             - CloudFront distribution + VPC Origin
-  route53-private-zone/   - Split-horizon DNS PHZ
-  dynamodb/               - Lifecycle Controller state/jobs/history tables (Stage 2, dev)
-  iam/                    - DashboardEcsTaskRole-dev, ExecutionRole-dev, DemoPlatformOperator (Stage 2)
-  sqs/                    - Lifecycle Controller job queue + DLQ (Stage 2, dev)
-  ecr/                    - demo-platform/{api,worker} image repos (Stage 2)
-  secrets-manager/        - Dashboard secret slots: github PAT, argocd token, cognito (Stage 2)
-  cognito/                - Admin auth (Stage 2 Phase 4)
-  dashboard-ecs/          - Dashboard runtime ECS (Stage 2 Phase 4)
-  modules/                - Shared Terraform modules (copied from multi-region-architecture)
-k8s/system/               - Kustomize manifests for hub system components
-  atlantis/               - Atlantis deployment + ExternalSecret
-  argocd/                 - ArgoCD helm values (HPA-2 ignoreDifferences)
-  external-secrets-bootstrap/  - One-time CSS adoption manifest
-argocd-apps/
-  bootstrap/              - master-system-root + master-tenants-root (one-time apply)
-  system/                 - System Applications (atlantis, argocd, external-secrets, CSS)
-  tenants/                - Per-tenant root Applications (App-of-Apps targeting spokes)
-dashboard/
-  backend/                - Stage 2 Lifecycle Controller (pnpm monorepo: shared/api/worker) [built]
-  frontend/               - Stage 3 admin UI (Next.js) [scaffold only]
-docs/
-  superpowers/            - Specs, plans, retrospectives
-  onboarding/             - Friend account setup guides
-  decisions/              - ADRs
-  runbooks/               - Operational runbooks
-.claude/                  - Claude Code settings, hooks, skills, commands, agents
-scripts/                  - Setup, hook installer
-tests/                    - Harness validation suite
-```
+Top-level layout: `accounts.yaml` (cross-account assume-role config) and `projects/`
+(per-project metadata) drive the platform. `infra/` holds one Terraform module per
+directory (hub cluster, network, IAM, dashboard infra — each module's own `CLAUDE.md`
+covers its state key and specifics). `k8s/system/` holds Kustomize manifests for hub
+system components; `argocd-apps/` holds the App-of-Apps Application CRs
+(`bootstrap/` for the one-time roots, `system/` and `tenants/` for what they discover).
+`dashboard/` is the Lifecycle Controller (`backend/`, built) and the admin UI
+(`frontend/`, scaffold). `docs/` holds specs/plans/retrospectives, onboarding guides,
+ADRs, and runbooks. `.claude/` holds Claude Code config; `scripts/` and `tests/` hold
+setup and harness validation.
 
 ## Conventions
 
-- **Cross-account access**: assume `OperatorRole` (read) or `DemoPlatformTerraformer` (write) per account in `accounts.yaml`. ExternalId stored in Secrets Manager `/demo-platform/external-ids/<account>/<role>`.
-- **CloudFront-only ingress**: every load balancer SG accepts only the CF VPC Origin source SG + `10.0.0.0/8`. No public ALB/NLB. No Kubernetes Ingress.
-- **TargetGroupBinding (TGB) pattern**: TGs are created in Terraform; pods are bound via TGB CRD (no Ingress).
-- **HPA-2 pattern**: instead of patching replicas to 0 for demo-off, patch HPA `min=max=1`. ArgoCD `ignoreDifferences` covers Deployment/StatefulSet `/spec/replicas` and HPA `/spec/minReplicas`+`/spec/maxReplicas` cluster-wide.
-- **Atlantis flag**: `--write-git-creds` is required for GitHub App auth — don't strip it from the deployment.
-- **ACM cert**: always use the pre-existing `*.atomai.click` wildcard via `data "aws_acm_certificate"` lookup. Don't issue new certs.
-- **kube context safety**: always verify `kubectl config current-context` before running cluster-scoped operations. Available contexts are full EKS ARNs (e.g., `arn:aws:eks:ap-northeast-2:180294183052:cluster/mall-apne2-mgmt`) and the short aliases `az-a` / `az-c` for spokes.
-- **Naming**: Terraform resources prefixed with `demo-platform-`. AWS Secrets Manager paths under `/demo-platform/...`.
-- **Docs are English-only**: ADRs, `README.md`, `CHANGELOG.md`, runbooks, and code comments are English-only — no bilingual English/Korean sections. (Docs used to carry a parallel Korean half; dropped for token efficiency, matching ADR-015's English-only pipeline rule. `AskUserQuestion` prompts to the user are the one exception and may still be Korean.)
+The goal shaping most decisions here: every public entry point goes through
+CloudFront, and cross-account/cross-service credentials always carry an explicit
+scope (ExternalId, IAM role, or Secrets Manager path) rather than ambient access.
+Concretely:
+
+- **Cross-account access** goes through `OperatorRole` (read) or `DemoPlatformTerraformer`
+  (write) per account in `accounts.yaml`, gated by an ExternalId in Secrets Manager
+  `/demo-platform/external-ids/<account>/<role>`.
+- **Ingress** is CloudFront-only: load balancer SGs accept only the CF VPC Origin
+  source SG plus `10.0.0.0/8`, and pods reach their target group via the
+  TargetGroupBinding CRD (TGs live in Terraform) rather than a Kubernetes Ingress.
+- **Demo on/off** uses the HPA-2 pattern — patch HPA `min=max=1` instead of
+  replicas=0 — with a cluster-wide ArgoCD `ignoreDifferences` on
+  Deployment/StatefulSet `/spec/replicas` and HPA `/spec/{min,max}Replicas`.
+- **Atlantis** needs its `--write-git-creds` flag for GitHub App auth.
+- **ACM** reuses the existing `*.atomai.click` wildcard via a `data` lookup rather
+  than issuing new certs.
+- **kube context**: verify `kubectl config current-context` resolves to the hub
+  (`mall-apne2-mgmt`, or alias `az-a`/`az-c` for spokes) before any cluster-scoped op.
+- **Naming**: Terraform resources take a `demo-platform-` prefix; Secrets Manager
+  paths live under `/demo-platform/...`.
+- **Docs are English-only** — ADRs, README, CHANGELOG, runbooks, and code comments.
+  `AskUserQuestion` prompts to the user are the one channel that may still be Korean.
 
 ## Key Commands
 
-```bash
-# Terraform (per-directory)
-cd infra/<module> && terraform init && terraform plan
-
-# Atlantis-driven (preferred for PRs)
-# In PR comments:
-#   atlantis plan -d infra/<module>
-#   atlantis apply -d infra/<module>
-
-# ArgoCD CLI (against hub)
-argocd login argocd.atomai.click
-argocd app list
-argocd app sync <app-name>
-
-# kubectl (verify context FIRST)
-kubectl config current-context     # must show mall-apne2-mgmt for hub ops
-kubectl get applications -n argocd
-
-# Validate K8s manifests
-kubectl kustomize k8s/system/atlantis | kubectl apply --dry-run=client -f -
-
-# Project setup
-bash scripts/setup.sh
-
-# Run harness tests
-bash tests/run-all.sh
-```
+Terraform changes are plan/apply per module directory, normally through Atlantis PR
+comments rather than a local `terraform apply`. Kubernetes changes go through ArgoCD
+(`argocd app sync`), gated by `kubectl config current-context` resolving to the hub
+before any cluster-scoped operation. `bash scripts/setup.sh` bootstraps a new checkout;
+`bash tests/run-all.sh` runs the harness validation suite.
 
 ---
 
 ## Auto-Sync Rules
 
-Rules below are applied automatically after Plan mode exit and on major code changes.
-
-### Post-Plan Mode Actions
-
-After exiting Plan mode (`/plan`), before starting implementation:
-
-1. **Architecture decision made** → Update `docs/architecture.md`
-2. **Technical choice/trade-off made** → Create `docs/decisions/ADR-NNN-title.md`
-3. **New module added** → Create `CLAUDE.md` in that module directory
-4. **Operational procedure defined** → Create runbook in `docs/runbooks/`
-5. **Changes needed in this file** → Update relevant sections above
-
-### Code Change Sync Rules
-
-- New directory under `infra/` → Create `CLAUDE.md` alongside; update `docs/architecture.md` Infrastructure table
-- New directory under `k8s/system/` → Create `CLAUDE.md` alongside; ensure matching `argocd-apps/system/<name>.yaml` exists
-- New directory under `argocd-apps/` → Update `docs/architecture.md` GitOps section
-- Project added under `projects/` → Update App-of-Apps coverage; create runbook if onboarding flow differs
-- Terraform module changed → Update `docs/architecture.md` Infrastructure section
-- `accounts.yaml` changed → Update `docs/onboarding/friend-account-setup.md`
-
-### ADR Numbering
-
-Find the highest number in `docs/decisions/ADR-*.md` and increment by 1.
-Format: `ADR-NNN-concise-title.md`
+The intent: keep `docs/architecture.md`, ADRs, module `CLAUDE.md` files, and runbooks
+current with the code, rather than letting them drift after a plan-mode session or a
+structural change. When exiting plan mode, check whether the change was an
+architecture decision, a trade-off worth recording as an ADR, a new module needing its
+own `CLAUDE.md`, or an operational procedure needing a runbook — and update the
+relevant doc accordingly. The same applies to code changes: a new `infra/` or
+`k8s/system/` directory gets a sibling `CLAUDE.md`; a new `argocd-apps/` entry or
+`projects/` addition gets `docs/architecture.md` and onboarding docs kept in sync.
+New ADRs take the next number after the highest existing `docs/decisions/ADR-*.md`.

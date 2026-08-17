@@ -8,5 +8,6 @@ values populated out-of-band:
 
 - **State key**: `production/aws-demo-platform/secrets-manager/terraform.tfstate`
 - `recovery_window_in_days = 0` (non-prod, immediate delete).
-- Does NOT manage `/demo-platform/external-ids/*` — those were created out-of-band in
-  Stage 1 and already hold values. Atlantis project `secrets-manager`.
+- Scope is the dashboard slots above; `/demo-platform/external-ids/*` lives elsewhere —
+  those were created out-of-band in Stage 1 and already hold values. Atlantis project
+  `secrets-manager`.
