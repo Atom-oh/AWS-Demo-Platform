@@ -21,4 +21,4 @@ Because the HPA-2 `ignoreDifferences` rule is already defined cluster-wide in `a
 
 Onboarding a new project is just a matter of dropping a YAML file in `argocd-apps/tenants/` that points at the project's manifest repo, path, and spoke cluster — `master-tenants-root` will pick it up within one sync interval without further wiring.
 
-Spoke clusters need to be registered before anything can target them, via `argocd cluster add --upsert <kubeconfig-context>`. Those registrations live as Secrets in the `argocd` namespace, and since they don't automatically survive an ArgoCD restart, backing them up to Secrets Manager is still an open TODO rather than a solved problem.
+Spoke clusters need to be registered before anything can target them, via `argocd cluster add --upsert <kubeconfig-context>`. Those registrations live as Secrets in the `argocd` namespace, which survive pod/ArgoCD restarts fine on their own — what they don't survive is losing the namespace or the hub cluster itself, so backing them up to Secrets Manager is still an open TODO rather than a solved problem.

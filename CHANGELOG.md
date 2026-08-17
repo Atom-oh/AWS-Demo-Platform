@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Retired the bilingual English/Korean documentation convention — ADRs, README, CHANGELOG, runbooks, and code comments are now English-only. `AskUserQuestion` prompts to the user remain the one exception.
+- Rewrote all `CLAUDE.md` files (root + module-level) and `AGENTS.md` from imperative rule lists into goal-oriented prose, with no fenced code blocks.
+
 ## [0.1.1] - 2026-05-26
 
 ### Added

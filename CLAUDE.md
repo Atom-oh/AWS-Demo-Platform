@@ -59,8 +59,9 @@ Concretely:
 - **Atlantis** needs its `--write-git-creds` flag for GitHub App auth.
 - **ACM** reuses the existing `*.atomai.click` wildcard via a `data` lookup rather
   than issuing new certs.
-- **kube context**: verify `kubectl config current-context` resolves to the hub
-  (`mall-apne2-mgmt`, or alias `az-a`/`az-c` for spokes) before any cluster-scoped op.
+- **kube context**: verify `kubectl config current-context` before any cluster-scoped
+  op — hub operations need it to resolve to `mall-apne2-mgmt`, while spoke-scoped work
+  uses the `az-a`/`az-c` aliases instead.
 - **Naming**: Terraform resources take a `demo-platform-` prefix; Secrets Manager
   paths live under `/demo-platform/...`.
 - **Docs are English-only** — ADRs, README, CHANGELOG, runbooks, and code comments.
@@ -84,6 +85,10 @@ structural change. When exiting plan mode, check whether the change was an
 architecture decision, a trade-off worth recording as an ADR, a new module needing its
 own `CLAUDE.md`, or an operational procedure needing a runbook — and update the
 relevant doc accordingly. The same applies to code changes: a new `infra/` or
-`k8s/system/` directory gets a sibling `CLAUDE.md`; a new `argocd-apps/` entry or
-`projects/` addition gets `docs/architecture.md` and onboarding docs kept in sync.
-New ADRs take the next number after the highest existing `docs/decisions/ADR-*.md`.
+`k8s/system/` directory gets a sibling `CLAUDE.md` — and for `k8s/system/`
+specifically, a new directory there also needs a matching
+`argocd-apps/system/<name>.yaml`, since without that Application ArgoCD never
+discovers the new component. A new `argocd-apps/` entry or `projects/` addition
+gets `docs/architecture.md` kept in sync, and a change to `accounts.yaml` gets
+`docs/onboarding/friend-account-setup.md` kept in sync alongside it. New ADRs
+take the next number after the highest existing `docs/decisions/ADR-*.md`.

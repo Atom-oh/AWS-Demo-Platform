@@ -3,7 +3,7 @@
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/Version-0.1.1-green.svg)]()
 
-Admin platform for managing GitHub-linked AWS demo projects across multiple AWS accounts. | 다중 AWS 계정에 걸쳐 GitHub 연동 AWS 데모 프로젝트를 관리하는 관리자 플랫폼입니다.
+Admin platform for managing GitHub-linked AWS demo projects across multiple AWS accounts.
 
 ## Overview
 

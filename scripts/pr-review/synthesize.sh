@@ -91,7 +91,7 @@ PROMPT_EOF
 # using it here would collapse PRIMARY==FALLBACK and defeat the fallback.
 PRIMARY_MODEL="${CHAIR_PRIMARY_MODEL:-us.anthropic.claude-fable-5}"
 FALLBACK_MODEL="${CHAIR_FALLBACK_MODEL:-us.anthropic.claude-opus-5}"
-# 600s: a normal chair run has taken up to ~286s (oh-my-cloud-skills #105); must exceed PANEL_TIMEOUT (300s).
+# 600s: a normal chair run has taken up to ~286s (oh-my-cloud-skills #105); must exceed the largest per-model PANEL_TIMEOUT (claude-self's 480s).
 CHAIR_TIMEOUT="${CHAIR_TIMEOUT:-600}"
 
 chair_label() { case "$1" in
