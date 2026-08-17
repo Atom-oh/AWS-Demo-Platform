@@ -10,7 +10,9 @@ Dashboard runtime (Stage 2 Phase 4, dev). ECS Fargate cluster `demo-platform-dev
 - `ignore_changes = [task_definition, desired_count]` — image rolled by GHA / count out-of-band.
 
 ## Enabling the worker (deferred)
-desiredCount=0 because the worker entry calls `loadWorkerEnv()` (requires GITHUB_PAT + ARGOCD_ADMIN_TOKEN) and `loadProjects(PROJECTS_DIR)` / accounts.yaml. Before scaling to 1:
-1. Populate `/demo-platform/dev/github/pat` and `/demo-platform/argocd/admin-token`.
-2. Bake `projects/*.yaml` + `accounts.yaml` into the worker image (Dockerfile COPY) or mount them — currently NOT in the image.
-Then `aws ecs update-service --service demo-platform-worker-dev --desired-count 1`.
+desiredCount is 0 because the worker entry calls `loadWorkerEnv()`, which requires GITHUB_PAT
+and ARGOCD_ADMIN_TOKEN, and `loadProjects(PROJECTS_DIR)` / accounts.yaml. Scaling to 1 depends
+on populating `/demo-platform/dev/github/pat` and `/demo-platform/argocd/admin-token`, and on
+getting `projects/*.yaml` plus `accounts.yaml` into the worker image (via Dockerfile COPY or a
+mount) — currently neither is baked into the image. Once both are in place, the service can be
+scaled up with an ECS update-service call setting `demo-platform-worker-dev`'s desired count to 1.

@@ -6,7 +6,9 @@
 ## Status
 Accepted (2026-06-14). Superseded in part by [ADR-011](ADR-011-pr-review-kiro-roster-gpt55-drop-v3.md)
 (Kiro roster `kimi-k2.5` → `gpt-5.5`, drop `--v3`) — this document's roster/flag
-references below are historical.
+references below are historical. Execution topology (single-job fan-out) is
+superseded by [ADR-015](ADR-015-pr-review-per-model-parallel-jobs.md)
+(per-model parallel jobs).
 
 ## Context
 
@@ -83,7 +85,8 @@ prior Claude-solo behavior.
 
 Rebased the runner image off the official ARC image (the previous `FROM
 actions-runner-claude:latest` was self-referential — a weekly cron would keep
-stacking on its own output). Pinned CLI versions, baked Claude Code plugins, and
+stacking on its own output). Pinned CLI versions (later unpinned — see
+[ADR-013](ADR-013-pr-review-gpt56-model-bump.md)), baked Claude Code plugins, and
 added a weekly rebuild (`runner-image.yml` schedule, best-effort — a failed build
 never reaches `docker push`). Panel calls used `kiro-cli --v3 chat` at this point
 (binary `kiro-cli`, never bare `kiro`); `--v3` was dropped later per
@@ -101,5 +104,7 @@ Auth is job-scoped (`github.token`), not a pod-wide PAT; in the
 `pull_request_target` write context, tool access is a read-only allowlist (no
 `gh api`/comment ability). See
 [ADR-010](ADR-010-bedrock-account-data-retention-for-fable-mythos.md) for the
-Bedrock data-retention posture behind the Fable 5 chair model (adopted later per
-[ADR-013](ADR-013-pr-review-gpt56-model-bump.md)/[ADR-014](ADR-014-pr-review-opus5-model-bump.md)).
+Bedrock data-retention posture behind the `claude-fable-5` chair model. The
+chair-primary switch from Opus 4.8 to Fable 5 itself has no ADR of its own —
+[ADR-014](ADR-014-pr-review-opus5-model-bump.md) treats it as an unchanged
+prior fact when adding the Opus 5 fallback.

@@ -29,7 +29,8 @@ jobs:
     name: "AI Panel (${{ matrix.model }})"
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: aws-demo-platform-claude-arm
-    # Ceiling is PANEL_TIMEOUT x PANEL_RETRIES (300x3=15min) + node boot; 20min backstops a hang.
+    # Ceiling is PANEL_TIMEOUT x PANEL_RETRIES (300x3=15min, claude-self 480x2=16min) +
+    # node boot; 20min backstops a hang.
     timeout-minutes: 20
     permissions:
       # No write: even if a cell is prompt-injected into leaking credentials, this
@@ -45,7 +46,8 @@ jobs:
       # rather than PR head — PR head code could rewrite scripts/*.sh and steal panel
       # keys/node IAM. The PR's changes reach us only as diff data via prepare-inputs.sh's
       # `gh api compare` (never executed). persist-credentials: false so GH_TOKEN isn't
-      # left in .git/config for an injected Kiro cell to exfiltrate.
+      # left in .git/config for exfiltration by even a hypothetically tool-enabled cell
+      # (defense-in-depth — Kiro's --trust-tools= guard already denies it tool access).
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -69,7 +71,12 @@ jobs:
 
       - name: "Run panel cell (model: ${{ matrix.model }}, all lenses)"
         env:
-          PANEL_TIMEOUT: "300"
+          # claude-self does extra read-only tool calls (gh/github MCP/Read/Grep/Glob)
+          # on top of the diff, so it needs more headroom than the other panelists,
+          # which only process the diff text — PR #92 saw it hit 300s on all 4 lenses
+          # on a large (65-file) diff. 480x2=960s stays under the 20min job timeout.
+          PANEL_TIMEOUT: ${{ matrix.model == 'claude-self' && '480' || '300' }}
+          PANEL_RETRIES: ${{ matrix.model == 'claude-self' && '2' || '3' }}
           # Only claude-self uses this token (read-only gh/MCP tools); codex/kiro run
           # with no tool access, so we don't expose the token to their process env.
           GH_TOKEN: ${{ matrix.model == 'claude-self' && github.token || '' }}

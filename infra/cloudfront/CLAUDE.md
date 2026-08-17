@@ -1,9 +1,11 @@
 # infra/cloudfront
 
-CloudFront distributions + VPC Origin for the CloudFront-only ingress pattern (no
-public ALB/NLB, no Kubernetes Ingress). Each distribution's origin is an Internal
-ALB target group reached via `aws_cloudfront_vpc_origin`, with the `*.atomai.click`
-wildcard ACM cert (`data.aws_acm_certificate`, never a new cert).
+CloudFront distributions + VPC Origin for the CloudFront-only ingress pattern, where
+CloudFront is the sole public entry point and load balancers and Kubernetes Ingress
+stay off the open internet. Each distribution's origin is an Internal ALB target
+group reached via `aws_cloudfront_vpc_origin`, with the `*.atomai.click` wildcard
+ACM cert looked up via `data.aws_acm_certificate` so every distribution reuses the
+same pre-existing cert rather than issuing a new one.
 
 - **State**: shared backend bucket `multi-region-mall-terraform-state`.
 - **Distributions**: `argocd` (`argocd.atomai.click`), `atlantis`, `dashboard_api`,

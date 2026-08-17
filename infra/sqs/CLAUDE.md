@@ -6,6 +6,6 @@ Lifecycle Controller job queue (Stage 2, dev). `demo-platform-jobs-dev`
 
 - **State key**: `production/aws-demo-platform/sqs/terraform.tfstate`
 - **Outputs**: `queue_url`, `queue_arn`, `dlq_arn`
-- Requires `sqs:*` on `AtlantisIRSARole` (added in `atlantis-bootstrap`). NOTE: apply
-  `atlantis-bootstrap` first and allow IAM propagation — a same-second apply can hit
+- Requires `sqs:*` on `AtlantisIRSARole` (added in `atlantis-bootstrap`). That module needs
+  to be applied first, with time for IAM propagation, since a same-second apply can hit
   AccessDenied on `CreateQueue`. Atlantis project `sqs`.
