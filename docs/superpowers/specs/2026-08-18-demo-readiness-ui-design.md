@@ -74,10 +74,11 @@ can read, not a synchronous API-layer AWS call — worth its own spec if it come
   types, and `always_on: true` resources, are rejected — there's no scale concept for
   them); an `ecs` target carries `desiredCount` and an `argocd-app` target carries
   `replicas`, both positive integers, and not the other field. The status check is a
-  **conditional DDB write** (`ConditionExpression: status = :on`), not a plain
-  read-then-write — this narrows, though doesn't eliminate, the race against a
-  concurrent `turn_off` (see Known limitation below; this is a non-production tool, so
-  full serialization via a distributed lock is deliberately not in scope). On success,
+  plain read (`scale` has no status transition of its own to attach a DynamoDB
+  `ConditionExpression` to, unlike `turn_on`/`turn_off`) — it does not fully close the
+  race against a concurrent `turn_off` (see Known limitation below; this is a
+  non-production tool, so a distributed lock or a synthetic transitional status just
+  to gain an atomic condition is deliberately not in scope). On success,
   creates a job (with `targets` on the record) and enqueues it — no project-status
   transition, since `scale` doesn't change on/off state. If the SQS enqueue fails
   after the job record is created, the route marks that job `failed` before returning
@@ -91,11 +92,12 @@ can read, not a synchronous API-layer AWS call — worth its own spec if it come
   *project's* `state.status`, since scale doesn't change on/off state. Per target, it
   dispatches by resource type: `argocd-app` calls a new
   `ArgocdController.scale(application, replicas)` method that calls `listWorkloads`
-  and then, **per workload, dispatches by that workload's kind** exactly as
-  `turnOn`/`turnOff` already do — `patchReplicas` on a Deployment-kind handle,
-  `patchHpaBounds` on an HPA-kind handle, never both blindly on every handle (an HPA
-  handle rejects `patchReplicas`, a Deployment handle isn't meaningfully affected by
-  `patchHpaBounds`). `ecs` targets call a new, standalone
+  and then, **per workload, dispatches by that workload's kind** using the same
+  kind-check `turnOn`/`turnOff` already use — `patchReplicas(replicas)` on a
+  `Deployment`- or `StatefulSet`-kind handle, `patchHpaBounds({min: replicas, max:
+  replicas})` on an HPA-kind handle, never both blindly on every handle (an HPA
+  handle rejects `patchReplicas`, a Deployment/StatefulSet handle isn't meaningfully
+  affected by `patchHpaBounds`). `ecs` targets call a new, standalone
   `EcsController.setDesiredCount({cluster, service, count})` (independent of the
   existing turn_on/off restoration capture — it's a simple `UpdateServiceCommand`, no
   bookkeeping). A job is `partial_failure` if some but not all targets fail, and
@@ -107,20 +109,30 @@ can read, not a synchronous API-layer AWS call — worth its own spec if it come
   currently a private helper inside `job-runner.ts` (in the `worker` package).
   Exporting it from `worker` doesn't help — `api` and `frontend` are separate
   packages that don't depend on `worker`. This spec moves the pure function into
-  `@demo-platform/shared` (which both `api` and `worker` already depend on) so the new
-  route can import and validate against it directly. The frontend still can't import
+  `@demo-platform/shared` (which both `api` and `worker` already depend on) and
+  re-exports it from that package's barrel (`src/index.ts`) — a file added under
+  `shared/src/` but left out of the barrel isn't part of `@demo-platform/shared`'s
+  actual importable surface — so the new route can import and validate against it
+  directly. The frontend still can't import
   a Node package function, so it never computes a `stepKey` itself: the API includes
   each resource's `stepKey` as a field in its existing project-detail response, and
   the frontend just echoes that value back on a scale request.
-- **Known limitation, not fixed in this pass**: scaling a resource up and then running
-  `turn_off` will capture the *scaled* count as the new `restoration_data` baseline —
-  the pre-demo baseline is not separately remembered, so a forgotten "scale back down"
-  before ending a demo permanently raises what the next `turn_on` restores to. Given
-  this is explicitly a non-production tool, the mitigation is operational, not code: a
-  toast after a successful scale reminds the operator that the new count becomes the
-  restore point on the next `turn_off`. A real fix (a separate, never-mutated baseline
-  distinct from the mutable "current" state) is a bigger change than this pass
-  budgets for and would be its own follow-up if it becomes a recurring problem.
+- **Known limitations, not fixed in this pass** (both accepted given this is
+  explicitly a non-production tool):
+  - Scaling a resource up and then running `turn_off` will capture the *scaled* count
+    as the new `restoration_data` baseline — the pre-demo baseline is not separately
+    remembered, so a forgotten "scale back down" before ending a demo permanently
+    raises what the next `turn_on` restores to. Mitigated operationally, not in code:
+    a toast after a successful scale reminds the operator that the new count becomes
+    the restore point on the next `turn_off`. A real fix (a separate, never-mutated
+    baseline distinct from the mutable "current" state) is a bigger change than this
+    pass budgets for.
+  - The `scale` route's status precondition is a plain read, not an atomic conditional
+    write (`scale` has no status transition of its own to attach one to) — a `scale`
+    and a concurrent `turn_off` can still race in the window between that read and the
+    worker acting on it. Narrowed by the read, not eliminated; a proper fix needs
+    either a distributed lock or a synthetic transitional status invented solely to
+    get an atomic condition, both bigger than this pass budgets for.
 
 ## Data model changes
 
@@ -157,7 +169,7 @@ in `@demo-platform/shared` (see Architecture section above) and echoed per-resou
 the existing `GET /api/projects/:owner/:name` response so the frontend has it without
 computing it.
 
-Preconditions enforced in the route via a conditional DDB write, not the schema:
+Preconditions enforced in the route via a plain status read, not the schema:
 `scale` requires project status `on`; a target resource with `always_on: true`, or a
 `type` other than `ecs`/`argocd-app`, is rejected with 400 (see Architecture section
 for the full validation list).
@@ -201,7 +213,7 @@ frontend task in this spec depends on it for TDD.
   resource `type` other than `ecs`/`argocd-app`, an empty/duplicate-keyed `targets`
   list, or a target missing/mismatching its type's required field: 400 at the route
   level, never reaches the queue.
-- `scale` requested while project status isn't `on`: 409 from the conditional-write
+- `scale` requested while project status isn't `on`: 409 from that status read
   check, same style as the existing `turn_off`/`turn_on` status-precondition checks
   (narrows, but per the Known limitation above doesn't fully eliminate, a race against
   a concurrent `turn_off`).
@@ -235,7 +247,7 @@ frontend task in this spec depends on it for TDD.
   dispatching by workload kind across multiple handles, including a mixed
   HPA+Deployment application), new `scale.test.ts` (route validation: unknown
   `stepKey`, `always_on` rejection, wrong-type rejection, non-`on` status rejection via
-  the conditional write, malformed target shape, enqueue-failure marks the job
+  the status precondition, malformed target shape, enqueue-failure marks the job
   `failed`).
 - Frontend (after the new test-infra setup step): `useProjects.test.ts` (`scale()`
   polling behavior including `partial_failure`; revised `toggle()`'s resolved result;
