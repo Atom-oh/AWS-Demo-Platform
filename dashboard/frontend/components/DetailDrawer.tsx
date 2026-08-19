@@ -135,7 +135,9 @@ export function DetailDrawer({
               ×
             </button>
           </div>
-          <div className="repo">{row.repo}</div>
+          <a className="repo" href={`https://github.com/${row.repo}`} target="_blank" rel="noreferrer">
+            {row.repo}
+          </a>
           <div className="chips">
             {pr?.display?.category && <span className="chip cat">{pr.display.category}</span>}
             <span className="chip acct">{row.account}</span>
