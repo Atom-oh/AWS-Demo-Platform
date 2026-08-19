@@ -86,9 +86,12 @@ can read, not a synchronous API-layer AWS call — worth its own spec if it come
   `on`; `targets` is non-empty with no duplicate `stepKey`s; every `stepKey` maps to a
   real resource on the project; the resource's `type` is `ecs` or `argocd-app` — other
   types, including every `always_on: true` resource, are rejected by this single
-  type check, since there's no scale concept for them and (per the schema)
-  `EcsResource`/`ArgocdResource` are the only resource types without an `always_on`
-  field at all, so no separate `always_on` check is needed or testable; an `ecs`
+  type check, since there's no scale concept for them; `EcsResource` and
+  `ArgocdResource` are the only *scalable* resource types without an `always_on`
+  field (`Ec2Resource` also has none, but `ec2` isn't a scalable type either — every
+  non-`ecs`/`argocd-app` type is rejected by the same type check regardless of
+  whether it carries `always_on`), so no separate `always_on` check is needed or
+  testable for the two types that matter here; an `ecs`
   target carries `desiredCount` and an `argocd-app` target carries
   `replicas`, both positive integers, and not the other field. The status check is a
   plain, eventually-consistent read via the existing `StateClient.read()` (`scale`
@@ -137,11 +140,16 @@ can read, not a synchronous API-layer AWS call — worth its own spec if it come
   fixed** — this spec does not fix the bug itself, only makes the failure visible
   instead of silent, so `argocd-app` scaling should be treated as not-yet-usable in
   practice; `ecs` scaling is unaffected.) Additionally, at the start of the `scale`
-  branch, the worker re-reads the project's `state.status` and fails the job outright
-  (every target marked failed, no AWS/K8s calls made) if it's no longer `on` — a cheap
-  recheck that shrinks the check-then-act race described in Known limitations below
-  from potentially minutes down to the worker's own processing time, without needing a
-  lock or a transitional status.
+  branch, the worker re-reads the project's `state.status` and fails the whole job
+  outright — no `appendProgress` call for any target, no AWS/K8s calls made — if it's
+  no longer `on`. This is a job-level abort before any target is attempted, not a
+  per-target failure: the resulting job status is `failed`, but the job's `progress`
+  map has **no entries at all**, which is exactly what Task 6 Step 2's toast logic
+  treats as "no attempt was made" (an absent progress entry, not a `failed:` one) —
+  so this abort path never triggers the irreversibility warning, correctly, since
+  nothing could have mutated. This recheck shrinks the check-then-act race described
+  in Known limitations below from potentially minutes down to the worker's own
+  processing time, without needing a lock or a transitional status.
 - The `stepKey` convention used by `turn_on`/`turn_off` restoration lookups is
   currently a private helper inside `job-runner.ts` (in the `worker` package).
   Exporting it from `worker` doesn't help — `api` and `frontend` are separate
@@ -155,8 +163,14 @@ can read, not a synchronous API-layer AWS call — worth its own spec if it come
   each resource's `stepKey` as a field in its existing project-detail response, and
   the frontend just echoes that value back on a scale request.
 - **Known limitations, not fixed in this pass** (accepted given this is explicitly a
-  non-production tool; the PR-review gate's round found two of these described
-  inaccurately in an earlier draft — corrected below):
+  non-production tool; this list is not the exhaustive record of every accepted
+  limitation for this feature — Task 7's ADR in the implementation plan is. Two
+  items below were described inaccurately in earlier drafts before this repo's
+  PR-review gate caught it: the "ArgoCD/HPA scaling does not work at all today" item
+  (round 2 first surfaced the underlying bug's severity; round 4 corrected the ADR's
+  overstated `ignoreDifferences` claim about it) and the HPA-range-collapse timing
+  in the item below it (round 1 originally described the loss as happening only via
+  a later `turn_off`)):
   - **ArgoCD/HPA scaling does not work at all today.** See the Architecture section's
     note on the pre-existing `namespace: 'placeholder'` bug: `listWorkloads` returns
     zero handles for every real application, and this spec's explicit-failure rule
@@ -293,7 +307,8 @@ frontend task in this spec depends on it for TDD.
   fails and the *target* is aggregated as failed; the frontend cannot distinguish
   "nothing happened" from "partially, irreversibly happened" for that case, so it
   warns on any non-idle outcome rather than risk suppressing the warning exactly
-  when the mutation occurred (see Known limitations below). The frontend doesn't
+  when the mutation occurred (see Architecture's Known limitations above — this is
+  accepted limitation #6 there). The frontend doesn't
   know a target's underlying workload kind (Deployment/StatefulSet vs. HPA) within
   an `argocd-app` application, only that it's `argocd-app` vs. `ecs`, so the
   ArgoCD-side wording is phrased conditionally ("if this application contains an
