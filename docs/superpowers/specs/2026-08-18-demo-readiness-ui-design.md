@@ -42,12 +42,13 @@ codebase, addressed below: the controller layer job-runner actually holds, the
 package boundary between `api` and `worker`, the job/lifecycle state machine, and a
 data-loss interaction with the existing `turn_off` restoration snapshot.
 
-**Cut from this design (round 3): live "current value" pre-fill.** The first two
+**Cut from this design, following the round-2 review: live "current value" pre-fill.** The first two
 drafts had the scale input pre-filled from a live-read of the resource's current
 `desiredCount`/replica count. Round 2 review found this unimplementable as scoped:
 the `api` package has no cross-account AWS/ArgoCD client or assume-role wiring at all
-(only `worker` does — `packages/api` is meant to stay thin, per its own
-`AGENTS.md`/`CLAUDE.md` layering), so adding it would mean duplicating IAM/ArgoCD
+(only `worker` does — `packages/api` is meant to stay thin, per `dashboard/CLAUDE.md`'s
+"all cross-account operations belong in the backend [worker]" convention), so adding
+it would mean duplicating IAM/ArgoCD
 credential wiring into a second ECS task, not "reusing existing calls" as originally
 claimed. Separately, a single ArgoCD application can back multiple workloads/HPAs
 with different replica counts, so "the current value" isn't even well-defined for
@@ -118,21 +119,34 @@ can read, not a synchronous API-layer AWS call — worth its own spec if it come
   each resource's `stepKey` as a field in its existing project-detail response, and
   the frontend just echoes that value back on a scale request.
 - **Known limitations, not fixed in this pass** (both accepted given this is
-  explicitly a non-production tool):
-  - Scaling a resource up and then running `turn_off` will capture the *scaled* count
-    as the new `restoration_data` baseline — the pre-demo baseline is not separately
-    remembered, so a forgotten "scale back down" before ending a demo permanently
-    raises what the next `turn_on` restores to. Mitigated operationally, not in code:
-    a toast after a successful scale reminds the operator that the new count becomes
-    the restore point on the next `turn_off`. A real fix (a separate, never-mutated
-    baseline distinct from the mutable "current" state) is a bigger change than this
-    pass budgets for.
+  explicitly a non-production tool; the PR-review gate's round found the first one
+  described inaccurately in an earlier draft — corrected below):
+  - **For `argocd-app` targets, scaling irreversibly collapses the HPA's autoscaling
+    range — at the moment of the scale itself, not only after a later `turn_off`.**
+    `scale` pins `patchHpaBounds({min: replicas, max: replicas})`; nothing captures
+    the pre-scale `min`/`max` before overwriting them. A demo scale from an autoscaled
+    `min=2,max=10` to a fixed `replicas=5` leaves the HPA pinned at `min=max=5`
+    immediately — "scaling back down" afterward (e.g. back to `replicas=2`) still goes
+    through the same pin-to-a-single-value path, so the original asymmetric range can
+    never be recovered through this feature, with or without a subsequent `turn_off`.
+    (A later `turn_off` additionally captures whatever the *last* pinned value was as
+    the `restoration_data` baseline, so a forgotten "scale back down" also raises what
+    the next `turn_on` restores to — a second-order consequence of the same root
+    cause, not a separate bug.) Mitigated operationally, not in code: the scale UI's
+    success/partial-failure toast states this plainly for `argocd-app` targets
+    specifically, rather than the milder "becomes the new restore point" framing an
+    earlier draft used. `ecs` targets have no such range to lose — `desiredCount` has
+    no min/max concept, so only the `turn_off`-baseline consequence applies there. A
+    real fix (capturing pre-scale HPA bounds on the job record as a distinct,
+    never-silently-overwritten value, so a later "restore original range" action is
+    possible) is a bigger change than this pass budgets for.
   - The `scale` route's status precondition is a plain read, not an atomic conditional
     write (`scale` has no status transition of its own to attach one to) — a `scale`
     and a concurrent `turn_off` can still race in the window between that read and the
-    worker acting on it. Narrowed by the read, not eliminated; a proper fix needs
-    either a distributed lock or a synthetic transitional status invented solely to
-    get an atomic condition, both bigger than this pass budgets for.
+    worker acting on it. Narrowed by the read (with `ConsistentRead: true`), not
+    eliminated; a proper fix needs either a distributed lock or a synthetic
+    transitional status invented solely to get an atomic condition, both bigger than
+    this pass budgets for.
 
 ## Data model changes
 
@@ -235,19 +249,21 @@ frontend task in this spec depends on it for TDD.
   treats a resolved `partial_failure` the same as `failed` (`{ok: false}`)
   immediately, rather than only reacting to `succeeded`/`failed` and letting
   `partial_failure` fall through to a timeout.
-- Briefing text: no schema validation; a UI-side soft length cap only affects display
+- Briefing text: optional, but no length constraint at the schema level; a UI-side soft length cap only affects display
   (e.g. truncation with "show more"), never a save/load rejection.
 
 ## Testing
 
 - Backend: `job-runner.test.ts` (scale branch, argocd + ecs, success and partial
-  failure, restart-recovery with DDB-persisted `targets`, asserting `state.status` is
-  never mutated by a scale job), `controllers/__tests__/ecs.test.ts` (new
-  `setDesiredCount`), `controllers/__tests__/argocd.test.ts` (new `scale` method
+  failure, asserting `state.status` is never mutated by a scale job, zero-matched-
+  handles and empty-`targets` both fail explicitly), a `poll-loop.ts` test (restart
+  recovery reconstructing `targets` from the DDB job record, and a fresh enqueue
+  carrying `targets` in `MessageBody`/`JobInput`), `controllers/__tests__/ecs.test.ts`
+  (new `setDesiredCount`), `controllers/__tests__/argocd.test.ts` (new `scale` method
   dispatching by workload kind across multiple handles, including a mixed
-  HPA+Deployment application), new `scale.test.ts` (route validation: unknown
-  `stepKey`, `always_on` rejection, wrong-type rejection, non-`on` status rejection via
-  the status precondition, malformed target shape, enqueue-failure marks the job
+  HPA+Deployment application, and the zero-handles case), new `scale.test.ts` (route
+  validation: unknown `stepKey`, `always_on` rejection, wrong-type rejection, non-`on`
+  status rejection via the status precondition, malformed target shape, enqueue-failure marks the job
   `failed`).
 - Frontend (after the new test-infra setup step): `useProjects.test.ts` (`scale()`
   polling behavior including `partial_failure`; revised `toggle()`'s resolved result;
