@@ -306,6 +306,14 @@ frontend task in this spec depends on it for TDD.
 - A worker restart mid-`scale` recovers `targets` from the DDB job record (not the
   now-consumed SQS message) via the same `sweepRunningJobs` path `turn_on`/`turn_off`
   already use.
+- `scale` against an `error`-status project is rejected by the same `on`-only
+  precondition as any other status — an accepted design choice, not an oversight: an
+  `error` project's resources are in an unknown state, so scaling any of them
+  individually is out of scope for this pass (the operator's path back to a scalable
+  state is the existing `turn_on` retry, which already accepts `error`).
+- No in-flight guard prevents two `scale` requests targeting the same resource from
+  overlapping; accepted as a known gap for this non-production tool, same spirit as
+  the other accepted races in this section.
 - "Turn on all": an individual project's `turn_on` failing doesn't block the others;
   failures are collected and reported together once the batch finishes, using the
   revised `toggle()` return value rather than inferred side effects. `toggle()`
