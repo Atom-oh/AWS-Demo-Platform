@@ -10,6 +10,7 @@ export interface Project {
   name: string;
   github: { repo: string; branch: string };
   description?: string;
+  briefing?: string;
   account: string;
   display?: { category?: string };
   resources: ResourceRef[];

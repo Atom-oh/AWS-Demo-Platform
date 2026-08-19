@@ -436,6 +436,9 @@ aside h3 {
   font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px;
   color: var(--muted); margin: 0;
 }
+.briefing {
+  white-space: pre-wrap; font-size: 13px; line-height: 1.5; color: var(--text);
+}
 .reslist { display: flex; flex-direction: column; gap: 6px; }
 .resrow { display: flex; align-items: center; gap: 10px; }
 .resid {

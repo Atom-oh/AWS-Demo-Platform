@@ -4,6 +4,7 @@ import type { ProjectRow, HistoryRecord, ResourceRef } from '@/lib/types';
 import { getHistory } from '@/lib/api';
 
 const TOGGLEABLE = new Set(['ecs', 'ec2', 'argocd-app', 'rds']);
+const BRIEFING_PREVIEW_LIMIT = 2000;
 const LABEL: Record<string, string> = {
   ecs: 'ECS', ec2: 'EC2', 'argocd-app': 'ArgoCD', rds: 'RDS', dynamodb: 'DynamoDB',
   elasticache: 'ElastiCache', kafka: 'Kafka', msk: 'MSK', stepfunctions: 'StepFn',
@@ -45,6 +46,7 @@ export function DetailDrawer({
 }) {
   const [history, setHistory] = useState<HistoryRecord[] | null>(null);
   const [histErr, setHistErr] = useState<string | null>(null);
+  const [briefingExpanded, setBriefingExpanded] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
@@ -162,6 +164,24 @@ export function DetailDrawer({
           <div className="empty">프로젝트 상세를 불러오지 못했습니다.</div>
         ) : (
           <>
+            {pr.briefing && (
+              <section className="drawer-sec">
+                <h3>Briefing</h3>
+                <div className="briefing">
+                  {briefingExpanded || pr.briefing.length <= BRIEFING_PREVIEW_LIMIT
+                    ? pr.briefing
+                    : `${pr.briefing.slice(0, BRIEFING_PREVIEW_LIMIT)}…`}
+                </div>
+                {pr.briefing.length > BRIEFING_PREVIEW_LIMIT && (
+                  <button
+                    className="btn link"
+                    onClick={() => setBriefingExpanded((v) => !v)}
+                  >
+                    {briefingExpanded ? 'Show less' : 'Show more'}
+                  </button>
+                )}
+              </section>
+            )}
             <section className="drawer-sec">
               <h3>리소스</h3>
               <div className="reslist">
