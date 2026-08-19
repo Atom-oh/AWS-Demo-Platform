@@ -52,6 +52,9 @@ describe('GET /api/projects/:repo', () => {
     const body = res.json();
     expect(body.project.name).toBe('p');
     expect(body.state.status).toBe('on');
+    // Each resource's stepKey is echoed back so the frontend never computes it
+    // itself — computed the same way the worker computes it (ecs:cluster/service).
+    expect(body.project.resources[0]).toMatchObject({ type: 'ecs', stepKey: 'ecs:c/s' });
     await app.close();
   });
 

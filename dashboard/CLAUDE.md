@@ -2,8 +2,8 @@
 
 ## Role
 Stage 2–3 admin platform for AWS Demo Platform.
-- **`backend/`** — Stage 2 **Lifecycle Controller**. Node.js TypeScript pnpm-workspaces monorepo. Phase 1 code is built on branch `feat/stage-2-phase-1-backend-foundations` and **pending merge to `main` (PR #4)** — `main` still has empty placeholders until then.
-- **`frontend/`** — Stage 3 admin UI (Next.js 14, App Router). **MVP built (dev only):** live project list, faceted discovery, working on/off toggles via same-origin `/api/*` proxy. See `frontend/CLAUDE.md`.
+- **`backend/`** — Stage 2 **Lifecycle Controller**. Node.js TypeScript pnpm-workspaces monorepo, built and deployed (dev).
+- **`frontend/`** — Stage 3 admin UI (Next.js 14, App Router). **MVP built (dev only):** live project list, faceted discovery, on/off toggles, detail drawer (resources, GitHub link, briefing, history), bulk turn-on-all, and per-resource demo-scale controls — via same-origin `/api/*` proxy. See `frontend/CLAUDE.md`.
 
 ## backend/ — Lifecycle Controller (implemented)
 
@@ -11,9 +11,9 @@ pnpm workspaces monorepo. Three packages:
 
 | Package | Role |
 |---|---|
-| `@demo-platform/shared` | Zod schemas (project/account/DDB records), pino logger, env loaders, AWS SDK client factory, AssumeRole cache (TTL skew), DDB clients (state/jobs/history), ArgoCD REST client, GitHub client |
-| `@demo-platform/api` | Fastify REST API: `/health`, `/api/projects`, `/api/projects/*`, `.../actions/turn_{on,off}`, `/api/jobs/:id`. Cognito JWT plugin (skip in `NODE_ENV=development`), projects-loader, error handler |
-| `@demo-platform/worker` | SQS consumer + startup sweep, 4 resource controllers (ECS/EC2/RDS/ArgoCD HPA-2), runJob dispatcher, GitHub discoverer (hourly cron) |
+| `@demo-platform/shared` | Zod schemas (project/account/DDB records), `stepKey` + `MAX_SCALE_REPLICAS`, pino logger, env loaders, AWS SDK client factory, AssumeRole cache (TTL skew), DDB clients (state/jobs/history), ArgoCD REST client, GitHub client |
+| `@demo-platform/api` | Fastify REST API: `/health`, `/api/projects`, `/api/projects/*`, `.../actions/{turn_on,turn_off,scale}`, `/api/jobs/:id`. Cognito JWT plugin (skip in `NODE_ENV=development`), projects-loader, error handler |
+| `@demo-platform/worker` | SQS consumer + startup sweep, 4 resource controllers (ECS/EC2/RDS/ArgoCD HPA-2) plus `scale` support (`EcsController.setDesiredCount`, `ArgocdController.scale`), runJob dispatcher, GitHub discoverer (hourly cron) |
 
 ### Commands (run from `dashboard/backend/`)
 
@@ -27,6 +27,7 @@ Docker images build per-package: `docker build -f packages/{api,worker}/Dockerfi
 - **HPA-2 (ArgoCD controller)**: the goal of `turn_off` is a scaled-down state that ArgoCD won't fight, so it patches HPA `min=max=1` plus Deployment `replicas=1` rather than a true zero.
 - **turn_on restores resources**: `worker/src/job-runner.ts` reads `restoration_data` off the DDB state record and dispatches per-resource into each controller's `turnOn(rd)` (ECS desiredCount / EC2 start / RDS start / ArgoCD HPA-2 restore). RDS `waitForAvailable` is fire-and-forget. Restoration keys each entry by a **unique per-resource `stepKey`** (e.g. `argocd-app:<application>`) so that same-type resources don't collide. A partial `turn_on` failure calls `markError`, which preserves `restoration_data` for retry, instead of `markOn`.
 - **Job model**: the api enqueues to SQS and the worker processes idempotently; SQS visibility is 300s, and RDS start polling runs in the background so it doesn't trigger redelivery.
+- **`scale` operation**: independent of `turn_on`/`turn_off` — never mutates the project's on/off `state.status` (no `markOn`/`markError`). `targets` (`{stepKey, replicas?|desiredCount?}[]`) are persisted on the job record itself so restart recovery has something to reconstruct from. A worker-side status recheck at the start of the branch narrows (doesn't eliminate) the race against a concurrent `turn_off`. See [ADR-017](../docs/decisions/ADR-017-demo-scale-job-operation.md) for the full design and its accepted limitations (notably: ArgoCD/HPA scaling is inert today pending a fix to the `namespace: 'placeholder'` bug in `ArgocdClient`).
 
 ### Tests
 - Unit: vitest + `aws-sdk-client-mock` / fetch mocks.
@@ -35,12 +36,14 @@ Docker images build per-package: `docker build -f packages/{api,worker}/Dockerfi
 
 ## frontend/ — Stage 3 (MVP, dev only)
 Next.js 14 (App Router) + TypeScript. Dashboard with stat strip, faceted sidebar
-(category/account/status), search, and project cards with working on/off toggles
-+ job polling. Talks to the backend via same-origin `/api/*` (dev: `next.config.mjs`
-rewrites to the dev-server on :8087; prod: same CloudFront origin as `api`).
-Backed in dev by `backend/packages/api/src/dev-server.ts` (real API, in-memory
-state, simulated worker). Full details in `frontend/CLAUDE.md`.
-Not yet: detail view, Cognito login, real-time updates, ECS deploy.
+(category/account/status), search, project cards with working on/off toggles +
+job polling, a detail drawer (resources, GitHub repo link, briefing, history),
+a bulk "turn on all" action, and per-resource demo-scale controls. Talks to the
+backend via same-origin `/api/*` (dev: `next.config.mjs` rewrites to the
+dev-server on :8087; prod: same CloudFront origin as `api`). Backed in dev by
+`backend/packages/api/src/dev-server.ts` (real API, in-memory state, simulated
+worker). Full details in `frontend/CLAUDE.md`.
+Not yet: real-time updates (SSE/WebSocket instead of poll-on-toggle), ECS deploy.
 
 ## Conventions
 The intent is to keep both sides strictly typed and share the Node16 ESM import convention (`.js` extensions) across the boundary. All cross-account operations belong in the backend, which assumes `DemoPlatformOperator` per `accounts.yaml` — the frontend has no AWS SDK dependency and never handles that layer directly. AWS credentials likewise stay out of the frontend entirely: the backend runs as `DashboardEcsTaskRole-dev`, does its STS AssumeRole into `DemoPlatformOperator` there, and doesn't persist the resulting tokens.

@@ -14,6 +14,7 @@ import { loadProjects } from './plugins/projects-loader.js';
 import { registerErrorHandler } from './middleware/error-handler.js';
 import { registerProjects } from './routes/projects.js';
 import { registerActions } from './routes/actions.js';
+import { registerScale } from './routes/scale.js';
 import { registerJobs } from './routes/jobs.js';
 import { registerHistory } from './routes/history.js';
 
@@ -47,6 +48,13 @@ export async function buildServer(opts: BuildServerOpts = {}): Promise<FastifyIn
     await registerProjects(app, { projects: opts.projects, stateClient: opts.stateClient });
     if (opts.jobsClient && opts.sqsClient && opts.queueUrl) {
       await registerActions(app, {
+        projects: opts.projects,
+        stateClient: opts.stateClient,
+        jobsClient: opts.jobsClient,
+        sqsClient: opts.sqsClient,
+        queueUrl: opts.queueUrl,
+      });
+      await registerScale(app, {
         projects: opts.projects,
         stateClient: opts.stateClient,
         jobsClient: opts.jobsClient,

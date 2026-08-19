@@ -4,9 +4,12 @@ Next.js 14 (App Router, TypeScript) dashboard for the AWS Demo Platform.
 Master-detail discovery + lifecycle control over the projects the backend manages.
 
 ## Status
-**MVP — dev only.** Renders the live project list, faceted discovery, and
-working on/off toggles against the backend API. Not yet deployed (Stage 3 target
-is ECS Fargate behind the same CloudFront origin as `api`).
+**MVP — dev only.** Renders the live project list, faceted discovery, on/off
+toggles, a detail drawer (resources, GitHub repo link, briefing, history), a
+bulk "turn on all" action, and per-resource demo-scale controls (ArgoCD/HPA
+replicas, ECS `desiredCount` — see [ADR-017](../../docs/decisions/ADR-017-demo-scale-job-operation.md))
+against the backend API. Not yet deployed (Stage 3 target is ECS Fargate
+behind the same CloudFront origin as `api`).
 
 ## Run (from `dashboard/frontend/`)
 Install dependencies with `pnpm install`. For local dev, run `API_ORIGIN=http://localhost:8087 PORT=3001 pnpm dev` with the dev API already up. `pnpm build` produces the production build, `pnpm typecheck` runs `tsc --noEmit`, and `pnpm lint` runs `next lint`.
@@ -34,20 +37,30 @@ To run it: from `dashboard/backend`, run `pnpm -r build`, then start it with
 
 ## Structure
 `app/` holds `layout.tsx` (root layout + globals.css), `page.tsx` (the dashboard
-client component — search + filters + grid + toast), and `globals.css` (dark
-theme). `components/` holds `StatStrip.tsx` (totals for projects / accounts /
-on / off), `FacetSidebar.tsx` (category / account / status facets with counts),
-and `ProjectCard.tsx` (one project: status pill, resource chips, toggle, demo
-link). `hooks/useProjects.ts` loads the list and details and drives toggle with
-job polling. `lib/api.ts` holds the fetch helpers (`/api/projects`,
-`/actions/:op`, `/jobs/:id`), and `lib/types.ts` holds the `Project` /
-`ProjectRow` / `Job` / `Status` types, mirroring the backend shapes.
+client component — search + filters + grid + toast + "turn on all"), and
+`globals.css` (dark theme). `components/` holds `StatStrip.tsx` (totals for
+projects / accounts / on / off), `FacetSidebar.tsx` (category / account /
+status facets with counts), `ProjectCard.tsx` (one project: status pill,
+resource chips, toggle, GitHub link, demo link), and `DetailDrawer.tsx`
+(resources with per-resource scale controls, GitHub link, briefing, URLs,
+history timeline). `hooks/useProjects.ts` loads the list and details and
+drives `toggle()` (always resolves `{ok: boolean}`, never rejects),
+`turnOnAll()` (fixed concurrency of 4), and `scale()` — all with job polling.
+`lib/api.ts` holds the fetch helpers (`/api/projects`, `/actions/:op`,
+`/actions/scale`, `/jobs/:id`), and `lib/types.ts` holds the `Project` /
+`ProjectRow` / `Job` / `Status` / `ScaleTarget` types, mirroring the backend
+shapes (`ResourceRef.stepKey` is echoed by the api, never computed here).
 
 ## API contract consumed (must match `@demo-platform/api`)
 - `GET /api/projects` → `{repo,name,account}[]`
-- `GET /api/projects/:owner/:name` → `{project, state:{status}}`
+- `GET /api/projects/:owner/:name` → `{project, state:{status}}` — each
+  `project.resources[]` entry carries its `stepKey`, computed the same way the
+  worker computes it
 - `POST /api/projects/:owner/:name/actions/{turn_on|turn_off}` → `202 {job_id}`
   (409 if already in target state)
+- `POST /api/projects/:owner/:name/actions/scale` (`{targets: ScaleTarget[]}`)
+  → `202 {job_id}` (409 if project isn't `on`, 400 on target validation
+  failure) — see [ADR-017](../../docs/decisions/ADR-017-demo-scale-job-operation.md)
 - `GET /api/jobs/:id` → `{status, progress, error, ...}` (poll until succeeded/failed)
 
 ## Conventions
@@ -80,8 +93,14 @@ downgrade needs to stay above that line.
   (priority 130) + `infra/cloudfront` same-origin distribution (`/api/*`→api) +
   `infra/route53-private-zone` public alias `admin-dev.atomai.click`.
 
+## Tests
+`pnpm test` runs vitest (`vitest.config.mts` — jsdom, `vite-tsconfig-paths` for
+`@/*` resolution, `globals: true` so `@testing-library/react`'s `afterEach`
+auto-cleanup runs between tests). Component tests live under
+`components/__tests__/`, hook tests under `hooks/__tests__/`.
+
 ## Not yet done (follow-ups)
-- Detail view (per-project drawer: resources, secrets, code-server URL, job history)
+- Secrets management UI, code-server URL surfacing in the drawer
 - Real-time updates (SSE/WebSocket) instead of poll-on-toggle
 - Token storage hardening (httpOnly cookie BFF): the current in-memory/sessionStorage
   approach is XSS-exposed, which is acceptable for a single-admin non-prod tool but

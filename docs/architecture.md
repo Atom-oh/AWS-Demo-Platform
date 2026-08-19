@@ -156,6 +156,11 @@ The task identity is `DashboardEcsTaskRole-dev`; it assumes `DemoPlatformOperato
 per `accounts.yaml` (ExternalId from Secrets Manager). HPA-2 patch = Deployment
 `replicas=1` + HPA `min=max=1` via ArgoCD.
 
+A third job operation, `scale`, flows through the same api→SQS→worker path to
+size a resource up ahead of a demo (ArgoCD/HPA replicas, ECS `desiredCount`)
+independent of the on/off state machine above — see
+[ADR-017](decisions/ADR-017-demo-scale-job-operation.md).
+
 **Status (dev, all deployed):** Phase 1 (code, LocalStack-tested) ✅ · Phase 2
 (DDB/IAM/SQS/ECR/Secrets) ✅ · Phase 3 (GHA OIDC → ECR image push) ✅ · Phase 4
 (ECS/ALB/CF/R53/Cognito runtime) ✅. The **api** service is LIVE:

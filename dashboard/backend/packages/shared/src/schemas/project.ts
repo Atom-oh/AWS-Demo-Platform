@@ -96,6 +96,7 @@ export const ProjectSchema = z.object({
     branch: z.string().default('main'),
   }),
   description: z.string().optional(),
+  briefing: z.string().optional(),
   account: z.string().min(1),
   display: z
     .object({

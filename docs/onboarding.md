@@ -79,6 +79,31 @@ Read in order:
 - **TGB pattern** = TG in Terraform, pod binds via TargetGroupBinding CRD.
 - **CF VPC Origin SG quirk** = ALB SG must explicitly allow the CF VPC Origin source SG (`sg-0a67fc7bfa9c2f0c6`), CIDR alone is insufficient.
 
+## Preparing for a Demo
+
+The dashboard has a few features specifically for getting ready ahead of a
+live demo:
+
+- **Briefing notes**: add a `briefing:` key (free-text, multi-line YAML) to a
+  project's file under `projects/`. It shows up in that project's detail
+  drawer as talking points — there's no length limit, but very long briefings
+  get truncated for display with a "show more" toggle.
+- **GitHub repo link**: click the repo name on a project's card or in its
+  detail drawer to open the GitHub repo directly.
+- **Turn on all**: one button near the top of the dashboard turns on every
+  `off`/`error` project at once, a few at a time, so you don't have to click
+  through each one before a demo.
+- **Per-resource scale**: in a project's detail drawer, an ECS resource can
+  have its `desiredCount` bumped up for extra headroom during the demo,
+  independent of turning the project on/off. **ArgoCD/HPA scaling doesn't work
+  yet** (the control is shown disabled with an explanation) — pending a
+  separate fix, unrelated to this feature. Once that's fixed: scaling an
+  ArgoCD-managed HPA pins its autoscaling range to a single fixed count, and
+  that original range can't be recovered afterward through this tool, even by
+  scaling back down — plan a scale-up as a one-way trip for the demo, not
+  something to casually undo. See [ADR-017](decisions/ADR-017-demo-scale-job-operation.md)
+  for the full list of accepted limitations.
+
 ## Troubleshooting
 
 | Symptom | Likely cause | Fix |

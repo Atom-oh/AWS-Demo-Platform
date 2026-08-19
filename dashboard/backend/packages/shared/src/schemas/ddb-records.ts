@@ -38,13 +38,24 @@ export const StateRecordSchema = z
 
 export type StateRecord = z.infer<typeof StateRecordSchema>;
 
+// A scale job's targets, persisted on the job record itself (not only carried in
+// the SQS message body) so sweepRunningJobs' restart recovery — which rebuilds
+// in-flight jobs from DDB, not the queue — has something to reconstruct work from.
+export const ScaleTargetSchema = z.object({
+  stepKey: z.string().min(1),
+  replicas: z.number().int().positive().optional(),
+  desiredCount: z.number().int().positive().optional(),
+});
+export type ScaleTarget = z.infer<typeof ScaleTargetSchema>;
+
 export const JobRecordSchema = z.object({
   pk: z.string().startsWith('job#'),
   gsi1pk: z.string().startsWith('project#'),
   gsi1sk: z.string(),
-  operation: z.enum(['turn_off', 'turn_on', 'add_secret']),
+  operation: z.enum(['turn_off', 'turn_on', 'add_secret', 'scale']),
   status: JobStatus,
   progress: z.record(z.string()),
+  targets: z.array(ScaleTargetSchema).optional(),
   error: z.string().optional(),
   created_at: z.string(),
   started_at: z.string().optional(),

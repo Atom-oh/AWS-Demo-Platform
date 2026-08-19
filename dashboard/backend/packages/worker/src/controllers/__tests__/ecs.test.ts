@@ -52,3 +52,34 @@ describe('EcsController.turnOn', () => {
     expect(ecsMock.commandCalls(UpdateServiceCommand)).toHaveLength(0);
   });
 });
+
+describe('EcsController.setDesiredCount', () => {
+  it('calls UpdateServiceCommand with the given count, no restoration-data bookkeeping', async () => {
+    ecsMock.on(UpdateServiceCommand).resolves({});
+    const c = new EcsController({ client: ecsMock as unknown as ECSClient });
+    const result = await c.setDesiredCount({ cluster: 'c', service: 's', count: 7 });
+    const calls = ecsMock.commandCalls(UpdateServiceCommand);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].args[0].input).toMatchObject({ cluster: 'c', service: 's', desiredCount: 7 });
+    expect(result).toBeUndefined();
+  });
+
+  it('rejects a non-positive count before calling AWS', async () => {
+    const c = new EcsController({ client: ecsMock as unknown as ECSClient });
+    await expect(c.setDesiredCount({ cluster: 'c', service: 's', count: 0 })).rejects.toThrow();
+    await expect(c.setDesiredCount({ cluster: 'c', service: 's', count: -1 })).rejects.toThrow();
+    expect(ecsMock.commandCalls(UpdateServiceCommand)).toHaveLength(0);
+  });
+
+  it('rejects a non-integer count before calling AWS', async () => {
+    const c = new EcsController({ client: ecsMock as unknown as ECSClient });
+    await expect(c.setDesiredCount({ cluster: 'c', service: 's', count: 2.5 })).rejects.toThrow();
+    expect(ecsMock.commandCalls(UpdateServiceCommand)).toHaveLength(0);
+  });
+
+  it('rejects a count exceeding MAX_SCALE_REPLICAS before calling AWS', async () => {
+    const c = new EcsController({ client: ecsMock as unknown as ECSClient });
+    await expect(c.setDesiredCount({ cluster: 'c', service: 's', count: 21 })).rejects.toThrow();
+    expect(ecsMock.commandCalls(UpdateServiceCommand)).toHaveLength(0);
+  });
+});

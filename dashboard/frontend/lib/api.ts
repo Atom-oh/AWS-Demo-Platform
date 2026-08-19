@@ -1,4 +1,4 @@
-import type { ProjectListItem, Project, Job, HistoryRecord } from './types';
+import type { ProjectListItem, Project, Job, HistoryRecord, ScaleTarget } from './types';
 import { getAccessToken } from './token-store';
 
 async function req<T>(path: string, opts?: RequestInit): Promise<T> {
@@ -26,6 +26,13 @@ export const getProject = (owner: string, name: string) =>
 
 export const toggleProject = (owner: string, name: string, op: 'turn_on' | 'turn_off') =>
   req<{ job_id: string }>(`/api/projects/${owner}/${name}/actions/${op}`, { method: 'POST' });
+
+export const scaleProject = (owner: string, name: string, targets: ScaleTarget[]) =>
+  req<{ job_id: string }>(`/api/projects/${owner}/${name}/actions/scale`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ targets }),
+  });
 
 export const getJob = (id: string) => req<Job>(`/api/jobs/${id}`);
 
