@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ProjectRow, HistoryRecord, ResourceRef } from '@/lib/types';
+import type { ProjectRow, HistoryRecord, ResourceRef, ScaleTarget } from '@/lib/types';
 import { getHistory } from '@/lib/api';
 
 const TOGGLEABLE = new Set(['ecs', 'ec2', 'argocd-app', 'rds']);
@@ -39,14 +39,17 @@ export function DetailDrawer({
   row,
   onClose,
   onToggle,
+  onScale,
 }: {
   row: ProjectRow;
   onClose: () => void;
   onToggle: (repo: string, op: 'turn_on' | 'turn_off') => Promise<{ ok: boolean }> | void;
+  onScale?: (repo: string, targets: ScaleTarget[]) => Promise<{ ok: boolean }> | void;
 }) {
   const [history, setHistory] = useState<HistoryRecord[] | null>(null);
   const [histErr, setHistErr] = useState<string | null>(null);
   const [briefingExpanded, setBriefingExpanded] = useState(false);
+  const [scaleInputs, setScaleInputs] = useState<Record<string, string>>({});
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
@@ -114,6 +117,13 @@ export function DetailDrawer({
   const handleToggle = async (op: 'turn_on' | 'turn_off') => {
     await onToggle(row.repo, op);
     await loadHistory(); // refresh once so the just-performed action appears
+  };
+
+  const handleScaleEcs = async (r: ResourceRef) => {
+    const raw = scaleInputs[r.stepKey];
+    const count = Number(raw);
+    if (!raw || !Number.isInteger(count) || count <= 0) return;
+    await onScale?.(row.repo, [{ stepKey: r.stepKey, desiredCount: count }]);
   };
 
   const cs = pr?.urls?.code_server;
@@ -187,10 +197,47 @@ export function DetailDrawer({
               <div className="reslist">
                 {pr.resources.map((r, i) => {
                   const on = TOGGLEABLE.has(r.type) && !r.always_on;
+                  const isEcs = r.type === 'ecs';
+                  const isArgocdApp = r.type === 'argocd-app';
                   return (
                     <div className="resrow" key={i}>
                       <span className={`chip ${on ? 'res-on' : 'res-always'}`}>{LABEL[r.type] ?? r.type}</span>
                       <span className="resid">{resourceId(r)}</span>
+                      {isEcs && (
+                        <span className="scale-ctl">
+                          <input
+                            type="number"
+                            placeholder="check the ArgoCD/ECS console for the current count"
+                            value={scaleInputs[r.stepKey] ?? ''}
+                            disabled={row.status !== 'on'}
+                            onChange={(e) =>
+                              setScaleInputs((s) => ({ ...s, [r.stepKey]: e.target.value }))
+                            }
+                          />
+                          <button
+                            className="btn"
+                            disabled={row.status !== 'on'}
+                            onClick={() => void handleScaleEcs(r)}
+                          >
+                            Apply
+                          </button>
+                        </span>
+                      )}
+                      {isArgocdApp && (
+                        <span className="scale-ctl">
+                          <input
+                            type="number"
+                            placeholder="check the ArgoCD/ECS console for the current count"
+                            disabled
+                          />
+                          <button className="btn" disabled>
+                            Apply
+                          </button>
+                          <span className="scale-note">
+                            ArgoCD/HPA scaling doesn&apos;t work yet — pending a separate fix
+                          </span>
+                        </span>
+                      )}
                     </div>
                   );
                 })}

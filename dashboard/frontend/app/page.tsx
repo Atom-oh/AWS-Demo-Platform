@@ -11,7 +11,7 @@ import { authEnabled } from '@/lib/auth-config';
 
 function DashboardInner() {
   const { username, email, logout } = useAuth();
-  const { rows, loading, error, toggle, turnOnAll } = useProjects();
+  const { rows, loading, error, toggle, turnOnAll, scale } = useProjects();
   const [filters, setFilters] = useState<Filters>({ cat: null, acct: null, status: null });
   const [q, setQ] = useState('');
   const [toast, setToast] = useState<{ msg: string; err?: boolean } | null>(null);
@@ -53,6 +53,9 @@ function DashboardInner() {
 
   const onToggle = (repo: string, op: 'turn_on' | 'turn_off') =>
     toggle(repo, op, (msg, err) => setToast({ msg, err }));
+
+  const onScale = (repo: string, targets: Parameters<typeof scale>[1]) =>
+    scale(repo, targets, (msg, err) => setToast({ msg, err }));
 
   const onTurnOnAll = async () => {
     setTurningOnAll(true);
@@ -123,6 +126,7 @@ function DashboardInner() {
             row={sel}
             onClose={() => setSelected(null)}
             onToggle={onToggle}
+            onScale={onScale}
           />
         ) : null;
       })()}

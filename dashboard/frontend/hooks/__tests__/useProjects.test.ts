@@ -11,6 +11,7 @@ const mockedApi = {
   getProject: vi.mocked(api.getProject),
   toggleProject: vi.mocked(api.toggleProject),
   getJob: vi.mocked(api.getJob),
+  scaleProject: vi.mocked(api.scaleProject),
 };
 
 async function setup() {
@@ -164,5 +165,154 @@ describe('turnOnAll()', () => {
       { repo: 'org/fails', ok: false },
       { repo: 'org/ok', ok: true },
     ]);
+  });
+});
+
+describe('scale()', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('resolves {ok: true} on succeeded, reminding an ecs target only when its progress entry is done', async () => {
+    const result = await setup();
+    mockedApi.scaleProject.mockResolvedValue({ job_id: 'sj1' });
+    mockedApi.getJob.mockResolvedValue({
+      id: 'sj1',
+      operation: 'scale',
+      status: 'succeeded',
+      progress: { 'ecs:c/s': 'done' },
+    });
+
+    const notify = vi.fn();
+    vi.useFakeTimers();
+    const p = result.current.scale('org/a', [{ stepKey: 'ecs:c/s', desiredCount: 4 }], notify);
+    await vi.advanceTimersByTimeAsync(1000);
+    await expect(p).resolves.toEqual({ ok: true });
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining('ecs:c/s'), undefined);
+  });
+
+  it('resolves {ok: false} on failed', async () => {
+    const result = await setup();
+    mockedApi.scaleProject.mockResolvedValue({ job_id: 'sj2' });
+    mockedApi.getJob.mockResolvedValue({
+      id: 'sj2',
+      operation: 'scale',
+      status: 'failed',
+      progress: {},
+    });
+
+    vi.useFakeTimers();
+    const p = result.current.scale('org/a', [{ stepKey: 'ecs:c/s', desiredCount: 4 }]);
+    await vi.advanceTimersByTimeAsync(1000);
+    await expect(p).resolves.toEqual({ ok: false });
+  });
+
+  it('resolves {ok: false} on partial_failure', async () => {
+    const result = await setup();
+    mockedApi.scaleProject.mockResolvedValue({ job_id: 'sj3' });
+    mockedApi.getJob.mockResolvedValue({
+      id: 'sj3',
+      operation: 'scale',
+      status: 'partial_failure',
+      progress: {},
+    });
+
+    vi.useFakeTimers();
+    const p = result.current.scale('org/a', [{ stepKey: 'ecs:c/s', desiredCount: 4 }]);
+    await vi.advanceTimersByTimeAsync(1000);
+    await expect(p).resolves.toEqual({ ok: false });
+  });
+
+  it('resolves {ok: false} when the initial POST rejects (network error or 409)', async () => {
+    const result = await setup();
+    mockedApi.scaleProject.mockRejectedValue(new Error('HTTP 409'));
+    await expect(
+      result.current.scale('org/a', [{ stepKey: 'ecs:c/s', desiredCount: 4 }]),
+    ).resolves.toEqual({ ok: false });
+  });
+
+  it('resolves {ok: false} when a status-poll GET rejects mid-poll', async () => {
+    const result = await setup();
+    mockedApi.scaleProject.mockResolvedValue({ job_id: 'sj4' });
+    mockedApi.getJob.mockRejectedValue(new Error('network error'));
+
+    vi.useFakeTimers();
+    const p = result.current.scale('org/a', [{ stepKey: 'ecs:c/s', desiredCount: 4 }]);
+    await vi.advanceTimersByTimeAsync(1000);
+    await expect(p).resolves.toEqual({ ok: false });
+  });
+
+  it('resolves {ok: false} when the poll loop exhausts its timeout while still running', async () => {
+    const result = await setup();
+    mockedApi.scaleProject.mockResolvedValue({ job_id: 'sj5' });
+    mockedApi.getJob.mockResolvedValue({
+      id: 'sj5',
+      operation: 'scale',
+      status: 'running',
+      progress: {},
+    });
+
+    vi.useFakeTimers();
+    const p = result.current.scale('org/a', [{ stepKey: 'ecs:c/s', desiredCount: 4 }]);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await expect(p).resolves.toEqual({ ok: false });
+  });
+
+  it('does NOT remind an ecs target whose progress entry is failed: (accepted narrow ambiguity)', async () => {
+    const result = await setup();
+    mockedApi.scaleProject.mockResolvedValue({ job_id: 'sj6' });
+    mockedApi.getJob.mockResolvedValue({
+      id: 'sj6',
+      operation: 'scale',
+      status: 'failed',
+      progress: { 'ecs:c/s': 'failed: timeout' },
+    });
+
+    const notify = vi.fn();
+    vi.useFakeTimers();
+    const p = result.current.scale('org/a', [{ stepKey: 'ecs:c/s', desiredCount: 4 }], notify);
+    await vi.advanceTimersByTimeAsync(1000);
+    await p;
+    const reminded = notify.mock.calls.some((c) => String(c[0]).includes('ecs:c/s') && String(c[0]).includes('restore point'));
+    expect(reminded).toBe(false);
+  });
+
+  it('reminds an argocd-app target on any non-idle progress entry (done OR failed:), not just done', async () => {
+    const result = await setup();
+    mockedApi.scaleProject.mockResolvedValue({ job_id: 'sj7' });
+    mockedApi.getJob.mockResolvedValue({
+      id: 'sj7',
+      operation: 'scale',
+      status: 'failed',
+      progress: { 'argocd-app:app-a': 'failed: sibling handle failed' },
+    });
+
+    const notify = vi.fn();
+    vi.useFakeTimers();
+    const p = result.current.scale('org/a', [{ stepKey: 'argocd-app:app-a', replicas: 5 }], notify);
+    await vi.advanceTimersByTimeAsync(1000);
+    await p;
+    const reminded = notify.mock.calls.some((c) => String(c[0]).includes('argocd-app:app-a'));
+    expect(reminded).toBe(true);
+  });
+
+  it('does not remind a target with no progress entry at all (job-level abort)', async () => {
+    const result = await setup();
+    mockedApi.scaleProject.mockResolvedValue({ job_id: 'sj8' });
+    mockedApi.getJob.mockResolvedValue({
+      id: 'sj8',
+      operation: 'scale',
+      status: 'failed',
+      progress: {},
+    });
+
+    const notify = vi.fn();
+    vi.useFakeTimers();
+    const p = result.current.scale('org/a', [{ stepKey: 'argocd-app:app-a', replicas: 5 }], notify);
+    await vi.advanceTimersByTimeAsync(1000);
+    await p;
+    const reminded = notify.mock.calls.some((c) => String(c[0]).includes('argocd-app:app-a'));
+    expect(reminded).toBe(false);
   });
 });
