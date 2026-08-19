@@ -45,7 +45,15 @@ export function ProjectCard({
         <h2>{pr?.name ?? row.name}</h2>
         <span className={`pill ${st}`}>{st}</span>
       </div>
-      <div className="repo">{row.repo}</div>
+      <a
+        className="repo"
+        href={`https://github.com/${row.repo}`}
+        target="_blank"
+        rel="noreferrer"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {row.repo}
+      </a>
       <div className="chips">
         {cat && <span className="chip cat">{cat}</span>}
         <span className="chip acct">{row.account}</span>

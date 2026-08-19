@@ -76,7 +76,7 @@ bash tests/run-all.sh
 | `argocd-apps/tenants/` | ArgoCD root Application CRs per tenant project (App-of-Apps) |
 | `argocd-apps/bootstrap/` | Master-root Applications (one-time bootstrap) |
 | `dashboard/backend/` | Stage 2 Lifecycle Controller (Node.js TS pnpm monorepo: shared/api/worker, built) |
-| `dashboard/frontend/` | Stage 3 admin UI (Next.js, scaffold) |
+| `dashboard/frontend/` | Stage 3 admin UI (Next.js, MVP — dev only) |
 | `docs/superpowers/` | Specs, plans, retrospectives |
 | `docs/onboarding/` | Friend account onboarding guides |
 | `docs/decisions/` | ADRs |

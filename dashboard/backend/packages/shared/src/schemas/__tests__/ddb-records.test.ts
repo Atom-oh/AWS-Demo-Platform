@@ -70,6 +70,38 @@ describe('JobRecordSchema', () => {
       });
     }
   });
+
+  it('accepts operation: scale with a targets array persisted on the record', () => {
+    const rec = JobRecordSchema.parse({
+      pk: 'job#abc-123',
+      gsi1pk: 'project#api',
+      gsi1sk: '2026-05-28T00:00:00Z',
+      operation: 'scale',
+      status: 'pending',
+      progress: {},
+      created_at: '2026-05-28T00:00:00Z',
+      ttl: 1759190400,
+      targets: [
+        { stepKey: 'ecs:cluster/service', desiredCount: 3 },
+        { stepKey: 'argocd-app:mall', replicas: 5 },
+      ],
+    });
+    expect(rec.targets).toHaveLength(2);
+  });
+
+  it('parses a non-scale job without a targets field', () => {
+    const rec = JobRecordSchema.parse({
+      pk: 'job#abc-123',
+      gsi1pk: 'project#api',
+      gsi1sk: '2026-05-28T00:00:00Z',
+      operation: 'turn_off',
+      status: 'pending',
+      progress: {},
+      created_at: '2026-05-28T00:00:00Z',
+      ttl: 1759190400,
+    });
+    expect(rec.targets).toBeUndefined();
+  });
 });
 
 describe('HistoryRecordSchema', () => {

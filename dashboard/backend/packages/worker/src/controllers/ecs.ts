@@ -3,7 +3,7 @@ import {
   UpdateServiceCommand,
   type ECSClient,
 } from '@aws-sdk/client-ecs';
-import { PermanentError, classifyAwsError } from '@demo-platform/shared';
+import { PermanentError, classifyAwsError, MAX_SCALE_REPLICAS } from '@demo-platform/shared';
 
 export interface EcsRestorationData {
   cluster: string;
@@ -65,6 +65,29 @@ export class EcsController {
           cluster: rd.cluster,
           service: rd.service,
           desiredCount: rd.original_desired_count,
+        }),
+      );
+    } catch (err) {
+      throw classifyAwsError(err);
+    }
+  }
+
+  // Independent of turn_on/off restoration capture — a simple UpdateServiceCommand,
+  // no bookkeeping. Validated against the same MAX_SCALE_REPLICAS ceiling the api
+  // route uses, since a restart-recovered scale job re-enters this controller
+  // directly from the DDB record without ever passing back through route validation.
+  async setDesiredCount(args: { cluster: string; service: string; count: number }): Promise<void> {
+    if (!Number.isInteger(args.count) || args.count <= 0 || args.count > MAX_SCALE_REPLICAS) {
+      throw new PermanentError(
+        `desiredCount must be a positive integer <= ${MAX_SCALE_REPLICAS}, got ${args.count}`,
+      );
+    }
+    try {
+      await this.opts.client.send(
+        new UpdateServiceCommand({
+          cluster: args.cluster,
+          service: args.service,
+          desiredCount: args.count,
         }),
       );
     } catch (err) {

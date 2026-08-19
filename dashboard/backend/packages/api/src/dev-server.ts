@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { createLogger } from '@demo-platform/shared';
 import type { StateClient, JobsClient } from '@demo-platform/shared';
-import type { StateRecord, JobRecord, ProjectStatusT } from '@demo-platform/shared';
+import type { StateRecord, JobRecord, ProjectStatusT, ScaleTarget } from '@demo-platform/shared';
 import { buildServer } from './server.js';
 import { loadProjects } from './plugins/projects-loader.js';
 
@@ -77,7 +77,11 @@ function makeJobsClient(): JobsClient {
   const store = new Map<string, JobRecord>();
   let seq = 0;
   return {
-    async create(args: { repo: string; operation: 'turn_off' | 'turn_on' }) {
+    async create(args: {
+      repo: string;
+      operation: 'turn_off' | 'turn_on' | 'add_secret' | 'scale';
+      targets?: ScaleTarget[];
+    }) {
       const id = `dev-${++seq}-${Math.floor(performance.now())}`;
       store.set(id, {
         pk: `job#${id}`,
@@ -86,6 +90,7 @@ function makeJobsClient(): JobsClient {
         operation: args.operation,
         status: 'pending',
         progress: {},
+        ...(args.targets ? { targets: args.targets } : {}),
         created_at: now(),
         ttl: Math.floor(Date.now() / 1000) + 86400,
       } as JobRecord);
@@ -135,7 +140,7 @@ async function main(): Promise<void> {
       const body = JSON.parse(cmd?.input?.MessageBody ?? '{}') as {
         jobId: string;
         repo: string;
-        operation: 'turn_off' | 'turn_on';
+        operation: 'turn_off' | 'turn_on' | 'scale';
       };
       const jc = jobsClient as unknown as {
         markRunning(id: string): Promise<void>;
@@ -143,12 +148,17 @@ async function main(): Promise<void> {
         _setProgress(id: string, p: Record<string, string>): void;
       };
       const sc = stateClient as unknown as { _set(repo: string, s: ProjectStatusT): void };
-      const target: ProjectStatusT = body.operation === 'turn_on' ? 'on' : 'off';
+      // scale never changes on/off state — an explicit case, not a fallthrough
+      // into the turn_on/turn_off mapping below (that mapping used to treat any
+      // non-'turn_on' operation as 'turn_off', which would have silently flipped
+      // the simulated project off for a scale request).
+      const target: ProjectStatusT | undefined =
+        body.operation === 'scale' ? undefined : body.operation === 'turn_on' ? 'on' : 'off';
       setTimeout(() => void jc.markRunning(body.jobId), 300);
       setTimeout(() => jc._setProgress(body.jobId, { phase: 'resources', step: '1/2' }), 1200);
       setTimeout(() => jc._setProgress(body.jobId, { phase: 'verify', step: '2/2' }), 2600);
       setTimeout(() => {
-        sc._set(body.repo, target);
+        if (target) sc._set(body.repo, target);
         void jc.markSucceeded(body.jobId);
       }, 3800);
       return {};
