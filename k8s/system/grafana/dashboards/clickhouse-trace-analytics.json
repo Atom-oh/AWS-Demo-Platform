@@ -214,7 +214,7 @@
       "type": "barchart"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus-east" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -226,7 +226,7 @@
       "id": 11,
       "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
       "targets": [{
-        "datasource": { "type": "prometheus", "uid": "prometheus-east" },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
         "expr": "sum(rate(traces_spanmetrics_calls_total{service_name=~\"$service\"}[$__rate_interval])) by (service_name)",
         "exemplar": true,
         "legendFormat": "{{service_name}}",
@@ -236,7 +236,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus-east" },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -248,7 +248,7 @@
       "id": 12,
       "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } },
       "targets": [{
-        "datasource": { "type": "prometheus", "uid": "prometheus-east" },
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
         "expr": "histogram_quantile(0.95, sum(rate(traces_spanmetrics_latency_bucket{service_name=~\"$service\"}[$__rate_interval])) by (le, service_name))",
         "exemplar": true,
         "legendFormat": "{{service_name}} P95",
