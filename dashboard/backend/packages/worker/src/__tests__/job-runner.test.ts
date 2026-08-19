@@ -2,6 +2,41 @@ import { describe, it, expect, vi } from 'vitest';
 import { runJob } from '../job-runner.js';
 import type { Project } from '@demo-platform/shared';
 
+const scaleProject: Project = {
+  name: 'p',
+  github: { repo: 'foo/bar', branch: 'main' },
+  account: 'atomoh-main',
+  resources: [
+    { type: 'ecs', cluster: 'c', service: 's' },
+    {
+      type: 'argocd-app',
+      application: 'app-a',
+      cluster: 'cl',
+      workload_selector: { namespace: 'ns' },
+      hpa_handling: 'scale_to_one',
+    },
+  ],
+};
+
+function makeDdb(stateStatus: string) {
+  const stateClient = {
+    read: vi.fn(async () => ({ status: stateStatus })),
+    markOff: vi.fn(),
+    markOn: vi.fn(),
+    markError: vi.fn(),
+    transition: vi.fn(),
+  };
+  const jobsClient = {
+    markRunning: vi.fn(),
+    appendProgress: vi.fn(),
+    markSucceeded: vi.fn(),
+    markPartialFailure: vi.fn(),
+    markFailed: vi.fn(),
+  };
+  const historyClient = { append: vi.fn() };
+  return { stateClient, jobsClient, historyClient };
+}
+
 const baseProject: Project = {
   name: 'p',
   github: { repo: 'foo/bar', branch: 'main' },
@@ -276,5 +311,242 @@ describe('runJob — turn_on', () => {
     expect(rdsCtl.waitForAvailable).toHaveBeenCalledWith('db-1');
     expect(waitResolved).toBe(false); // proves runJob resolved without awaiting the poll
     expect(jobsClient.markSucceeded).toHaveBeenCalledWith('j7');
+  });
+});
+
+describe('runJob — scale', () => {
+  const noopCtl = () => ({ turnOff: vi.fn(), turnOn: vi.fn() });
+
+  it('(a) an argocd-app target calls the new controller scale()', async () => {
+    const argoCtl = { turnOff: vi.fn(), turnOn: vi.fn(), scale: vi.fn(async () => undefined) };
+    const ecsCtl = { ...noopCtl(), setDesiredCount: vi.fn(async () => undefined) };
+    const { stateClient, jobsClient, historyClient } = makeDdb('on');
+
+    await runJob({
+      job: {
+        id: 'js1',
+        operation: 'scale',
+        repo: 'foo/bar',
+        actor: 'atomoh',
+        targets: [{ stepKey: 'argocd-app:app-a', replicas: 5 }],
+      },
+      project: scaleProject,
+      account: 'atomoh-main',
+      controllers: { ecs: ecsCtl as never, ec2: noopCtl() as never, rds: { ...noopCtl(), waitForAvailable: vi.fn() } as never, argocd: argoCtl as never },
+      ddb: { state: stateClient as never, jobs: jobsClient as never, history: historyClient as never },
+      logger,
+    });
+
+    expect(argoCtl.scale).toHaveBeenCalledWith('app-a', 5);
+    expect(ecsCtl.setDesiredCount).not.toHaveBeenCalled();
+    expect(jobsClient.markSucceeded).toHaveBeenCalledWith('js1');
+  });
+
+  it('(b) an ecs target calls setDesiredCount', async () => {
+    const argoCtl = { turnOff: vi.fn(), turnOn: vi.fn(), scale: vi.fn(async () => undefined) };
+    const ecsCtl = { ...noopCtl(), setDesiredCount: vi.fn(async () => undefined) };
+    const { stateClient, jobsClient, historyClient } = makeDdb('on');
+
+    await runJob({
+      job: {
+        id: 'js2',
+        operation: 'scale',
+        repo: 'foo/bar',
+        actor: 'atomoh',
+        targets: [{ stepKey: 'ecs:c/s', desiredCount: 4 }],
+      },
+      project: scaleProject,
+      account: 'atomoh-main',
+      controllers: { ecs: ecsCtl as never, ec2: noopCtl() as never, rds: { ...noopCtl(), waitForAvailable: vi.fn() } as never, argocd: argoCtl as never },
+      ddb: { state: stateClient as never, jobs: jobsClient as never, history: historyClient as never },
+      logger,
+    });
+
+    expect(ecsCtl.setDesiredCount).toHaveBeenCalledWith({ cluster: 'c', service: 's', count: 4 });
+    expect(argoCtl.scale).not.toHaveBeenCalled();
+    expect(jobsClient.markSucceeded).toHaveBeenCalledWith('js2');
+  });
+
+  it('(c) one target failing while another succeeds yields partial_failure, both attempted', async () => {
+    const argoCtl = { turnOff: vi.fn(), turnOn: vi.fn(), scale: vi.fn(async () => { throw new Error('argo boom'); }) };
+    const ecsCtl = { ...noopCtl(), setDesiredCount: vi.fn(async () => undefined) };
+    const { stateClient, jobsClient, historyClient } = makeDdb('on');
+
+    await runJob({
+      job: {
+        id: 'js3',
+        operation: 'scale',
+        repo: 'foo/bar',
+        actor: 'atomoh',
+        targets: [
+          { stepKey: 'ecs:c/s', desiredCount: 4 },
+          { stepKey: 'argocd-app:app-a', replicas: 5 },
+        ],
+      },
+      project: scaleProject,
+      account: 'atomoh-main',
+      controllers: { ecs: ecsCtl as never, ec2: noopCtl() as never, rds: { ...noopCtl(), waitForAvailable: vi.fn() } as never, argocd: argoCtl as never },
+      ddb: { state: stateClient as never, jobs: jobsClient as never, history: historyClient as never },
+      logger,
+    });
+
+    expect(ecsCtl.setDesiredCount).toHaveBeenCalled();
+    expect(argoCtl.scale).toHaveBeenCalled();
+    expect(jobsClient.markPartialFailure).toHaveBeenCalled();
+    expect(jobsClient.appendProgress).toHaveBeenCalledWith('js3', 'ecs:c/s', 'done');
+    expect(jobsClient.appendProgress).toHaveBeenCalledWith('js3', 'argocd-app:app-a', expect.stringContaining('failed:'));
+  });
+
+  it('(d) all targets failing yields failed', async () => {
+    const argoCtl = { turnOff: vi.fn(), turnOn: vi.fn(), scale: vi.fn(async () => { throw new Error('argo boom'); }) };
+    const ecsCtl = { ...noopCtl(), setDesiredCount: vi.fn(async () => { throw new Error('ecs boom'); }) };
+    const { stateClient, jobsClient, historyClient } = makeDdb('on');
+
+    await runJob({
+      job: {
+        id: 'js4',
+        operation: 'scale',
+        repo: 'foo/bar',
+        actor: 'atomoh',
+        targets: [
+          { stepKey: 'ecs:c/s', desiredCount: 4 },
+          { stepKey: 'argocd-app:app-a', replicas: 5 },
+        ],
+      },
+      project: scaleProject,
+      account: 'atomoh-main',
+      controllers: { ecs: ecsCtl as never, ec2: noopCtl() as never, rds: { ...noopCtl(), waitForAvailable: vi.fn() } as never, argocd: argoCtl as never },
+      ddb: { state: stateClient as never, jobs: jobsClient as never, history: historyClient as never },
+      logger,
+    });
+
+    expect(jobsClient.markFailed).toHaveBeenCalled();
+    expect(jobsClient.markPartialFailure).not.toHaveBeenCalled();
+    expect(jobsClient.markSucceeded).not.toHaveBeenCalled();
+  });
+
+  it('(e) state.status is never mutated by a scale job — no markOn/markError', async () => {
+    const argoCtl = { turnOff: vi.fn(), turnOn: vi.fn(), scale: vi.fn(async () => undefined) };
+    const ecsCtl = { ...noopCtl(), setDesiredCount: vi.fn(async () => undefined) };
+    const { stateClient, jobsClient, historyClient } = makeDdb('on');
+
+    await runJob({
+      job: {
+        id: 'js5',
+        operation: 'scale',
+        repo: 'foo/bar',
+        actor: 'atomoh',
+        targets: [{ stepKey: 'ecs:c/s', desiredCount: 4 }],
+      },
+      project: scaleProject,
+      account: 'atomoh-main',
+      controllers: { ecs: ecsCtl as never, ec2: noopCtl() as never, rds: { ...noopCtl(), waitForAvailable: vi.fn() } as never, argocd: argoCtl as never },
+      ddb: { state: stateClient as never, jobs: jobsClient as never, history: historyClient as never },
+      logger,
+    });
+
+    expect(stateClient.markOn).not.toHaveBeenCalled();
+    expect(stateClient.markOff).not.toHaveBeenCalled();
+    expect(stateClient.markError).not.toHaveBeenCalled();
+  });
+
+  it('(f) an empty or missing targets array fails explicitly rather than resolving succeeded', async () => {
+    const argoCtl = { turnOff: vi.fn(), turnOn: vi.fn(), scale: vi.fn() };
+    const ecsCtl = { ...noopCtl(), setDesiredCount: vi.fn() };
+    const { stateClient, jobsClient, historyClient } = makeDdb('on');
+
+    await runJob({
+      job: { id: 'js6', operation: 'scale', repo: 'foo/bar', actor: 'atomoh', targets: [] },
+      project: scaleProject,
+      account: 'atomoh-main',
+      controllers: { ecs: ecsCtl as never, ec2: noopCtl() as never, rds: { ...noopCtl(), waitForAvailable: vi.fn() } as never, argocd: argoCtl as never },
+      ddb: { state: stateClient as never, jobs: jobsClient as never, history: historyClient as never },
+      logger,
+    });
+
+    expect(jobsClient.markFailed).toHaveBeenCalled();
+    expect(jobsClient.markSucceeded).not.toHaveBeenCalled();
+    expect(argoCtl.scale).not.toHaveBeenCalled();
+    expect(ecsCtl.setDesiredCount).not.toHaveBeenCalled();
+  });
+
+  it('(g) a start-of-branch recheck aborts the whole job with no target attempted when the project is no longer on', async () => {
+    const argoCtl = { turnOff: vi.fn(), turnOn: vi.fn(), scale: vi.fn() };
+    const ecsCtl = { ...noopCtl(), setDesiredCount: vi.fn() };
+    const { stateClient, jobsClient, historyClient } = makeDdb('off');
+
+    await runJob({
+      job: {
+        id: 'js7',
+        operation: 'scale',
+        repo: 'foo/bar',
+        actor: 'atomoh',
+        targets: [{ stepKey: 'ecs:c/s', desiredCount: 4 }],
+      },
+      project: scaleProject,
+      account: 'atomoh-main',
+      controllers: { ecs: ecsCtl as never, ec2: noopCtl() as never, rds: { ...noopCtl(), waitForAvailable: vi.fn() } as never, argocd: argoCtl as never },
+      ddb: { state: stateClient as never, jobs: jobsClient as never, history: historyClient as never },
+      logger,
+    });
+
+    expect(ecsCtl.setDesiredCount).not.toHaveBeenCalled();
+    expect(argoCtl.scale).not.toHaveBeenCalled();
+    expect(jobsClient.appendProgress).not.toHaveBeenCalled();
+    expect(jobsClient.markFailed).toHaveBeenCalled();
+  });
+
+  it('(i) a target whose stepKey no longer matches any resource fails explicitly, not a vacuous success', async () => {
+    const argoCtl = { turnOff: vi.fn(), turnOn: vi.fn(), scale: vi.fn() };
+    const ecsCtl = { ...noopCtl(), setDesiredCount: vi.fn() };
+    const { stateClient, jobsClient, historyClient } = makeDdb('on');
+
+    await runJob({
+      job: {
+        id: 'js8',
+        operation: 'scale',
+        repo: 'foo/bar',
+        actor: 'atomoh',
+        targets: [{ stepKey: 'ecs:no-such-cluster/no-such-service', desiredCount: 4 }],
+      },
+      project: scaleProject,
+      account: 'atomoh-main',
+      controllers: { ecs: ecsCtl as never, ec2: noopCtl() as never, rds: { ...noopCtl(), waitForAvailable: vi.fn() } as never, argocd: argoCtl as never },
+      ddb: { state: stateClient as never, jobs: jobsClient as never, history: historyClient as never },
+      logger,
+    });
+
+    expect(ecsCtl.setDesiredCount).not.toHaveBeenCalled();
+    expect(jobsClient.appendProgress).toHaveBeenCalledWith(
+      'js8',
+      'ecs:no-such-cluster/no-such-service',
+      expect.stringContaining('failed:'),
+    );
+    expect(jobsClient.markFailed).toHaveBeenCalled();
+  });
+
+  it('appends a HistoryClient record for audit parity', async () => {
+    const argoCtl = { turnOff: vi.fn(), turnOn: vi.fn(), scale: vi.fn(async () => undefined) };
+    const ecsCtl = { ...noopCtl(), setDesiredCount: vi.fn(async () => undefined) };
+    const { stateClient, jobsClient, historyClient } = makeDdb('on');
+
+    await runJob({
+      job: {
+        id: 'js9',
+        operation: 'scale',
+        repo: 'foo/bar',
+        actor: 'atomoh',
+        targets: [{ stepKey: 'ecs:c/s', desiredCount: 4 }],
+      },
+      project: scaleProject,
+      account: 'atomoh-main',
+      controllers: { ecs: ecsCtl as never, ec2: noopCtl() as never, rds: { ...noopCtl(), waitForAvailable: vi.fn() } as never, argocd: argoCtl as never },
+      ddb: { state: stateClient as never, jobs: jobsClient as never, history: historyClient as never },
+      logger,
+    });
+
+    expect(historyClient.append).toHaveBeenCalledWith(
+      expect.objectContaining({ repo: 'foo/bar', action: 'scale', actor: 'atomoh' }),
+    );
   });
 });

@@ -9,6 +9,7 @@ import type {
   Account,
   Logger,
   JobsClient,
+  ScaleTarget,
 } from '@demo-platform/shared';
 import type { Controllers, DDB } from './job-runner.js';
 import { runJob as defaultRunJob } from './job-runner.js';
@@ -16,7 +17,8 @@ import { runJob as defaultRunJob } from './job-runner.js';
 interface MessageBody {
   jobId: string;
   repo: string;
-  operation: 'turn_off' | 'turn_on';
+  operation: 'turn_off' | 'turn_on' | 'scale';
+  targets?: ScaleTarget[];
 }
 
 export interface PollContext {
@@ -76,7 +78,13 @@ export async function runOnce(ctx: PollContext): Promise<boolean> {
     const controllers = await ctx.buildControllers(account);
     const runner = ctx.runJob ?? defaultRunJob;
     await runner({
-      job: { id: body.jobId, operation: body.operation, repo: body.repo, actor: 'system' },
+      job: {
+        id: body.jobId,
+        operation: body.operation,
+        repo: body.repo,
+        actor: 'system',
+        targets: body.targets,
+      },
       project,
       account: account.name,
       controllers,
@@ -122,7 +130,12 @@ export async function sweepRunningJobs(args: SweepArgs): Promise<void> {
     await args.sqsClient.send(
       new SendMessageCommand({
         QueueUrl: args.queueUrl,
-        MessageBody: JSON.stringify({ jobId, repo, operation: job.operation }),
+        MessageBody: JSON.stringify({
+          jobId,
+          repo,
+          operation: job.operation,
+          ...(job.targets ? { targets: job.targets } : {}),
+        }),
       }),
     );
   }

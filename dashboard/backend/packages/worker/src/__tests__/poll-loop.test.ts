@@ -99,6 +99,38 @@ describe('runOnce', () => {
   });
 });
 
+describe('runOnce — scale', () => {
+  it('carries targets from the SQS message body through to the job passed to runJob', async () => {
+    const targets = [{ stepKey: 'ecs:c/s', desiredCount: 4 }];
+    sqsMock.on(ReceiveMessageCommand).resolves({
+      Messages: [
+        {
+          MessageId: 'm2',
+          ReceiptHandle: 'h2',
+          Body: JSON.stringify({ jobId: 'j2', repo: 'foo/bar', operation: 'scale', targets }),
+        },
+      ],
+    });
+    sqsMock.on(DeleteMessageCommand).resolves({});
+
+    const runJobSpy = vi.fn(async () => undefined);
+    const ctx = {
+      sqsClient: sqsMock as unknown as SQSClient,
+      queueUrl: 'http://q',
+      waitSeconds: 0,
+      logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
+      projectByRepo: { 'foo/bar': baseProject },
+      accountsByName: { 'atomoh-main': account },
+      runJob: runJobSpy,
+      buildControllers: vi.fn(async () => ({} as never)),
+    };
+    await runOnce(ctx as never);
+    expect(runJobSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ job: expect.objectContaining({ operation: 'scale', targets }) }),
+    );
+  });
+});
+
 describe('sweepRunningJobs', () => {
   it('re-enqueues found running jobs', async () => {
     const jobs = [
@@ -128,5 +160,40 @@ describe('sweepRunningJobs', () => {
     });
     expect(sentMessages).toHaveLength(1);
     expect(JSON.parse(sentMessages[0])).toMatchObject({ jobId: 'j1', repo: 'foo/bar', operation: 'turn_off' });
+  });
+
+  it('reconstructs a scale job\'s targets from the DDB job record on restart recovery', async () => {
+    const targets = [
+      { stepKey: 'ecs:c/s', desiredCount: 4 },
+      { stepKey: 'argocd-app:app-a', replicas: 3 },
+    ];
+    const jobs = [
+      {
+        pk: 'job#j2',
+        gsi1pk: 'project#foo/bar',
+        gsi1sk: 't',
+        operation: 'scale' as const,
+        status: 'running' as const,
+        progress: {},
+        targets,
+        created_at: 't',
+        ttl: 1,
+      },
+    ];
+    const jobsClient = { listRunning: vi.fn(async () => jobs) };
+    const sentMessages: string[] = [];
+    const sqs = {
+      send: vi.fn(async (cmd: { input?: { MessageBody?: string } }) => {
+        sentMessages.push(cmd.input?.MessageBody ?? '');
+      }),
+    };
+    await sweepRunningJobs({
+      sqsClient: sqs as unknown as SQSClient,
+      queueUrl: 'http://q',
+      jobsClient: jobsClient as never,
+      logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as never,
+    });
+    expect(sentMessages).toHaveLength(1);
+    expect(JSON.parse(sentMessages[0])).toMatchObject({ jobId: 'j2', repo: 'foo/bar', operation: 'scale', targets });
   });
 });

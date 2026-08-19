@@ -1,3 +1,4 @@
+import { PermanentError, MAX_SCALE_REPLICAS } from '@demo-platform/shared';
 import type { ArgocdClient } from '@demo-platform/shared';
 
 export interface ArgocdRestorationData {
@@ -60,6 +61,38 @@ export class ArgocdController {
       const replicas = rd.workloads[h.name];
       if ((h.kind === 'Deployment' || h.kind === 'StatefulSet') && replicas !== undefined) {
         await this.opts.client.patchReplicas(rd.application, h, replicas);
+      }
+    }
+  }
+
+  // Dispatches per handle by kind: patchReplicas(replicas) for Deployment/
+  // StatefulSet, patchHpaBounds({min:replicas, max:replicas}) for HPA — pinning
+  // min=max to the requested count. HPA-kind handles are patched before
+  // Deployment/StatefulSet-kind handles, carrying over turnOn/turnOff's "HPA
+  // first, to prevent re-scaling" ordering convention. Zero matched handles is
+  // the pre-existing namespace:'placeholder' bug's actual failure mode — this
+  // throws explicitly rather than resolving having silently done nothing, since
+  // scale is the first feature where that silent no-op would look like success.
+  async scale(application: string, replicas: number): Promise<void> {
+    if (!Number.isInteger(replicas) || replicas <= 0 || replicas > MAX_SCALE_REPLICAS) {
+      throw new PermanentError(
+        `replicas must be a positive integer <= ${MAX_SCALE_REPLICAS}, got ${replicas}`,
+      );
+    }
+    const handles = await this.opts.client.listWorkloads(application);
+    if (handles.length === 0) {
+      throw new PermanentError(
+        `no workload handles found for ArgoCD application "${application}" — scale cannot proceed`,
+      );
+    }
+    for (const h of handles) {
+      if (h.kind === 'HorizontalPodAutoscaler') {
+        await this.opts.client.patchHpaBounds(application, h, { min: replicas, max: replicas });
+      }
+    }
+    for (const h of handles) {
+      if (h.kind === 'Deployment' || h.kind === 'StatefulSet') {
+        await this.opts.client.patchReplicas(application, h, replicas);
       }
     }
   }

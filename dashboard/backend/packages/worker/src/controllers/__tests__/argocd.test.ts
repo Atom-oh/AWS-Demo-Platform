@@ -83,3 +83,83 @@ describe('ArgocdController.turnOn', () => {
     expect(patches).toContain('replicas:web=4');
   });
 });
+
+describe('ArgocdController.scale', () => {
+  function makeClient(workloads: WorkloadHandle[]) {
+    const calls: Array<{ kind: string; name: string; at: number }> = [];
+    let seq = 0;
+    const client: Pick<ArgocdClient, 'listWorkloads' | 'patchReplicas' | 'patchHpaBounds' | 'getLive'> = {
+      listWorkloads: vi.fn(async () => workloads),
+      getLive: vi.fn(async () => ({})),
+      patchReplicas: vi.fn(async (_a, h) => {
+        calls.push({ kind: h.kind, name: h.name, at: seq++ });
+      }),
+      patchHpaBounds: vi.fn(async (_a, h) => {
+        calls.push({ kind: h.kind, name: h.name, at: seq++ });
+      }),
+    };
+    return { client, calls };
+  }
+
+  it('(a) replica-bearing handles (Deployment + StatefulSet) get patchReplicas, never patchHpaBounds', async () => {
+    const workloads: WorkloadHandle[] = [
+      { kind: 'Deployment', group: 'apps', version: 'v1', namespace: 'ns', name: 'web' },
+      { kind: 'StatefulSet', group: 'apps', version: 'v1', namespace: 'ns', name: 'cache' },
+    ];
+    const { client } = makeClient(workloads);
+    const c = new ArgocdController({ client: client as unknown as ArgocdClient });
+    await c.scale('app', 5);
+    expect(client.patchReplicas).toHaveBeenCalledWith('app', workloads[0], 5);
+    expect(client.patchReplicas).toHaveBeenCalledWith('app', workloads[1], 5);
+    expect(client.patchHpaBounds).not.toHaveBeenCalled();
+  });
+
+  it('(b) only HPA-kind handles get patchHpaBounds({min,max}), never patchReplicas', async () => {
+    const workloads: WorkloadHandle[] = [
+      { kind: 'HorizontalPodAutoscaler', group: 'autoscaling', version: 'v2', namespace: 'ns', name: 'web' },
+    ];
+    const { client } = makeClient(workloads);
+    const c = new ArgocdController({ client: client as unknown as ArgocdClient });
+    await c.scale('app', 5);
+    expect(client.patchHpaBounds).toHaveBeenCalledWith('app', workloads[0], { min: 5, max: 5 });
+    expect(client.patchReplicas).not.toHaveBeenCalled();
+  });
+
+  it('(c) mixed kinds: each handle gets the call matching its kind, HPA patched before Deployment/StatefulSet', async () => {
+    const workloads: WorkloadHandle[] = [
+      { kind: 'Deployment', group: 'apps', version: 'v1', namespace: 'ns', name: 'web' },
+      { kind: 'StatefulSet', group: 'apps', version: 'v1', namespace: 'ns', name: 'cache' },
+      { kind: 'HorizontalPodAutoscaler', group: 'autoscaling', version: 'v2', namespace: 'ns', name: 'web' },
+    ];
+    const { client, calls } = makeClient(workloads);
+    const c = new ArgocdController({ client: client as unknown as ArgocdClient });
+    await c.scale('app', 3);
+    expect(client.patchReplicas).toHaveBeenCalledWith('app', workloads[0], 3);
+    expect(client.patchReplicas).toHaveBeenCalledWith('app', workloads[1], 3);
+    expect(client.patchHpaBounds).toHaveBeenCalledWith('app', workloads[2], { min: 3, max: 3 });
+    const hpaCall = calls.find((x) => x.kind === 'HorizontalPodAutoscaler');
+    const deployCalls = calls.filter((x) => x.kind === 'Deployment' || x.kind === 'StatefulSet');
+    expect(hpaCall).toBeDefined();
+    for (const dc of deployCalls) {
+      expect(hpaCall!.at).toBeLessThan(dc.at);
+    }
+  });
+
+  it('(d) zero matched handles throws/rejects rather than resolving successfully', async () => {
+    const { client } = makeClient([]);
+    const c = new ArgocdController({ client: client as unknown as ArgocdClient });
+    await expect(c.scale('app', 3)).rejects.toThrow();
+  });
+
+  it('rejects a non-integer, non-positive, or over-ceiling replicas value before calling the client', async () => {
+    const workloads: WorkloadHandle[] = [
+      { kind: 'Deployment', group: 'apps', version: 'v1', namespace: 'ns', name: 'web' },
+    ];
+    const { client } = makeClient(workloads);
+    const c = new ArgocdController({ client: client as unknown as ArgocdClient });
+    await expect(c.scale('app', 0)).rejects.toThrow();
+    await expect(c.scale('app', 2.5)).rejects.toThrow();
+    await expect(c.scale('app', 21)).rejects.toThrow();
+    expect(client.patchReplicas).not.toHaveBeenCalled();
+  });
+});
