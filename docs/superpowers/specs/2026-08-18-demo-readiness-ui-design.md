@@ -18,7 +18,9 @@ touch the same dashboard surface:
 3. A free-text "briefing" field per project, shown in the detail drawer.
 4. An operator-driven "scale for demo" action — manually set ArgoCD/HPA replica count
    or ECS `desiredCount` per resource, independent of the existing on/off restoration
-   flow.
+   flow. (The ArgoCD/HPA half is currently blocked by a pre-existing bug — see Known
+   limitations below — so only the ECS half is actually usable until that bug is
+   fixed separately.)
 
 ## Architecture
 
@@ -27,8 +29,8 @@ worker) rather than introducing a new execution path. Three of the four features
 pure frontend/schema additions with no new backend logic:
 
 - **Turn on all**: no new endpoint. The frontend enumerates off/error projects and
-  calls the existing per-project `turn_on` action with limited concurrency (3–5 at a
-  time) to avoid an unbounded SQS enqueue burst.
+  calls the existing per-project `turn_on` action with limited concurrency (4 at a
+  time — a fixed value, not a tunable) to avoid an unbounded SQS enqueue burst.
 - **GitHub link**: pure rendering change — `github.repo` (already `owner/name`) wrapped
   in an anchor to `https://github.com/${repo}`. No schema or backend change.
 - **Briefing**: a new optional `briefing` string field on the project schema, read-only
@@ -46,8 +48,11 @@ data-loss interaction with the existing `turn_off` restoration snapshot.
 drafts had the scale input pre-filled from a live-read of the resource's current
 `desiredCount`/replica count. Round 2 review found this unimplementable as scoped:
 the `api` package has no cross-account AWS/ArgoCD client or assume-role wiring at all
-(only `worker` does — `packages/api` is meant to stay thin, per `dashboard/CLAUDE.md`'s
-"all cross-account operations belong in the backend [worker]" convention), so adding
+(only `worker` does — `dashboard/CLAUDE.md` states that cross-account operations
+belong in the backend, contrasting it with the frontend rather than with `api`
+specifically; in this codebase's `api`/`worker` split, `api` is meant to stay thin and
+has no assume-role wiring of its own, so that convention lands on `worker` here — this
+inference is this spec's, not a direct quote), so adding
 it would mean duplicating IAM/ArgoCD
 credential wiring into a second ECS task, not "reusing existing calls" as originally
 claimed. Separately, a single ArgoCD application can back multiple workloads/HPAs
@@ -62,9 +67,14 @@ can read, not a synchronous API-layer AWS call — worth its own spec if it come
   not only carried in the SQS message body. `sweepRunningJobs`' startup recovery
   reconstructs in-flight jobs from DDB (not from the queue), so a `scale` job with
   SQS-only targets would recover with no targets to act on after a worker restart —
-  persisting them on the record fixes that, matching how `turn_on`/`turn_off` already
-  keep their working state (`restoration_data`) on the record rather than in the queue.
-  The existing `MessageBody`/`JobInput` types in `poll-loop.ts` are narrower than the
+  persisting them on the record fixes that. This mirrors the same principle
+  `turn_on`/`turn_off` already follow for their own working state, though on a
+  different record: their `restoration_data` durably lives on the *project's*
+  `state` record (via `StateClient.markOff`), not the job record, since it needs to
+  survive past that job's lifetime; `scale`'s `targets` durably live on the *job*
+  record instead, since the job is the only thing that needs them and they have no
+  reason to outlive it. The existing `MessageBody`/`JobInput` types in `job-runner.ts`
+  (the `JobInput` type specifically) and `poll-loop.ts` (the `MessageBody` type) are narrower than the
   job schema already allows — they need widening alongside the schema, not as an
   afterthought, or the plumbing silently drops `targets` on the SQS-enqueue path too.
 - New route `POST /api/projects/:owner/:name/actions/scale` (deliberately separate from
@@ -75,11 +85,13 @@ can read, not a synchronous API-layer AWS call — worth its own spec if it come
   types, and `always_on: true` resources, are rejected — there's no scale concept for
   them); an `ecs` target carries `desiredCount` and an `argocd-app` target carries
   `replicas`, both positive integers, and not the other field. The status check is a
-  plain read (`scale` has no status transition of its own to attach a DynamoDB
-  `ConditionExpression` to, unlike `turn_on`/`turn_off`) — it does not fully close the
-  race against a concurrent `turn_off` (see Known limitation below; this is a
-  non-production tool, so a distributed lock or a synthetic transitional status just
-  to gain an atomic condition is deliberately not in scope). On success,
+  plain, eventually-consistent read via the existing `StateClient.read()` (`scale`
+  has no status transition of its own to attach a DynamoDB `ConditionExpression` to,
+  unlike `turn_on`/`turn_off`) — it narrows but does not fully close the race against
+  a concurrent `turn_off` between this read and the worker's own start-of-branch
+  recheck (see Known limitation below; this is a non-production tool, so a
+  distributed lock or a synthetic transitional status just to gain an atomic
+  condition is deliberately not in scope). On success,
   creates a job (with `targets` on the record) and enqueues it — no project-status
   transition, since `scale` doesn't change on/off state. If the SQS enqueue fails
   after the job record is created, the route marks that job `failed` before returning
@@ -101,11 +113,29 @@ can read, not a synchronous API-layer AWS call — worth its own spec if it come
   affected by `patchHpaBounds`). `ecs` targets call a new, standalone
   `EcsController.setDesiredCount({cluster, service, count})` (independent of the
   existing turn_on/off restoration capture — it's a simple `UpdateServiceCommand`, no
-  bookkeeping). A job is `partial_failure` if some but not all targets fail, and
-  `failed` only if every target fails — matching the job status enum's existing
-  meaning. (The ArgoCD client's workload-listing filter has a pre-existing, unrelated
-  bug — a hardcoded `namespace: 'placeholder'` — that already affects `turnOn`/
-  `turnOff` today; `scale` inherits it unchanged, and fixing it is out of scope here.)
+  bookkeeping). A job is `partial_failure` if some but not all *targets* fail, and
+  `failed` only if every target fails — a new convention for this operation (the
+  existing `runJob` never actually sets `failed` for `turn_on`/`turn_off`; it marks
+  `partial_failure` for any error, including all-targets-failed, and only the API's
+  enqueue-rollback path sets `failed` — see Error handling below). Aggregation is at
+  the *target* level, not per-workload-handle: within a single `argocd-app` target
+  backed by multiple handles, one handle failing marks that whole target (and
+  therefore, if it's the only target, the whole job) as failed even if a sibling
+  handle on the same application patched successfully — accepted for this pass rather
+  than building handle-level result aggregation. (The ArgoCD client's workload-listing
+  filter has a pre-existing, unrelated bug — a hardcoded `namespace: 'placeholder'` —
+  that already affects `turnOn`/`turnOff` today, but silently: `listWorkloads` returns
+  zero handles, so those two operations just no-op instead of erroring. `scale`
+  inherits the same zero-handles result, but per the explicit-failure rule above that
+  means **every `argocd-app` scale attempt fails, unconditionally, until that bug is
+  fixed** — this spec does not fix the bug itself, only makes the failure visible
+  instead of silent, so `argocd-app` scaling should be treated as not-yet-usable in
+  practice; `ecs` scaling is unaffected.) Additionally, at the start of the `scale`
+  branch, the worker re-reads the project's `state.status` and fails the job outright
+  (every target marked failed, no AWS/K8s calls made) if it's no longer `on` — a cheap
+  recheck that shrinks the check-then-act race described in Known limitations below
+  from potentially minutes down to the worker's own processing time, without needing a
+  lock or a transitional status.
 - The `stepKey` convention used by `turn_on`/`turn_off` restoration lookups is
   currently a private helper inside `job-runner.ts` (in the `worker` package).
   Exporting it from `worker` doesn't help — `api` and `frontend` are separate
@@ -118,10 +148,18 @@ can read, not a synchronous API-layer AWS call — worth its own spec if it come
   a Node package function, so it never computes a `stepKey` itself: the API includes
   each resource's `stepKey` as a field in its existing project-detail response, and
   the frontend just echoes that value back on a scale request.
-- **Known limitations, not fixed in this pass** (both accepted given this is
-  explicitly a non-production tool; the PR-review gate's round found the first one
-  described inaccurately in an earlier draft — corrected below):
-  - **For `argocd-app` targets, scaling irreversibly collapses the HPA's autoscaling
+- **Known limitations, not fixed in this pass** (accepted given this is explicitly a
+  non-production tool; the PR-review gate's round found two of these described
+  inaccurately in an earlier draft — corrected below):
+  - **ArgoCD/HPA scaling does not work at all today.** See the Architecture section's
+    note on the pre-existing `namespace: 'placeholder'` bug: `listWorkloads` returns
+    zero handles for every real application, and this spec's explicit-failure rule
+    for zero-matched-handles turns that into a guaranteed failure for every
+    `argocd-app` scale attempt. This spec does not fix that bug — fixing it is out of
+    scope here — it only ensures the failure surfaces to the operator instead of
+    silently doing nothing. `ecs` scaling is unaffected and works as designed.
+  - **For `argocd-app` targets, once the namespace bug above is fixed, scaling
+    irreversibly collapses the HPA's autoscaling
     range — at the moment of the scale itself, not only after a later `turn_off`.**
     `scale` pins `patchHpaBounds({min: replicas, max: replicas})`; nothing captures
     the pre-scale `min`/`max` before overwriting them. A demo scale from an autoscaled
@@ -140,13 +178,17 @@ can read, not a synchronous API-layer AWS call — worth its own spec if it come
     real fix (capturing pre-scale HPA bounds on the job record as a distinct,
     never-silently-overwritten value, so a later "restore original range" action is
     possible) is a bigger change than this pass budgets for.
-  - The `scale` route's status precondition is a plain read, not an atomic conditional
-    write (`scale` has no status transition of its own to attach one to) — a `scale`
-    and a concurrent `turn_off` can still race in the window between that read and the
-    worker acting on it. Narrowed by the read (with `ConsistentRead: true`), not
-    eliminated; a proper fix needs either a distributed lock or a synthetic
-    transitional status invented solely to get an atomic condition, both bigger than
-    this pass budgets for.
+  - The `scale` route's status precondition is a plain, eventually-consistent read,
+    not an atomic conditional write (`scale` has no status transition of its own to
+    attach one to) — a `scale` and a concurrent `turn_off` can still race between
+    that route-level read and the worker acting on it. This is narrowed, not
+    eliminated, by the worker's own start-of-branch status recheck (see Architecture
+    above), which shrinks the window from however long the job sits queued (SQS
+    latency, or minutes if a restart/sweep-recovery cycle intervenes) down to the
+    worker's own processing time for that job — a cheap recheck, not a fix. A
+    complete fix needs either a distributed lock or a synthetic transitional status
+    invented solely to get an atomic condition, both bigger than this pass budgets
+    for.
 
 ## Data model changes
 
@@ -201,9 +243,15 @@ frontend task in this spec depends on it for TDD.
   concurrency limiter, and surfaces per-project failures via toast (successes are
   silent beyond the existing status change).
 - `useProjects.ts`: `toggle()` currently swallows its own success/failure (callers
-  can't tell what happened). Change it to resolve `{ok: boolean}` (or throw) so the new
-  bulk helper can aggregate real `{repo, ok}` results instead of guessing from side
-  effects.
+  can't tell what happened, and its poll loop only reacts to `succeeded`/`failed`,
+  silently falling through on timeout). Change it to always resolve — never reject —
+  `{ok: boolean}`: `true` on `succeeded`, `false` on `failed`, `false` on
+  `partial_failure` (checked as soon as observed, not deferred to poll timeout), and
+  `false` if the poll loop exhausts its timeout while the job is still running. This
+  lets the new bulk helper aggregate real `{repo, ok}` results instead of guessing
+  from side effects, and closes off the "still throws sometimes" ambiguity a caller
+  doing `Promise.all` over multiple `toggle()` calls would otherwise have to guard
+  against.
 - `ProjectCard.tsx` / `DetailDrawer.tsx`: wrap the repo text in
   `<a href="https://github.com/${repo}" target="_blank" rel="noreferrer">`. On
   `ProjectCard`, the card body itself is already a click target that opens the detail
@@ -219,7 +267,18 @@ frontend task in this spec depends on it for TDD.
   that follows the exact same POST → job_id → 1s-interval poll pattern `toggle()`
   already uses, and surfaces `partial_failure` distinctly from `failed` in its toast
   (some resources scaled, some didn't — different message than a full failure), plus
-  the "this becomes the new turn_off baseline" reminder on any success/partial_failure.
+  a per-target-kind reminder on any success/partial_failure — never the generic
+  "becomes the new restore point" framing for every target, since the two resource
+  types carry different, kind-specific consequences: for an `argocd-app` target
+  specifically, that scaling pins the HPA's autoscaling range to a fixed count and
+  that range cannot be recovered through this tool afterward, even by scaling back
+  down (see Known limitations above); for an `ecs` target, the simpler "this becomes
+  the new `turn_off` restore point" framing is accurate as-is, since ECS
+  `desiredCount` has no min/max range to lose. The frontend doesn't know a target's
+  underlying workload kind (Deployment/StatefulSet vs. HPA) within an `argocd-app`
+  application, only that it's `argocd-app` vs. `ecs`, so the ArgoCD-side wording is
+  phrased conditionally ("if this application contains an HPA…") rather than
+  asserting range loss unconditionally.
 
 ## Error handling
 
@@ -237,9 +296,13 @@ frontend task in this spec depends on it for TDD.
   never pick up.
 - Per-target AWS/K8s call failures inside the worker: recorded per-target, job ends
   `partial_failure` if any target failed while others succeeded, `failed` only if all
-  targets failed — same convention the job status enum already uses elsewhere. The
+  targets failed — a convention new to `scale` (see Architecture above for how this
+  differs from `turn_on`/`turn_off`'s existing `runJob` behavior). Aggregation is at
+  the target level, not per-workload-handle, within a single `argocd-app` target. The
   `scale` branch never calls `markOn`/`markError` on the project's state record —
-  only the job's own status changes.
+  only the job's own status changes. If the worker's start-of-branch status recheck
+  (Architecture above) finds the project no longer `on`, the job fails outright before
+  any target is attempted.
 - A worker restart mid-`scale` recovers `targets` from the DDB job record (not the
   now-consumed SQS message) via the same `sweepRunningJobs` path `turn_on`/`turn_off`
   already use.
