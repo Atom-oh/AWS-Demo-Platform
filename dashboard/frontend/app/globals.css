@@ -135,6 +135,13 @@ aside h3 {
   padding: 7px 10px;
   font-size: 13px;
 }
+.stats-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 22px;
+}
+.stats-bar .stats { flex: 1; margin-bottom: 0; }
 .stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

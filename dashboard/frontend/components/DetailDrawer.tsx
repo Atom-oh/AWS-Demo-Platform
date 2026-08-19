@@ -42,7 +42,7 @@ export function DetailDrawer({
 }: {
   row: ProjectRow;
   onClose: () => void;
-  onToggle: (repo: string, op: 'turn_on' | 'turn_off') => Promise<void> | void;
+  onToggle: (repo: string, op: 'turn_on' | 'turn_off') => Promise<{ ok: boolean }> | void;
 }) {
   const [history, setHistory] = useState<HistoryRecord[] | null>(null);
   const [histErr, setHistErr] = useState<string | null>(null);
