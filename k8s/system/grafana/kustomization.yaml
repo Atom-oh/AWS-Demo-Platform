@@ -1,6 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
+resources:
+  - grafana-nlb.yaml
+
 patches:
   - target:
       kind: ConfigMap
@@ -61,6 +64,30 @@ patches:
   - target:
       kind: ConfigMap
       name: grafana-dashboard-otel-collector-health
+    patch: |
+      - op: add
+        path: /metadata/annotations
+        value:
+          grafana_folder: "Infrastructure"
+  - target:
+      kind: ConfigMap
+      name: grafana-dashboard-synthetic-monitor
+    patch: |
+      - op: add
+        path: /metadata/annotations
+        value:
+          grafana_folder: "APM"
+  - target:
+      kind: ConfigMap
+      name: grafana-dashboard-service-health
+    patch: |
+      - op: add
+        path: /metadata/annotations
+        value:
+          grafana_folder: "Infrastructure"
+  - target:
+      kind: ConfigMap
+      name: grafana-dashboard-infrastructure-nodepools
     patch: |
       - op: add
         path: /metadata/annotations

@@ -65,9 +65,12 @@ spec:
                   interval: 30s
                 - port: prometheus
                   interval: 30s
+            priorityClassName: system-node-critical
+            tolerations:
+              - operator: Exists
             resources:
               requests:
-                cpu: 500m
+                cpu: 250m
                 memory: 1Gi
               limits:
                 cpu: "2"
