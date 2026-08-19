@@ -79,11 +79,17 @@ can read, not a synchronous API-layer AWS call — worth its own spec if it come
   afterthought, or the plumbing silently drops `targets` on the SQS-enqueue path too.
 - New route `POST /api/projects/:owner/:name/actions/scale` (deliberately separate from
   the existing `:op` route rather than a third value for `:op` — its request body shape
-  differs and `:op` is typed as a plain enum). Validates: project status is currently
+  differs and `:op` is typed as a plain enum). It sits behind the same server-wide
+  Cognito JWT plugin and CloudFront-only ingress the existing `:op` route already has —
+  registering it as a plain Fastify route under the same server, not a standalone one,
+  is what keeps it inside that boundary; this needs no new auth wiring. Validates: project status is currently
   `on`; `targets` is non-empty with no duplicate `stepKey`s; every `stepKey` maps to a
-  real resource on the project; the resource's `type` is `ecs` or `argocd-app` (other
-  types, and `always_on: true` resources, are rejected — there's no scale concept for
-  them); an `ecs` target carries `desiredCount` and an `argocd-app` target carries
+  real resource on the project; the resource's `type` is `ecs` or `argocd-app` — other
+  types, including every `always_on: true` resource, are rejected by this single
+  type check, since there's no scale concept for them and (per the schema)
+  `EcsResource`/`ArgocdResource` are the only resource types without an `always_on`
+  field at all, so no separate `always_on` check is needed or testable; an `ecs`
+  target carries `desiredCount` and an `argocd-app` target carries
   `replicas`, both positive integers, and not the other field. The status check is a
   plain, eventually-consistent read via the existing `StateClient.read()` (`scale`
   has no status transition of its own to attach a DynamoDB `ConditionExpression` to,
@@ -260,25 +266,42 @@ frontend task in this spec depends on it for TDD.
 - `DetailDrawer.tsx`: new "Briefing" section (whitespace-preserving), rendered only
   when `briefing` is present; sits alongside the existing Resources/URL/History
   sections.
-- `DetailDrawer.tsx`: resource chips for `argocd-app`/`ecs` types gain a number input
-  (empty, with a "check the console for the current count" placeholder — see the
-  cut "current value" feature above) plus an "Apply" button, enabled only when
-  project status is `on`. `useProjects.ts` gets a new `scale(repo, targets)` function
-  that follows the exact same POST → job_id → 1s-interval poll pattern `toggle()`
-  already uses, and surfaces `partial_failure` distinctly from `failed` in its toast
-  (some resources scaled, some didn't — different message than a full failure), plus
-  a per-target-kind reminder on any success/partial_failure — never the generic
-  "becomes the new restore point" framing for every target, since the two resource
-  types carry different, kind-specific consequences: for an `argocd-app` target
-  specifically, that scaling pins the HPA's autoscaling range to a fixed count and
-  that range cannot be recovered through this tool afterward, even by scaling back
-  down (see Known limitations above); for an `ecs` target, the simpler "this becomes
-  the new `turn_off` restore point" framing is accurate as-is, since ECS
-  `desiredCount` has no min/max range to lose. The frontend doesn't know a target's
-  underlying workload kind (Deployment/StatefulSet vs. HPA) within an `argocd-app`
-  application, only that it's `argocd-app` vs. `ecs`, so the ArgoCD-side wording is
-  phrased conditionally ("if this application contains an HPA…") rather than
-  asserting range loss unconditionally.
+- `DetailDrawer.tsx`: resource chips gain a number input (empty, with a "check the
+  ArgoCD/ECS console for the current count" placeholder — see the cut "current
+  value" feature above) plus an "Apply" button. For `ecs` resource chips, both are
+  enabled only when project status is `on`. For `argocd-app` resource chips, both
+  are **disabled unconditionally** with an inline note that ArgoCD/HPA scaling
+  doesn't work yet (see Known limitations — the pre-existing `namespace:
+  'placeholder'` bug makes every `argocd-app` scale attempt fail today); this UI
+  ships disabled specifically so the not-yet-working path isn't presented as live —
+  it re-enables once that bug is fixed separately. `useProjects.ts` gets a new
+  `scale(repo, targets)` function that follows the exact same POST → job_id →
+  1s-interval poll pattern `toggle()` already uses, and surfaces `partial_failure`
+  distinctly from `failed` in its toast (some resources scaled, some didn't —
+  different message than a full failure). It scopes its post-scale reminder using
+  the job's per-`stepKey` `progress` map (the same field `GET /api/jobs/:id`
+  already returns from `runJob`'s existing `appendProgress` calls — no new API
+  surface), not the coarser target-level `succeeded`/`partial_failure`/`failed`
+  status: for an `ecs` target, the reminder fires only for a `stepKey` whose
+  progress entry is `done` ("this becomes the new `turn_off` restore point" — ECS
+  `desiredCount` has no min/max range to lose, and `setDesiredCount` is a single
+  atomic call with no partial-mutation case). For an `argocd-app` target, the
+  reminder fires whenever that `stepKey`'s progress entry is anything other than
+  "no attempt was made" — including a `done` **or** a `failed:` entry — because
+  Task 4's HPA-first patch ordering means a multi-handle application's HPA can
+  already be irreversibly pinned before a sibling Deployment/StatefulSet handle
+  fails and the *target* is aggregated as failed; the frontend cannot distinguish
+  "nothing happened" from "partially, irreversibly happened" for that case, so it
+  warns on any non-idle outcome rather than risk suppressing the warning exactly
+  when the mutation occurred (see Known limitations below). The frontend doesn't
+  know a target's underlying workload kind (Deployment/StatefulSet vs. HPA) within
+  an `argocd-app` application, only that it's `argocd-app` vs. `ecs`, so the
+  ArgoCD-side wording is phrased conditionally ("if this application contains an
+  HPA…") rather than asserting range loss unconditionally. This wording and
+  scoping logic in `scale()` is unit-tested directly even though the `argocd-app`
+  input is disabled in the UI today — it becomes reachable the moment the
+  namespace bug is fixed, and untested-until-then dead code is worse than an
+  unreachable but correct implementation.
 
 ## Error handling
 
@@ -333,7 +356,9 @@ frontend task in this spec depends on it for TDD.
   (new `setDesiredCount`), `controllers/__tests__/argocd.test.ts` (new `scale` method
   dispatching by workload kind across multiple handles, including a mixed
   HPA+Deployment application, and the zero-handles case), new `scale.test.ts` (route
-  validation: unknown `stepKey`, `always_on` rejection, wrong-type rejection, non-`on`
+  validation: unknown `stepKey`, wrong-type rejection (this single case already
+  covers `always_on` resources too — see Architecture above for why that's not a
+  separately-testable case), non-`on`
   status rejection via the status precondition, malformed target shape, enqueue-failure marks the job
   `failed`).
 - Frontend (after the new test-infra setup step): `useProjects.test.ts` (`scale()`
