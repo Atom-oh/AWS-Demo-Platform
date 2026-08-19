@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { Project, StateClient } from '@demo-platform/shared';
-import { NotFoundError } from '@demo-platform/shared';
+import { NotFoundError, stepKey } from '@demo-platform/shared';
 
 export interface ProjectsRouteDeps {
   projects: Record<string, Project>;
@@ -27,6 +27,10 @@ export async function registerProjects(
     const project = deps.projects[repo];
     if (!project) throw new NotFoundError(`project not found: ${repo}`);
     const state = await deps.stateClient.read(repo);
-    return { project, state };
+    const withStepKeys = {
+      ...project,
+      resources: project.resources.map((r) => ({ ...r, stepKey: stepKey(r) })),
+    };
+    return { project: withStepKeys, state };
   });
 }
