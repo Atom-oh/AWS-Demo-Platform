@@ -17,7 +17,6 @@ export interface LiveState {
 export interface ArgocdClientOpts {
   baseUrl: string;
   adminToken: string;
-  namespace: string;
   fetchImpl?: typeof fetch;
 }
 
@@ -49,7 +48,7 @@ export class ArgocdClient {
     return res;
   }
 
-  async listWorkloads(app: string): Promise<WorkloadHandle[]> {
+  async listWorkloads(app: string, namespace: string): Promise<WorkloadHandle[]> {
     const res = await this.req(`/api/v1/applications/${encodeURIComponent(app)}/resource-tree`);
     const data = (await res.json()) as { nodes?: Array<{
       kind: string;
@@ -59,7 +58,7 @@ export class ArgocdClient {
       name?: string;
     }> };
     return (data.nodes ?? [])
-      .filter((n) => n.namespace === this.opts.namespace && TARGET_KINDS.has(n.kind))
+      .filter((n) => n.namespace === namespace && TARGET_KINDS.has(n.kind))
       .map((n) => ({
         kind: n.kind as WorkloadHandle['kind'],
         group: n.group ?? '',

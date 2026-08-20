@@ -63,20 +63,28 @@ describe('ArgocdClient', () => {
     const client = new ArgocdClient({
       baseUrl: 'https://argocd.test',
       adminToken: 't',
-      namespace: 'mall',
       fetchImpl: mockFetch,
     });
-    const handles = await client.listWorkloads('myapp');
+    const handles = await client.listWorkloads('myapp', 'mall');
     expect(handles).toHaveLength(2);
     const dep = handles.find((h) => h.kind === 'Deployment');
     expect(dep?.name).toBe('web');
+  });
+
+  it('filters out nodes from a different namespace', async () => {
+    const client = new ArgocdClient({
+      baseUrl: 'https://argocd.test',
+      adminToken: 't',
+      fetchImpl: mockFetch,
+    });
+    const handles = await client.listWorkloads('myapp', 'other-namespace');
+    expect(handles).toHaveLength(0);
   });
 
   it('fetches replicas for a Deployment', async () => {
     const client = new ArgocdClient({
       baseUrl: 'https://argocd.test',
       adminToken: 't',
-      namespace: 'mall',
       fetchImpl: mockFetch,
     });
     const h: WorkloadHandle = {
@@ -94,7 +102,6 @@ describe('ArgocdClient', () => {
     const client = new ArgocdClient({
       baseUrl: 'https://argocd.test',
       adminToken: 't',
-      namespace: 'mall',
       fetchImpl: mockFetch,
     });
     const h: WorkloadHandle = {

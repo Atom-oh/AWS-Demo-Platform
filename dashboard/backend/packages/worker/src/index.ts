@@ -83,7 +83,6 @@ async function main(): Promise<void> {
   const argoClient = new ArgocdClient({
     baseUrl: env.ARGOCD_BASE_URL,
     adminToken: env.ARGOCD_ADMIN_TOKEN,
-    namespace: 'placeholder', // resolved per-project via workload_selector
   });
 
   const githubClient = new GithubClient({ pat: env.GITHUB_PAT, org: 'Atom-oh' });

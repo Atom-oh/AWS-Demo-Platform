@@ -3,6 +3,7 @@ import type { ArgocdClient } from '@demo-platform/shared';
 
 export interface ArgocdRestorationData {
   application: string;
+  namespace: string;
   workloads: Record<string, number>;
   hpas: Record<string, { min: number; max: number }>;
 }
@@ -14,8 +15,8 @@ export interface ArgocdControllerOpts {
 export class ArgocdController {
   constructor(private readonly opts: ArgocdControllerOpts) {}
 
-  async turnOff(args: { application: string }): Promise<ArgocdRestorationData> {
-    const handles = await this.opts.client.listWorkloads(args.application);
+  async turnOff(args: { application: string; namespace: string }): Promise<ArgocdRestorationData> {
+    const handles = await this.opts.client.listWorkloads(args.application, args.namespace);
     const workloads: Record<string, number> = {};
     const hpas: Record<string, { min: number; max: number }> = {};
 
@@ -45,11 +46,11 @@ export class ArgocdController {
       }
     }
 
-    return { application: args.application, workloads, hpas };
+    return { application: args.application, namespace: args.namespace, workloads, hpas };
   }
 
   async turnOn(rd: ArgocdRestorationData): Promise<void> {
-    const handles = await this.opts.client.listWorkloads(rd.application);
+    const handles = await this.opts.client.listWorkloads(rd.application, rd.namespace);
     // Reverse: HPA bounds first, then replica restore
     for (const h of handles) {
       const b = rd.hpas[h.name];
@@ -69,17 +70,16 @@ export class ArgocdController {
   // StatefulSet, patchHpaBounds({min:replicas, max:replicas}) for HPA — pinning
   // min=max to the requested count. HPA-kind handles are patched before
   // Deployment/StatefulSet-kind handles, carrying over turnOn/turnOff's "HPA
-  // first, to prevent re-scaling" ordering convention. Zero matched handles is
-  // the pre-existing namespace:'placeholder' bug's actual failure mode — this
+  // first, to prevent re-scaling" ordering convention. Zero matched handles
   // throws explicitly rather than resolving having silently done nothing, since
   // scale is the first feature where that silent no-op would look like success.
-  async scale(application: string, replicas: number): Promise<void> {
+  async scale(application: string, namespace: string, replicas: number): Promise<void> {
     if (!Number.isInteger(replicas) || replicas <= 0 || replicas > MAX_SCALE_REPLICAS) {
       throw new PermanentError(
         `replicas must be a positive integer <= ${MAX_SCALE_REPLICAS}, got ${replicas}`,
       );
     }
-    const handles = await this.opts.client.listWorkloads(application);
+    const handles = await this.opts.client.listWorkloads(application, namespace);
     if (handles.length === 0) {
       throw new PermanentError(
         `no workload handles found for ArgoCD application "${application}" — scale cannot proceed`,

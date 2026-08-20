@@ -337,7 +337,7 @@ describe('runJob — scale', () => {
       logger,
     });
 
-    expect(argoCtl.scale).toHaveBeenCalledWith('app-a', 5);
+    expect(argoCtl.scale).toHaveBeenCalledWith('app-a', 'ns', 5);
     expect(ecsCtl.setDesiredCount).not.toHaveBeenCalled();
     expect(jobsClient.markSucceeded).toHaveBeenCalledWith('js1');
   });

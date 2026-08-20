@@ -115,33 +115,38 @@ audit trail.
   entry path (fresh request vs. restart recovery).
 
 ### Negative — accepted limitations
-1. **ArgoCD/HPA scaling is inert today**, pending a separate fix: the ArgoCD
-   client's workload-listing filter has a pre-existing, unrelated bug — a
-   hardcoded `namespace: 'placeholder'` — that makes `listWorkloads` return
-   zero handles for every real application. This already silently no-ops
-   today's `turn_on`/`turn_off` ArgoCD path too, not only `scale`; `scale`'s
-   explicit-failure-on-zero-handles rule just makes the failure visible
-   instead of silent. `ecs` scaling is unaffected.
-2. **Once that bug is fixed, `argocd-app` scaling irreversibly collapses the
-   HPA's autoscaling range** — at the moment of the scale itself, not only
-   after a later `turn_off`. `scale` pins `patchHpaBounds({min, max})` to a
-   single value; nothing captures the pre-scale asymmetric range, and scaling
-   back down goes through the same pin-to-a-single-value path, so the
-   original range can never be recovered through this feature. `ecs` has no
-   such range to lose.
-3. **The `turn_off` race is narrowed, not eliminated** — a `scale` and a
+1. **`argocd-app` scaling irreversibly collapses the HPA's autoscaling
+   range** — at the moment of the scale itself, not only after a later
+   `turn_off`. `scale` pins `patchHpaBounds({min, max})` to a single value;
+   nothing captures the pre-scale asymmetric range, and scaling back down
+   goes through the same pin-to-a-single-value path, so the original range
+   can never be recovered through this feature. `ecs` has no such range to
+   lose.
+2. **The `turn_off` race is narrowed, not eliminated** — a `scale` and a
    concurrent `turn_off` can still race in the window between the route's
    read and the worker's own recheck (SQS latency, or minutes if a
    restart/sweep-recovery cycle intervenes).
-4. **One replica value is broadcast to every workload handle** on a
+3. **One replica value is broadcast to every workload handle** on a
    multi-workload ArgoCD application — "the current value" isn't even
    well-defined per-application when it backs multiple Deployments/HPAs with
    different counts, so this pass scales them all to the same requested
    number rather than building per-handle targeting.
-5. **A job can be left orphaned `pending`** if the SQS-enqueue-failure
+4. **A job can be left orphaned `pending`** if the SQS-enqueue-failure
    rollback (`markFailed`) itself also fails — `sweepRunningJobs` only
    recovers `running` jobs, so a `pending` job that never got marked `failed`
    is stuck until manually inspected.
+
+> **Update (2026-08-20):** limitation 1 originally listed here — the ArgoCD
+> client's workload-listing filter carrying a hardcoded `namespace:
+> 'placeholder'`, so `listWorkloads` matched zero handles for every real
+> application — is fixed. `ArgocdClient.listWorkloads` now takes `namespace`
+> as a call-time argument instead of a client-construction-time option, and
+> `ArgocdController`/`job-runner.ts` thread each project resource's own
+> `workload_selector.namespace` through on every `turnOff`/`turnOn`/`scale`
+> call. This also unblocks the `turn_on`/`turn_off` ArgoCD path, which shared
+> the same bug. The frontend's `argocd-app` scale control in `DetailDrawer.tsx`
+> is enabled accordingly. The range-collapse limitation above (now numbered 1)
+> remains — fixing the namespace bug did not change that behavior.
 6. **A mixed-kind `argocd-app` target's failure status can mask a completed
    mutation**: HPA-first ordering means the HPA may already be irreversibly
    pinned before a sibling Deployment/StatefulSet handle fails and the whole

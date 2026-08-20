@@ -126,6 +126,13 @@ export function DetailDrawer({
     await onScale?.(row.repo, [{ stepKey: r.stepKey, desiredCount: count }]);
   };
 
+  const handleScaleArgocd = async (r: ResourceRef) => {
+    const raw = scaleInputs[r.stepKey];
+    const replicas = Number(raw);
+    if (!raw || !Number.isInteger(replicas) || replicas <= 0) return;
+    await onScale?.(row.repo, [{ stepKey: r.stepKey, replicas }]);
+  };
+
   const cs = pr?.urls?.code_server;
   const demo = pr?.urls?.demo;
 
@@ -228,13 +235,22 @@ export function DetailDrawer({
                           <input
                             type="number"
                             placeholder="check the ArgoCD/ECS console for the current count"
-                            disabled
+                            value={scaleInputs[r.stepKey] ?? ''}
+                            disabled={row.status !== 'on'}
+                            onChange={(e) =>
+                              setScaleInputs((s) => ({ ...s, [r.stepKey]: e.target.value }))
+                            }
                           />
-                          <button className="btn" disabled>
+                          <button
+                            className="btn"
+                            disabled={row.status !== 'on'}
+                            onClick={() => void handleScaleArgocd(r)}
+                          >
                             Apply
                           </button>
                           <span className="scale-note">
-                            ArgoCD/HPA scaling doesn&apos;t work yet — pending a separate fix
+                            pins this application&apos;s HPA min/max to the entered count —
+                            not recoverable afterward through this tool, even by scaling back down
                           </span>
                         </span>
                       )}

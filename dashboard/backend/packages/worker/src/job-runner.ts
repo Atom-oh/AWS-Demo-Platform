@@ -202,7 +202,7 @@ async function runScaleJob(opts: RunJobOpts): Promise<void> {
         });
       } else {
         if (t.replicas === undefined) throw new Error('target is missing replicas');
-        await controllers.argocd.scale(res.application, t.replicas);
+        await controllers.argocd.scale(res.application, res.workload_selector.namespace, t.replicas);
       }
       await ddb.jobs.appendProgress(job.id, t.stepKey, 'done');
     } catch (err) {
@@ -242,7 +242,7 @@ async function turnOffOne(res: ResourceRefT, c: Controllers): Promise<unknown> {
       if (res.always_on) return undefined;
       return c.rds.turnOff({ db_identifier: res.db_identifier });
     case 'argocd-app':
-      return c.argocd.turnOff({ application: res.application });
+      return c.argocd.turnOff({ application: res.application, namespace: res.workload_selector.namespace });
     default:
       return undefined; // always-on types (dynamodb/elasticache/kafka/...)
   }
