@@ -105,6 +105,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       const projects = await loadProjects(projectsDir);
       log.info({ projects: Object.keys(projects).length }, 'projects loaded');
 
+      // Newly discovered projects have no DDB state row yet, which the projects
+      // route surfaces as state:null → frontend renders status 'unknown' with no
+      // working toggle. upsertInitial is idempotent (attribute_not_exists guard),
+      // so seeding on every boot is safe and self-healing.
+      await Promise.all(Object.keys(projects).map((repo) => stateClient.upsertInitial(repo)));
+
       // Verifier MUST exist when auth is enforced — registerJwtCognito 500s
       // ('jwt verifier not configured') otherwise. Uses access-token verification.
       let jwtVerifier: JwtVerifier | undefined;
