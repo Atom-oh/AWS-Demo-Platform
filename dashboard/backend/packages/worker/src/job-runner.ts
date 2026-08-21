@@ -74,7 +74,7 @@ export async function runJob(opts: RunJobOpts): Promise<void> {
     const key = stepKey(res);
     try {
       if (job.operation === 'turn_off') {
-        const rd = await turnOffOne(res, controllers);
+        const rd = await turnOffOne(res, controllers, ddb, job.repo);
         if (rd !== undefined) restoration[key] = rd;
         await ddb.jobs.appendProgress(job.id, key, 'done');
       } else {
@@ -202,7 +202,12 @@ async function runScaleJob(opts: RunJobOpts): Promise<void> {
         });
       } else {
         if (t.replicas === undefined) throw new Error('target is missing replicas');
-        await controllers.argocd.scale(res.application, res.workload_selector.namespace, t.replicas);
+        const result = await controllers.argocd.scale(
+          res.application,
+          res.workload_selector.namespace,
+          t.replicas,
+        );
+        await ddb.state.recordHpaBaselineIfAbsent(job.repo, t.stepKey, result.capturedHpaBounds);
       }
       await ddb.jobs.appendProgress(job.id, t.stepKey, 'done');
     } catch (err) {
@@ -232,7 +237,12 @@ async function runScaleJob(opts: RunJobOpts): Promise<void> {
   });
 }
 
-async function turnOffOne(res: ResourceRefT, c: Controllers): Promise<unknown> {
+async function turnOffOne(
+  res: ResourceRefT,
+  c: Controllers,
+  ddb: DDB,
+  repo: string,
+): Promise<unknown> {
   switch (res.type) {
     case 'ecs':
       return c.ecs.turnOff({ cluster: res.cluster, service: res.service });
@@ -241,8 +251,24 @@ async function turnOffOne(res: ResourceRefT, c: Controllers): Promise<unknown> {
     case 'rds':
       if (res.always_on) return undefined;
       return c.rds.turnOff({ db_identifier: res.db_identifier });
-    case 'argocd-app':
-      return c.argocd.turnOff({ application: res.application, namespace: res.workload_selector.namespace });
+    case 'argocd-app': {
+      const rd = await c.argocd.turnOff({
+        application: res.application,
+        namespace: res.workload_selector.namespace,
+      });
+      // Record-then-read: if this is the first time ArgoCD's bounds have ever
+      // been observed for this resource, the record wins and the read below
+      // returns exactly what turnOff just captured (the true original, since
+      // nothing scaled it yet). If a prior scale() already recorded the real
+      // baseline, this record call is a harmless no-op and the read returns
+      // that durable original instead of turnOff's own (possibly already
+      // scale-collapsed) live observation.
+      const key = stepKey(res);
+      await ddb.state.recordHpaBaselineIfAbsent(repo, key, rd.hpas);
+      const baseline = await ddb.state.readHpaBaseline(repo, key);
+      if (baseline) rd.hpas = baseline;
+      return rd;
+    }
     default:
       return undefined; // always-on types (dynamodb/elasticache/kafka/...)
   }

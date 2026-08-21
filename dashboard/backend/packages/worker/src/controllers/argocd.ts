@@ -73,7 +73,16 @@ export class ArgocdController {
   // first, to prevent re-scaling" ordering convention. Zero matched handles
   // throws explicitly rather than resolving having silently done nothing, since
   // scale is the first feature where that silent no-op would look like success.
-  async scale(application: string, namespace: string, replicas: number): Promise<void> {
+  //
+  // For each HPA-kind handle, getLive is called BEFORE patchHpaBounds and its
+  // pre-scale bounds are returned via capturedHpaBounds — the caller (job-runner)
+  // persists this once as a permanent baseline (see StateClient.recordHpaBaselineIfAbsent)
+  // so the original elasticity survives even though this call is about to collapse it.
+  async scale(
+    application: string,
+    namespace: string,
+    replicas: number,
+  ): Promise<{ capturedHpaBounds: Record<string, { min: number; max: number }> }> {
     if (!Number.isInteger(replicas) || replicas <= 0 || replicas > MAX_SCALE_REPLICAS) {
       throw new PermanentError(
         `replicas must be a positive integer <= ${MAX_SCALE_REPLICAS}, got ${replicas}`,
@@ -85,8 +94,13 @@ export class ArgocdController {
         `no workload handles found for ArgoCD application "${application}" — scale cannot proceed`,
       );
     }
+    const capturedHpaBounds: Record<string, { min: number; max: number }> = {};
     for (const h of handles) {
       if (h.kind === 'HorizontalPodAutoscaler') {
+        const live = await this.opts.client.getLive(application, h);
+        if (typeof live.minReplicas === 'number' && typeof live.maxReplicas === 'number') {
+          capturedHpaBounds[h.name] = { min: live.minReplicas, max: live.maxReplicas };
+        }
         await this.opts.client.patchHpaBounds(application, h, { min: replicas, max: replicas });
       }
     }
@@ -95,5 +109,6 @@ export class ArgocdController {
         await this.opts.client.patchReplicas(application, h, replicas);
       }
     }
+    return { capturedHpaBounds };
   }
 }

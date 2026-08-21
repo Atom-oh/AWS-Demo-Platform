@@ -25,6 +25,8 @@ function makeDdb(stateStatus: string) {
     markOn: vi.fn(),
     markError: vi.fn(),
     transition: vi.fn(),
+    recordHpaBaselineIfAbsent: vi.fn(),
+    readHpaBaseline: vi.fn(async () => null),
   };
   const jobsClient = {
     markRunning: vi.fn(),
@@ -120,6 +122,79 @@ describe('runJob — turn_off', () => {
     expect(jobsClient.markPartialFailure).toHaveBeenCalled();
     expect(stateClient.markOff).toHaveBeenCalled(); // partial: still mark off with what succeeded
     expect(stateClient.markError).not.toHaveBeenCalled();
+  });
+
+  it('for argocd-app, records a first-observed HPA baseline and uses it (not the possibly scale-collapsed live value) in restoration_data', async () => {
+    // Simulates: an earlier scale() already collapsed the live HPA to {min:5,max:5}
+    // and durably recorded the true original {min:2,max:10} as the baseline. turnOff
+    // now observes the collapsed {min:5,max:5} live, but restoration_data must end up
+    // holding the baseline, not what it just observed — proving the fix.
+    const argoCtl = {
+      turnOff: vi.fn(async () => ({
+        application: 'app-a',
+        namespace: 'ns',
+        workloads: { web: 1 },
+        hpas: { web: { min: 5, max: 5 } }, // already-collapsed live value
+      })),
+      turnOn: vi.fn(),
+    };
+    const ecsCtl = { turnOff: vi.fn(), turnOn: vi.fn() };
+    const ec2Ctl = { turnOff: vi.fn(), turnOn: vi.fn() };
+    const rdsCtl = { turnOff: vi.fn(), turnOn: vi.fn(), waitForAvailable: vi.fn() };
+    const stateClient = {
+      read: vi.fn(async () => null),
+      markOff: vi.fn(),
+      markOn: vi.fn(),
+      markError: vi.fn(),
+      transition: vi.fn(),
+      recordHpaBaselineIfAbsent: vi.fn(), // no-op: a baseline already exists
+      readHpaBaseline: vi.fn(async () => ({ web: { min: 2, max: 10 } })),
+    };
+    const jobsClient = {
+      markRunning: vi.fn(),
+      appendProgress: vi.fn(),
+      markSucceeded: vi.fn(),
+      markPartialFailure: vi.fn(),
+      markFailed: vi.fn(),
+    };
+    const historyClient = { append: vi.fn() };
+
+    const project: Project = {
+      ...baseProject,
+      resources: [
+        {
+          type: 'argocd-app',
+          application: 'app-a',
+          cluster: 'cl',
+          workload_selector: { namespace: 'ns' },
+          hpa_handling: 'scale_to_one',
+        },
+      ],
+    };
+
+    await runJob({
+      job: { id: 'j-hpa', operation: 'turn_off', repo: 'foo/bar', actor: 'atomoh' },
+      project,
+      account: 'atomoh-main',
+      controllers: { ecs: ecsCtl as never, ec2: ec2Ctl as never, rds: rdsCtl as never, argocd: argoCtl as never },
+      ddb: { state: stateClient as never, jobs: jobsClient as never, history: historyClient as never },
+      logger,
+    });
+
+    expect(stateClient.recordHpaBaselineIfAbsent).toHaveBeenCalledWith(
+      'foo/bar',
+      'argocd-app:app-a',
+      { web: { min: 5, max: 5 } }, // what it just observed — a no-op since one already exists
+    );
+    expect(stateClient.readHpaBaseline).toHaveBeenCalledWith('foo/bar', 'argocd-app:app-a');
+    expect(stateClient.markOff).toHaveBeenCalledWith(
+      'foo/bar',
+      expect.objectContaining({
+        restoration_data: expect.objectContaining({
+          'argocd-app:app-a': expect.objectContaining({ hpas: { web: { min: 2, max: 10 } } }),
+        }),
+      }),
+    );
   });
 });
 
@@ -318,7 +393,7 @@ describe('runJob — scale', () => {
   const noopCtl = () => ({ turnOff: vi.fn(), turnOn: vi.fn() });
 
   it('(a) an argocd-app target calls the new controller scale()', async () => {
-    const argoCtl = { turnOff: vi.fn(), turnOn: vi.fn(), scale: vi.fn(async () => undefined) };
+    const argoCtl = { turnOff: vi.fn(), turnOn: vi.fn(), scale: vi.fn(async () => ({ capturedHpaBounds: {} })) };
     const ecsCtl = { ...noopCtl(), setDesiredCount: vi.fn(async () => undefined) };
     const { stateClient, jobsClient, historyClient } = makeDdb('on');
 
@@ -343,7 +418,7 @@ describe('runJob — scale', () => {
   });
 
   it('(b) an ecs target calls setDesiredCount', async () => {
-    const argoCtl = { turnOff: vi.fn(), turnOn: vi.fn(), scale: vi.fn(async () => undefined) };
+    const argoCtl = { turnOff: vi.fn(), turnOn: vi.fn(), scale: vi.fn(async () => ({ capturedHpaBounds: {} })) };
     const ecsCtl = { ...noopCtl(), setDesiredCount: vi.fn(async () => undefined) };
     const { stateClient, jobsClient, historyClient } = makeDdb('on');
 
@@ -426,7 +501,7 @@ describe('runJob — scale', () => {
   });
 
   it('(e) state.status is never mutated by a scale job — no markOn/markError', async () => {
-    const argoCtl = { turnOff: vi.fn(), turnOn: vi.fn(), scale: vi.fn(async () => undefined) };
+    const argoCtl = { turnOff: vi.fn(), turnOn: vi.fn(), scale: vi.fn(async () => ({ capturedHpaBounds: {} })) };
     const ecsCtl = { ...noopCtl(), setDesiredCount: vi.fn(async () => undefined) };
     const { stateClient, jobsClient, historyClient } = makeDdb('on');
 
@@ -526,7 +601,7 @@ describe('runJob — scale', () => {
   });
 
   it('appends a HistoryClient record for audit parity', async () => {
-    const argoCtl = { turnOff: vi.fn(), turnOn: vi.fn(), scale: vi.fn(async () => undefined) };
+    const argoCtl = { turnOff: vi.fn(), turnOn: vi.fn(), scale: vi.fn(async () => ({ capturedHpaBounds: {} })) };
     const ecsCtl = { ...noopCtl(), setDesiredCount: vi.fn(async () => undefined) };
     const { stateClient, jobsClient, historyClient } = makeDdb('on');
 

@@ -38,6 +38,19 @@ export const StateRecordSchema = z
 
 export type StateRecord = z.infer<typeof StateRecordSchema>;
 
+// A sibling item to StateRecordSchema (same table, same pk, sk="hpa-baseline#<stepKey>")
+// rather than a new field on it — holds the FIRST-ever-observed HPA min/max for an
+// argocd-app resource, written once (conditional PutItem, attribute_not_exists(pk))
+// and never overwritten, so a scale() call permanently pinning min=max doesn't erase
+// the original elasticity. turn_off prefers this over its own freshly-observed (and
+// possibly already-collapsed) live bounds when composing restoration_data.
+export const HpaBaselineRecordSchema = z.object({
+  pk: z.string().startsWith('project#'),
+  sk: z.string().startsWith('hpa-baseline#'),
+  hpas: z.record(z.object({ min: z.number(), max: z.number() })),
+});
+export type HpaBaselineRecord = z.infer<typeof HpaBaselineRecordSchema>;
+
 // A scale job's targets, persisted on the job record itself (not only carried in
 // the SQS message body) so sweepRunningJobs' restart recovery — which rebuilds
 // in-flight jobs from DDB, not the queue — has something to reconstruct work from.

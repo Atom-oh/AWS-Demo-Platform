@@ -145,8 +145,25 @@ audit trail.
 > `workload_selector.namespace` through on every `turnOff`/`turnOn`/`scale`
 > call. This also unblocks the `turn_on`/`turn_off` ArgoCD path, which shared
 > the same bug. The frontend's `argocd-app` scale control in `DetailDrawer.tsx`
-> is enabled accordingly. The range-collapse limitation above (now numbered 1)
-> remains — fixing the namespace bug did not change that behavior.
+> is enabled accordingly.
+
+> **Update (2026-08-21):** the range-collapse limitation itself (limitation 1
+> above) is now also resolved. The first live HPA bounds ArgoCD ever reports
+> for a given resource — observed by whichever call (`scale` or `turn_off`)
+> sees them first — is written once to a new, permanent DynamoDB item
+> (`StateClient.recordHpaBaselineIfAbsent`/`readHpaBaseline`, sibling to the
+> `StateRecord` item, keyed `sk=hpa-baseline#<stepKey>`, conditional
+> `attribute_not_exists(pk)` so the true original always wins over any later,
+> already-collapsed observation). `ArgocdController.scale()` now calls
+> `getLive` before `patchHpaBounds` and returns what it captured;
+> `job-runner.ts`'s `turnOffOne` records-then-reads the baseline and prefers it
+> over its own freshly-observed (and possibly already-collapsed) live bounds
+> when composing `restoration_data`. Net effect: a `turn_off`→`turn_on` cycle
+> now recovers the original elasticity, even after any number of prior
+> `scale` calls — this satisfies "recoverable through this feature" via the
+> existing on/off lifecycle, without new API/UI surface. A standalone
+> "reset to baseline without an off/on cycle" action remains a separate,
+> unbuilt enhancement.
 6. **A mixed-kind `argocd-app` target's failure status can mask a completed
    mutation**: HPA-first ordering means the HPA may already be irreversibly
    pinned before a sibling Deployment/StatefulSet handle fails and the whole

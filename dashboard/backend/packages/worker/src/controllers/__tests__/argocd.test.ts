@@ -159,6 +159,30 @@ describe('ArgocdController.scale', () => {
     await expect(c.scale('app', 'ns', 3)).rejects.toThrow();
   });
 
+  it('captures pre-scale HPA bounds via getLive before patching, keyed by handle name', async () => {
+    const workloads: WorkloadHandle[] = [
+      { kind: 'HorizontalPodAutoscaler', group: 'autoscaling', version: 'v2', namespace: 'ns', name: 'web' },
+    ];
+    const calls: string[] = [];
+    const client: Pick<ArgocdClient, 'listWorkloads' | 'patchReplicas' | 'patchHpaBounds' | 'getLive'> = {
+      listWorkloads: vi.fn(async () => workloads),
+      getLive: vi.fn(async () => {
+        calls.push('getLive');
+        return { minReplicas: 2, maxReplicas: 10 };
+      }),
+      patchReplicas: vi.fn(async () => {
+        calls.push('patchReplicas');
+      }),
+      patchHpaBounds: vi.fn(async () => {
+        calls.push('patchHpaBounds');
+      }),
+    };
+    const c = new ArgocdController({ client: client as unknown as ArgocdClient });
+    const { capturedHpaBounds } = await c.scale('app', 'ns', 5);
+    expect(capturedHpaBounds).toEqual({ web: { min: 2, max: 10 } });
+    expect(calls.indexOf('getLive')).toBeLessThan(calls.indexOf('patchHpaBounds'));
+  });
+
   it('rejects a non-integer, non-positive, or over-ceiling replicas value before calling the client', async () => {
     const workloads: WorkloadHandle[] = [
       { kind: 'Deployment', group: 'apps', version: 'v1', namespace: 'ns', name: 'web' },
