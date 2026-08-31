@@ -51,4 +51,29 @@ describe('StateClient (integration, LocalStack)', () => {
       client.transition('proj-c', { from: 'off', to: 'transitioning', actor: 'atomoh' }),
     ).rejects.toBeInstanceOf(ConflictError);
   });
+
+  it('readHpaBaseline returns null when no baseline has been recorded', async () => {
+    expect(await client.readHpaBaseline('proj-d', 'argocd-app:app-a')).toBeNull();
+  });
+
+  it('recordHpaBaselineIfAbsent writes once and reads back the recorded bounds', async () => {
+    await client.recordHpaBaselineIfAbsent('proj-e', 'argocd-app:app-a', { web: { min: 2, max: 10 } });
+    expect(await client.readHpaBaseline('proj-e', 'argocd-app:app-a')).toEqual({
+      web: { min: 2, max: 10 },
+    });
+  });
+
+  it('a second recordHpaBaselineIfAbsent call is a no-op — the first-observed baseline wins', async () => {
+    await client.recordHpaBaselineIfAbsent('proj-f', 'argocd-app:app-a', { web: { min: 2, max: 10 } });
+    // Simulates a later scale() collapsing the range and re-observing it — must NOT overwrite.
+    await client.recordHpaBaselineIfAbsent('proj-f', 'argocd-app:app-a', { web: { min: 5, max: 5 } });
+    expect(await client.readHpaBaseline('proj-f', 'argocd-app:app-a')).toEqual({
+      web: { min: 2, max: 10 },
+    });
+  });
+
+  it('recordHpaBaselineIfAbsent is a no-op for an empty bounds map (no write attempted)', async () => {
+    await client.recordHpaBaselineIfAbsent('proj-g', 'argocd-app:app-a', {});
+    expect(await client.readHpaBaseline('proj-g', 'argocd-app:app-a')).toBeNull();
+  });
 });

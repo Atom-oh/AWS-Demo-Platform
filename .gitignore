@@ -1,5 +1,6 @@
 # Skill-managed
 .superpowers/
+.worktrees/
 
 # Editor & local tools
 .vscode/
@@ -57,3 +58,4 @@ __pycache__/
 .claude/co-agent-consensus/
 .claude/co-agent-panel.local.json
 .claude/co-agent-*.local.json
+.claude/co-agent.local.json

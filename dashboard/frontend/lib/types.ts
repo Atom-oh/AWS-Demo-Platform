@@ -3,13 +3,21 @@ export type Status = 'on' | 'off' | 'transitioning' | 'error' | 'unknown';
 export interface ResourceRef {
   type: string;
   always_on?: boolean;
+  stepKey: string;
   [k: string]: unknown;
+}
+
+export interface ScaleTarget {
+  stepKey: string;
+  replicas?: number;
+  desiredCount?: number;
 }
 
 export interface Project {
   name: string;
   github: { repo: string; branch: string };
   description?: string;
+  briefing?: string;
   account: string;
   display?: { category?: string };
   resources: ResourceRef[];

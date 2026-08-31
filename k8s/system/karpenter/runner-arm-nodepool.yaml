@@ -13,10 +13,17 @@ spec:
         kind: EC2NodeClass
         name: runner-arm
       requirements:
+        # on-demand only: PR-review CI jobs run 20-30min of wall-clock, and this pool had no
+        # SQS-based Karpenter interruption-queue configured — a spot reclaim mid-job just kills
+        # the runner pod outright ("runner has received a shutdown signal", exit 130), no graceful
+        # drain. 46 nodeclaims were garbage_collected (instance gone before Karpenter's own
+        # disruption flow ever ran) out of ~1644 lifetime terminations on this nodepool —
+        # consistent with spot interruption. Runner pod CPU/memory usage measured well under
+        # request throughout (verified via Prometheus + kubectl top during a live panel run), so
+        # this was never a sizing problem — it is spot-eviction risk on a long-running CI job.
         - key: karpenter.sh/capacity-type
           operator: In
           values:
-            - spot
             - on-demand
         - key: kubernetes.io/arch
           operator: In
@@ -44,4 +51,9 @@ spec:
     memory: 256Gi
   disruption:
     consolidationPolicy: WhenEmpty
-    consolidateAfter: 30s
+    # 30s -> 5m (ADR-015): pr-review.yml was split from a single job into panel (4 per-model
+    # parallel jobs) + chair jobs, so after the 4 panel pods finish, the chair pod comes up
+    # next on the same node. With 30s, the node would already be consolidated (WhenEmpty)
+    # before the chair pod got scheduled, causing a cold start on a new node every time —
+    # bumping it to 5m lets the chair pod reuse the node the panel pods were using.
+    consolidateAfter: 5m

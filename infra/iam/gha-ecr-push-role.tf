@@ -55,12 +55,13 @@ data "aws_iam_policy_document" "gha_ecr_push" {
       "arn:aws:ecr:${local.region}:${local.account_id}:repository/demo-platform/api",
       "arn:aws:ecr:${local.region}:${local.account_id}:repository/demo-platform/worker",
       "arn:aws:ecr:${local.region}:${local.account_id}:repository/demo-platform/frontend",
-      # runner-image.yml 이 빌드해 push 하는 러너 이미지(누락돼 있던 권한).
+      # The runner image built and pushed by runner-image.yml (permission that was previously missing).
       "arn:aws:ecr:${local.region}:${local.account_id}:repository/actions-runner-claude",
     ]
   }
-  # ECR pull-through cache(ghcr) — runner-image 빌드가 베이스(ghcr/actions/actions-runner)를
-  # 최초 pull 할 때 ECR 가 캐시 repo 를 생성하고 upstream 에서 import 한다. 그 동작에 필요한 권한.
+  # ECR pull-through cache (ghcr) — when the runner-image build first pulls the base
+  # (ghcr/actions/actions-runner), ECR creates the cache repo and imports it from upstream.
+  # Permissions required for that behavior.
   statement {
     sid    = "EcrPullThroughGhcr"
     effect = "Allow"

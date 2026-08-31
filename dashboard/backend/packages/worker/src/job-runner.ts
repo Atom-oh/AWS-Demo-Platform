@@ -5,7 +5,9 @@ import type {
   JobsClient,
   HistoryClient,
   Logger,
+  ScaleTarget,
 } from '@demo-platform/shared';
+import { stepKey } from '@demo-platform/shared';
 import type { EcsController, EcsRestorationData } from './controllers/ecs.js';
 import type { Ec2Controller, Ec2RestorationData } from './controllers/ec2.js';
 import type { RdsController, RdsRestorationData } from './controllers/rds.js';
@@ -13,9 +15,10 @@ import type { ArgocdController, ArgocdRestorationData } from './controllers/argo
 
 export interface JobInput {
   id: string;
-  operation: 'turn_off' | 'turn_on';
+  operation: 'turn_off' | 'turn_on' | 'scale';
   repo: string;
   actor: string;
+  targets?: ScaleTarget[];
 }
 
 export interface Controllers {
@@ -41,6 +44,9 @@ export interface RunJobOpts {
 }
 
 export async function runJob(opts: RunJobOpts): Promise<void> {
+  if (opts.job.operation === 'scale') {
+    return runScaleJob(opts);
+  }
   const { job, project, controllers, ddb, logger } = opts;
   await ddb.jobs.markRunning(job.id);
   logger.info({ jobId: job.id, op: job.operation }, 'job running');
@@ -68,7 +74,7 @@ export async function runJob(opts: RunJobOpts): Promise<void> {
     const key = stepKey(res);
     try {
       if (job.operation === 'turn_off') {
-        const rd = await turnOffOne(res, controllers);
+        const rd = await turnOffOne(res, controllers, ddb, job.repo);
         if (rd !== undefined) restoration[key] = rd;
         await ddb.jobs.appendProgress(job.id, key, 'done');
       } else {
@@ -126,26 +132,117 @@ export async function runJob(opts: RunJobOpts): Promise<void> {
   }
 }
 
-// Unique per-resource key so multiple resources of the same type (e.g. a project
-// with two argocd-app entries) each keep their own restoration_data. The same key
-// is used for the turn_off write and the turn_on read, so restoration is symmetric.
-// Visibility-only types are skipped before this is called, so they fall to `type`.
-function stepKey(res: ResourceRefT): string {
-  switch (res.type) {
-    case 'ecs':
-      return `ecs:${res.cluster}/${res.service}`;
-    case 'ec2':
-      return `ec2:${res.instance_ids.join(',')}`;
-    case 'rds':
-      return `rds:${res.db_identifier}`;
-    case 'argocd-app':
-      return `argocd-app:${res.application}`;
-    default:
-      return res.type;
+// Structurally separate from the turn_on/turn_off postlude above: a scale job
+// only ever updates the *job's* status, never the *project's* state.status —
+// there is no markOn/markError call anywhere in this function.
+async function runScaleJob(opts: RunJobOpts): Promise<void> {
+  const { job, project, controllers, ddb, logger } = opts;
+  await ddb.jobs.markRunning(job.id);
+  logger.info({ jobId: job.id, op: job.operation }, 'job running');
+
+  const targets = job.targets ?? [];
+  if (targets.length === 0) {
+    const msg = 'scale job has no targets';
+    await ddb.jobs.markFailed(job.id, msg);
+    await ddb.history.append({
+      repo: job.repo,
+      action: job.operation,
+      actor: job.actor,
+      account: opts.account,
+      result: 'failure',
+      details: { error: msg },
+    });
+    logger.error({ jobId: job.id }, msg);
+    return;
   }
+
+  // Start-of-branch status recheck: mitigates (does not eliminate) the
+  // route-level check-then-act race against a concurrent turn_off. This is a
+  // job-level abort, not a per-target failure — no appendProgress call is made
+  // for any target, so the job's progress map ends up with zero entries, which
+  // is what lets the frontend's toast logic treat it as "no attempt was made"
+  // rather than the irreversibility-warning "failed:" case.
+  const stateRec = await ddb.state.read(job.repo);
+  if (stateRec?.status !== 'on') {
+    const msg = `project no longer on (status=${stateRec?.status ?? 'unknown'})`;
+    await ddb.jobs.markFailed(job.id, msg);
+    await ddb.history.append({
+      repo: job.repo,
+      action: job.operation,
+      actor: job.actor,
+      account: opts.account,
+      result: 'failure',
+      details: { error: msg },
+    });
+    logger.warn({ jobId: job.id, repo: job.repo, status: stateRec?.status }, 'scale job aborted: project no longer on');
+    return;
+  }
+
+  type ScalableResource = Extract<ResourceRefT, { type: 'ecs' } | { type: 'argocd-app' }>;
+  const byStepKey = new Map<string, ScalableResource>();
+  for (const res of project.resources) {
+    if (res.type === 'ecs' || res.type === 'argocd-app') {
+      byStepKey.set(stepKey(res), res);
+    }
+  }
+
+  const errors: string[] = [];
+  for (const t of targets) {
+    try {
+      const res = byStepKey.get(t.stepKey);
+      if (!res) {
+        throw new Error(`no ecs/argocd-app resource matches stepKey "${t.stepKey}"`);
+      }
+      if (res.type === 'ecs') {
+        if (t.desiredCount === undefined) throw new Error('target is missing desiredCount');
+        await controllers.ecs.setDesiredCount({
+          cluster: res.cluster,
+          service: res.service,
+          count: t.desiredCount,
+        });
+      } else {
+        if (t.replicas === undefined) throw new Error('target is missing replicas');
+        const result = await controllers.argocd.scale(
+          res.application,
+          res.workload_selector.namespace,
+          t.replicas,
+        );
+        await ddb.state.recordHpaBaselineIfAbsent(job.repo, t.stepKey, result.capturedHpaBounds);
+      }
+      await ddb.jobs.appendProgress(job.id, t.stepKey, 'done');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`${t.stepKey}: ${msg}`);
+      await ddb.jobs.appendProgress(job.id, t.stepKey, `failed: ${msg}`);
+      logger.error({ jobId: job.id, stepKey: t.stepKey, err }, 'scale target failed');
+    }
+  }
+
+  const allFailed = errors.length === targets.length;
+  if (errors.length === 0) {
+    await ddb.jobs.markSucceeded(job.id);
+  } else if (allFailed) {
+    await ddb.jobs.markFailed(job.id, errors.join('; '));
+  } else {
+    await ddb.jobs.markPartialFailure(job.id, errors.join('; '));
+  }
+
+  await ddb.history.append({
+    repo: job.repo,
+    action: job.operation,
+    actor: job.actor,
+    account: opts.account,
+    result: errors.length === 0 ? 'success' : allFailed ? 'failure' : 'partial',
+    details: { targets, errors },
+  });
 }
 
-async function turnOffOne(res: ResourceRefT, c: Controllers): Promise<unknown> {
+async function turnOffOne(
+  res: ResourceRefT,
+  c: Controllers,
+  ddb: DDB,
+  repo: string,
+): Promise<unknown> {
   switch (res.type) {
     case 'ecs':
       return c.ecs.turnOff({ cluster: res.cluster, service: res.service });
@@ -154,8 +251,24 @@ async function turnOffOne(res: ResourceRefT, c: Controllers): Promise<unknown> {
     case 'rds':
       if (res.always_on) return undefined;
       return c.rds.turnOff({ db_identifier: res.db_identifier });
-    case 'argocd-app':
-      return c.argocd.turnOff({ application: res.application });
+    case 'argocd-app': {
+      const rd = await c.argocd.turnOff({
+        application: res.application,
+        namespace: res.workload_selector.namespace,
+      });
+      // Record-then-read: if this is the first time ArgoCD's bounds have ever
+      // been observed for this resource, the record wins and the read below
+      // returns exactly what turnOff just captured (the true original, since
+      // nothing scaled it yet). If a prior scale() already recorded the real
+      // baseline, this record call is a harmless no-op and the read returns
+      // that durable original instead of turnOff's own (possibly already
+      // scale-collapsed) live observation.
+      const key = stepKey(res);
+      await ddb.state.recordHpaBaselineIfAbsent(repo, key, rd.hpas);
+      const baseline = await ddb.state.readHpaBaseline(repo, key);
+      if (baseline) rd.hpas = baseline;
+      return rd;
+    }
     default:
       return undefined; // always-on types (dynamodb/elasticache/kafka/...)
   }

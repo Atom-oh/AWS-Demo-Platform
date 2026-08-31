@@ -4,7 +4,12 @@ import {
   UpdateCommand,
   type DynamoDBDocumentClient,
 } from '@aws-sdk/lib-dynamodb';
-import { StateRecordSchema, type StateRecord, type ProjectStatusT } from '../schemas/ddb-records.js';
+import {
+  StateRecordSchema,
+  HpaBaselineRecordSchema,
+  type StateRecord,
+  type ProjectStatusT,
+} from '../schemas/ddb-records.js';
 import { classifyAwsError } from '../errors.js';
 
 export interface StateClientOpts {
@@ -134,6 +139,48 @@ export class StateClient {
           },
         }),
       );
+    } catch (err) {
+      throw classifyAwsError(err);
+    }
+  }
+
+  // Write-once (attribute_not_exists(pk) on a dedicated sk, not a field on the
+  // "current" item) so the FIRST bounds ArgoCD ever reports for this resource — via
+  // whichever call (scale or turn_off) observes them first — become the permanent
+  // baseline. A no-op if a baseline already exists; see HpaBaselineRecordSchema.
+  async recordHpaBaselineIfAbsent(
+    repo: string,
+    stepKey: string,
+    hpas: Record<string, { min: number; max: number }>,
+  ): Promise<void> {
+    if (Object.keys(hpas).length === 0) return;
+    try {
+      await this.opts.doc.send(
+        new PutCommand({
+          TableName: this.opts.tableName,
+          Item: { pk: this.pk(repo), sk: `hpa-baseline#${stepKey}`, hpas },
+          ConditionExpression: 'attribute_not_exists(pk)',
+        }),
+      );
+    } catch (err) {
+      if ((err as { name?: string }).name === 'ConditionalCheckFailedException') return;
+      throw classifyAwsError(err);
+    }
+  }
+
+  async readHpaBaseline(
+    repo: string,
+    stepKey: string,
+  ): Promise<Record<string, { min: number; max: number }> | null> {
+    try {
+      const out = await this.opts.doc.send(
+        new GetCommand({
+          TableName: this.opts.tableName,
+          Key: { pk: this.pk(repo), sk: `hpa-baseline#${stepKey}` },
+        }),
+      );
+      if (!out.Item) return null;
+      return HpaBaselineRecordSchema.parse(out.Item).hpas;
     } catch (err) {
       throw classifyAwsError(err);
     }

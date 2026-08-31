@@ -5,5 +5,6 @@ Lifecycle Controller state store (Stage 2, dev). Three PAY_PER_REQUEST tables:
 
 - **State key**: `production/aws-demo-platform/dynamodb/terraform.tfstate`
 - **Outputs**: `{state,jobs,history}_table_{name,arn}`
-- **Guards**: `deletion_protection_enabled = true` + `prevent_destroy` — tearing down needs both removed first.
+- **Guards**: `deletion_protection_enabled = true` plus `prevent_destroy`, so tearing a table
+  down requires removing both guards first — that friction is intentional.
 - Runs as `AtlantisIRSARole` (has `dynamodb:*`). Atlantis project `dynamodb`.

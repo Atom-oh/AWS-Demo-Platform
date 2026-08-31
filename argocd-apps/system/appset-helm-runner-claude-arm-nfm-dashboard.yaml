@@ -46,10 +46,13 @@ spec:
                 nodeSelector:
                   node-pool: platform
             template:
+              metadata:
+                annotations:
+                  karpenter.sh/do-not-disrupt: "true"
               spec:
-                # AWS 자격증명(Bedrock) 수령용 공유 SA. EKS Pod Identity Association
-                # claude-runner -> mall-apne2-mgmt-ci-runner. 누락 시 Pod 이 default SA 로
-                # 떠서 Codex/Claude(chair) 의 Bedrock 호출이 "Could not load credentials" 로 실패한다.
+                # Shared SA for receiving AWS credentials (Bedrock). EKS Pod Identity Association
+                # claude-runner -> mall-apne2-mgmt-ci-runner. If missing, the Pod falls back to the default SA
+                # and Codex/Claude (chair) Bedrock calls fail with "Could not load credentials".
                 serviceAccountName: claude-runner
                 nodeSelector:
                   kubernetes.io/arch: arm64

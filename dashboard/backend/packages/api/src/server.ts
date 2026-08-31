@@ -14,6 +14,7 @@ import { loadProjects } from './plugins/projects-loader.js';
 import { registerErrorHandler } from './middleware/error-handler.js';
 import { registerProjects } from './routes/projects.js';
 import { registerActions } from './routes/actions.js';
+import { registerScale } from './routes/scale.js';
 import { registerJobs } from './routes/jobs.js';
 import { registerHistory } from './routes/history.js';
 
@@ -47,6 +48,13 @@ export async function buildServer(opts: BuildServerOpts = {}): Promise<FastifyIn
     await registerProjects(app, { projects: opts.projects, stateClient: opts.stateClient });
     if (opts.jobsClient && opts.sqsClient && opts.queueUrl) {
       await registerActions(app, {
+        projects: opts.projects,
+        stateClient: opts.stateClient,
+        jobsClient: opts.jobsClient,
+        sqsClient: opts.sqsClient,
+        queueUrl: opts.queueUrl,
+      });
+      await registerScale(app, {
         projects: opts.projects,
         stateClient: opts.stateClient,
         jobsClient: opts.jobsClient,
@@ -96,6 +104,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
       const projects = await loadProjects(projectsDir);
       log.info({ projects: Object.keys(projects).length }, 'projects loaded');
+
+      // Newly discovered projects have no DDB state row yet, which the projects
+      // route surfaces as state:null → frontend renders status 'unknown' with no
+      // working toggle. upsertInitial is idempotent (attribute_not_exists guard),
+      // so seeding on every boot is safe and self-healing.
+      await Promise.all(Object.keys(projects).map((repo) => stateClient.upsertInitial(repo)));
 
       // Verifier MUST exist when auth is enforced — registerJwtCognito 500s
       // ('jwt verifier not configured') otherwise. Uses access-token verification.

@@ -1,9 +1,10 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ProjectRow, HistoryRecord, ResourceRef } from '@/lib/types';
+import type { ProjectRow, HistoryRecord, ResourceRef, ScaleTarget } from '@/lib/types';
 import { getHistory } from '@/lib/api';
 
 const TOGGLEABLE = new Set(['ecs', 'ec2', 'argocd-app', 'rds']);
+const BRIEFING_PREVIEW_LIMIT = 2000;
 const LABEL: Record<string, string> = {
   ecs: 'ECS', ec2: 'EC2', 'argocd-app': 'ArgoCD', rds: 'RDS', dynamodb: 'DynamoDB',
   elasticache: 'ElastiCache', kafka: 'Kafka', msk: 'MSK', stepfunctions: 'StepFn',
@@ -38,13 +39,17 @@ export function DetailDrawer({
   row,
   onClose,
   onToggle,
+  onScale,
 }: {
   row: ProjectRow;
   onClose: () => void;
-  onToggle: (repo: string, op: 'turn_on' | 'turn_off') => Promise<void> | void;
+  onToggle: (repo: string, op: 'turn_on' | 'turn_off') => Promise<{ ok: boolean }> | void;
+  onScale?: (repo: string, targets: ScaleTarget[]) => Promise<{ ok: boolean }> | void;
 }) {
   const [history, setHistory] = useState<HistoryRecord[] | null>(null);
   const [histErr, setHistErr] = useState<string | null>(null);
+  const [briefingExpanded, setBriefingExpanded] = useState(false);
+  const [scaleInputs, setScaleInputs] = useState<Record<string, string>>({});
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
@@ -114,6 +119,20 @@ export function DetailDrawer({
     await loadHistory(); // refresh once so the just-performed action appears
   };
 
+  const handleScaleEcs = async (r: ResourceRef) => {
+    const raw = scaleInputs[r.stepKey];
+    const count = Number(raw);
+    if (!raw || !Number.isInteger(count) || count <= 0) return;
+    await onScale?.(row.repo, [{ stepKey: r.stepKey, desiredCount: count }]);
+  };
+
+  const handleScaleArgocd = async (r: ResourceRef) => {
+    const raw = scaleInputs[r.stepKey];
+    const replicas = Number(raw);
+    if (!raw || !Number.isInteger(replicas) || replicas <= 0) return;
+    await onScale?.(row.repo, [{ stepKey: r.stepKey, replicas }]);
+  };
+
   const cs = pr?.urls?.code_server;
   const demo = pr?.urls?.demo;
 
@@ -135,7 +154,9 @@ export function DetailDrawer({
               ×
             </button>
           </div>
-          <div className="repo">{row.repo}</div>
+          <a className="repo" href={`https://github.com/${row.repo}`} target="_blank" rel="noreferrer">
+            {row.repo}
+          </a>
           <div className="chips">
             {pr?.display?.category && <span className="chip cat">{pr.display.category}</span>}
             <span className="chip acct">{row.account}</span>
@@ -160,15 +181,79 @@ export function DetailDrawer({
           <div className="empty">프로젝트 상세를 불러오지 못했습니다.</div>
         ) : (
           <>
+            {pr.briefing && (
+              <section className="drawer-sec">
+                <h3>Briefing</h3>
+                <div className="briefing">
+                  {briefingExpanded || pr.briefing.length <= BRIEFING_PREVIEW_LIMIT
+                    ? pr.briefing
+                    : `${pr.briefing.slice(0, BRIEFING_PREVIEW_LIMIT)}…`}
+                </div>
+                {pr.briefing.length > BRIEFING_PREVIEW_LIMIT && (
+                  <button
+                    className="btn link"
+                    onClick={() => setBriefingExpanded((v) => !v)}
+                  >
+                    {briefingExpanded ? 'Show less' : 'Show more'}
+                  </button>
+                )}
+              </section>
+            )}
             <section className="drawer-sec">
               <h3>리소스</h3>
               <div className="reslist">
                 {pr.resources.map((r, i) => {
                   const on = TOGGLEABLE.has(r.type) && !r.always_on;
+                  const isEcs = r.type === 'ecs';
+                  const isArgocdApp = r.type === 'argocd-app';
                   return (
                     <div className="resrow" key={i}>
                       <span className={`chip ${on ? 'res-on' : 'res-always'}`}>{LABEL[r.type] ?? r.type}</span>
                       <span className="resid">{resourceId(r)}</span>
+                      {isEcs && (
+                        <span className="scale-ctl">
+                          <input
+                            type="number"
+                            placeholder="check the ArgoCD/ECS console for the current count"
+                            value={scaleInputs[r.stepKey] ?? ''}
+                            disabled={row.status !== 'on'}
+                            onChange={(e) =>
+                              setScaleInputs((s) => ({ ...s, [r.stepKey]: e.target.value }))
+                            }
+                          />
+                          <button
+                            className="btn"
+                            disabled={row.status !== 'on'}
+                            onClick={() => void handleScaleEcs(r)}
+                          >
+                            Apply
+                          </button>
+                        </span>
+                      )}
+                      {isArgocdApp && (
+                        <span className="scale-ctl">
+                          <input
+                            type="number"
+                            placeholder="check the ArgoCD/ECS console for the current count"
+                            value={scaleInputs[r.stepKey] ?? ''}
+                            disabled={row.status !== 'on'}
+                            onChange={(e) =>
+                              setScaleInputs((s) => ({ ...s, [r.stepKey]: e.target.value }))
+                            }
+                          />
+                          <button
+                            className="btn"
+                            disabled={row.status !== 'on'}
+                            onClick={() => void handleScaleArgocd(r)}
+                          >
+                            Apply
+                          </button>
+                          <span className="scale-note">
+                            pins this application&apos;s HPA min/max to the entered count —
+                            not recoverable afterward through this tool, even by scaling back down
+                          </span>
+                        </span>
+                      )}
                     </div>
                   );
                 })}

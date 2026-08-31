@@ -48,6 +48,9 @@ spec:
                 nodeSelector:
                   node-pool: platform
             template:
+              metadata:
+                annotations:
+                  karpenter.sh/do-not-disrupt: "true"
               spec:
                 serviceAccountName: claude-runner
                 nodeSelector:
@@ -57,8 +60,8 @@ spec:
                     image: 180294183052.dkr.ecr.ap-northeast-2.amazonaws.com/actions-runner-claude:latest
                     command: ["/home/runner/run.sh"]
                     env:
-                      # PR review 패널 AI CLI 인증 (ExternalSecret ai-panel-keys <- /demo-platform/actions/AI-key).
-                      # optional: true — 키/Secret 부재가 러너 fleet 기동을 막지 않게(해당 패널 graceful skip).
+                      # PR-review panel AI CLI auth (ExternalSecret ai-panel-keys <- /demo-platform/actions/AI-key).
+                      # optional: true — a missing key/Secret does not block runner fleet startup (that panel just gracefully skips).
                       - name: KIRO_API_KEY
                         valueFrom:
                           secretKeyRef:

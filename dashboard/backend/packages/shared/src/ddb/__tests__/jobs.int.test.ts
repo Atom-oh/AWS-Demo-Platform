@@ -48,6 +48,17 @@ describe('JobsClient (integration)', () => {
     expect(running.find((j) => j.pk === `job#${id}`)?.status).toBe('running');
   });
 
+  it('creates a scale job with targets persisted on the record', async () => {
+    const targets = [
+      { stepKey: 'ecs:cluster/service', desiredCount: 3 },
+      { stepKey: 'argocd-app:mall', replicas: 5 },
+    ];
+    const id = await client.create({ repo: 'scale-target', operation: 'scale', targets });
+    const rec = await client.read(id);
+    expect(rec?.operation).toBe('scale');
+    expect(rec?.targets).toEqual(targets);
+  });
+
   it('markFailed sets error and status', async () => {
     const id = await client.create({ repo: 'r', operation: 'turn_off' });
     await client.markRunning(id);

@@ -98,4 +98,20 @@ describe('ProjectSchema', () => {
       }),
     ).toThrow();
   });
+
+  it('accepts an optional briefing field', () => {
+    const p = ProjectSchema.parse({ ...validProject, briefing: 'talking points\nline two' });
+    expect(p.briefing).toBe('talking points\nline two');
+  });
+
+  it('accepts a very long briefing without rejecting the project', () => {
+    const long = 'x'.repeat(10000);
+    const p = ProjectSchema.parse({ ...validProject, briefing: long });
+    expect(p.briefing).toHaveLength(10000);
+  });
+
+  it('parses a project without a briefing field at all', () => {
+    const p = ProjectSchema.parse(validProject);
+    expect(p.briefing).toBeUndefined();
+  });
 });

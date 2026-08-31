@@ -6,7 +6,7 @@ import {
   ScanCommand,
   type DynamoDBDocumentClient,
 } from '@aws-sdk/lib-dynamodb';
-import { JobRecordSchema, type JobRecord } from '../schemas/ddb-records.js';
+import { JobRecordSchema, type JobRecord, type ScaleTarget } from '../schemas/ddb-records.js';
 import { classifyAwsError } from '../errors.js';
 
 const TTL_DAYS = 7;
@@ -19,7 +19,11 @@ export interface JobsClientOpts {
 export class JobsClient {
   constructor(private readonly opts: JobsClientOpts) {}
 
-  async create(args: { repo: string; operation: 'turn_off' | 'turn_on' }): Promise<string> {
+  async create(args: {
+    repo: string;
+    operation: 'turn_off' | 'turn_on' | 'add_secret' | 'scale';
+    targets?: ScaleTarget[];
+  }): Promise<string> {
     const id = randomUUID();
     const now = new Date();
     const ttl = Math.floor(now.getTime() / 1000) + TTL_DAYS * 86400;
@@ -34,6 +38,7 @@ export class JobsClient {
             operation: args.operation,
             status: 'pending',
             progress: {},
+            ...(args.targets ? { targets: args.targets } : {}),
             created_at: now.toISOString(),
             ttl,
           },

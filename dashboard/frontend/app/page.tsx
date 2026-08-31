@@ -11,11 +11,12 @@ import { authEnabled } from '@/lib/auth-config';
 
 function DashboardInner() {
   const { username, email, logout } = useAuth();
-  const { rows, loading, error, toggle } = useProjects();
+  const { rows, loading, error, toggle, turnOnAll, scale } = useProjects();
   const [filters, setFilters] = useState<Filters>({ cat: null, acct: null, status: null });
   const [q, setQ] = useState('');
   const [toast, setToast] = useState<{ msg: string; err?: boolean } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [turningOnAll, setTurningOnAll] = useState(false);
 
   useEffect(() => {
     if (!toast) return;
@@ -53,6 +54,25 @@ function DashboardInner() {
   const onToggle = (repo: string, op: 'turn_on' | 'turn_off') =>
     toggle(repo, op, (msg, err) => setToast({ msg, err }));
 
+  const onScale = (repo: string, targets: Parameters<typeof scale>[1]) =>
+    scale(repo, targets, (msg, err) => setToast({ msg, err }));
+
+  const onTurnOnAll = async () => {
+    setTurningOnAll(true);
+    try {
+      const results = await turnOnAll(rows.map((r) => ({ repo: r.repo, status: r.status })));
+      const failed = results.filter((r) => !r.ok);
+      if (failed.length > 0) {
+        setToast({
+          msg: `${failed.length}개 실패: ${failed.map((r) => r.repo).join(', ')}`,
+          err: true,
+        });
+      }
+    } finally {
+      setTurningOnAll(false);
+    }
+  };
+
   return (
     <>
       <header className="topbar">
@@ -80,7 +100,12 @@ function DashboardInner() {
       <div className="layout">
         <FacetSidebar rows={rows} filters={filters} setFilters={setFilters} />
         <main>
-          <StatStrip rows={rows} />
+          <div className="stats-bar">
+            <StatStrip rows={rows} />
+            <button className="btn on" disabled={turningOnAll} onClick={onTurnOnAll}>
+              모두 켜기
+            </button>
+          </div>
           <div className="grid">
             {loading && <div className="empty">불러오는 중…</div>}
             {error && <div className="empty">API 로드 실패: {error}</div>}
@@ -101,6 +126,7 @@ function DashboardInner() {
             row={sel}
             onClose={() => setSelected(null)}
             onToggle={onToggle}
+            onScale={onScale}
           />
         ) : null;
       })()}
