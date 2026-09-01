@@ -120,8 +120,11 @@ required repository and PR context without depending on MCP startup.
 The chair still receives the diff and panel outputs through stdin to stay below the
 kernel argv limit. Each run now wraps those inputs in matching unpredictable nonce
 boundaries and explicitly treats marker-like text inside the diff block as untrusted
-data. ANSI CSI/OSC sequences are removed before credential scrubbing, and stderr is
-scrubbed in full before public excerpts are truncated.
+data. On every path that reaches a public log — panel cells and chair stderr — ANSI
+CSI/OSC sequences are removed before credential scrubbing, and stderr is scrubbed in
+full before its excerpt is truncated and folded to a single line. The diff itself is
+passed through verbatim: it is already public on GitHub, and altering it would
+misrepresent the code under review.
 
 Chair generation failure remains fail-closed, but is distinct from a code-finding
 failure: an invalid primary and fallback response creates `chair-failed.flag`, while a

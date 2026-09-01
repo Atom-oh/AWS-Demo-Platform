@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Unit tests for synthesize.sh (standalone or sourced by tests/run-all.sh).
+# Case (a) is the PR#195 regression: the panel bundle in argv overflowed MAX_ARG_STRLEN.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$(cd "$HERE/../../scripts/pr-review" && pwd)/synthesize.sh"
 ORIGINAL_PATH="$PATH"
@@ -106,6 +107,17 @@ else
   fail "synthesize (b) ANSI-split tokens cannot be reconstructed" "redaction markers missing"
 fi
 
+# Two ST-terminated OSC-8 sequences on one line: a payload class that only excludes BEL
+# spans both and swallows the finding text between them.
+setup; mkclaude
+printf 'CRITICAL \033]8;;http://example.invalid\033\\see-here\033]8;;\033\\ leaks\n' \
+  > "$WORK/slot/model0-L2.md"
+"$SCRIPT" "$DIFF" "$WORK" 1 "test pr" "$WORK/review.md" >"$WORK/synth.log" 2>&1
+grep -Fq 'CRITICAL see-here leaks' "$WORK/synth-stdin.txt" \
+  && pass "synthesize (b) ST-terminated OSC-8 keeps the visible finding text" \
+  || fail "synthesize (b) ST-terminated OSC-8 keeps the visible finding text" \
+          "text between OSC sequences was deleted"
+
 # (c) Diff and panel data use a nonce-delimited trust boundary.
 setup; mkclaude
 cat > "$DIFF" <<'EOF'
@@ -136,6 +148,27 @@ fi
 grep -Fiq "marker-like" "$WORK/synth-prompt.txt" && grep -Fq "untrusted data" "$WORK/synth-prompt.txt" \
   && pass "synthesize (c) prompt declares diff marker text untrusted" \
   || fail "synthesize (c) prompt declares diff marker text untrusted" "trust-boundary instruction missing"
+# The prompt heredoc must stay unquoted for ${BOUNDARY_NONCE} etc., so any shell-active
+# character in the marker text (backticks) silently blanks the declaration instead.
+if grep -Fq "=== DIFF BEGIN $NONCE ===" "$WORK/synth-prompt.txt" \
+  && grep -Fq "=== DIFF END $NONCE ===" "$WORK/synth-prompt.txt"; then
+  pass "synthesize (c) prompt names the run's actual nonce markers"
+else
+  fail "synthesize (c) prompt names the run's actual nonce markers" "nonce markers absent from prompt"
+fi
+grep -Fq "command not found" "$WORK/synth.log" \
+  && fail "synthesize (c) prompt heredoc runs no command substitution" "shell executed marker text" \
+  || pass "synthesize (c) prompt heredoc runs no command substitution"
+
+# A diff whose last line has no newline must not fuse that line onto the END marker.
+setup; mkclaude
+printf '+trailing attacker line' > "$DIFF"
+"$SCRIPT" "$DIFF" "$WORK" 1 "test pr" "$WORK/review.md" >"$WORK/synth.log" 2>&1
+NONCE="$(sed -n 's/^=== DIFF BEGIN \([0-9a-f]\{32\}\) ===$/\1/p' "$WORK/synth-stdin.txt")"
+[ -n "$NONCE" ] && grep -Fqx "=== DIFF END $NONCE ===" "$WORK/synth-stdin.txt" \
+  && pass "synthesize (c) END marker stays on its own line for a newline-less diff" \
+  || fail "synthesize (c) END marker stays on its own line for a newline-less diff" \
+          "marker fused onto the diff's last line"
 
 # (d) Full stderr is scrubbed before the 500-byte public excerpt is taken.
 setup; mkclaude
@@ -149,6 +182,18 @@ elif grep -Fq '[REDACTED-GH-TOKEN]' "$WORK/review.md" && grep -Fq '[REDACTED-GH-
   pass "synthesize (d) scrubs stderr before truncating public excerpts"
 else
   fail "synthesize (d) scrubs stderr before truncating public excerpts" "redaction marker missing"
+fi
+
+# An excerpt spanning a newline would let stderr open a new ::error:: workflow command.
+setup; mkclaude
+export CLAUDE_STUB_MODE=fail
+export STDERR_PAYLOAD_FILE="$WORK/stderr-payload.txt"
+printf 'boom\n::error::spoofed annotation\n' > "$STDERR_PAYLOAD_FILE"
+"$SCRIPT" "$DIFF" "$WORK" 1 "test pr" "$WORK/review.md" >"$WORK/synth.log" 2>&1
+if grep -q '^::error::' "$WORK/synth.log" || grep -q '^::error::' "$WORK/review.md"; then
+  fail "synthesize (d) stderr excerpt cannot open a workflow command" "'::error::' reached line start"
+else
+  pass "synthesize (d) stderr excerpt cannot open a workflow command"
 fi
 
 # (e) A successful retry in a reused workdir clears a stale chair failure signal.
