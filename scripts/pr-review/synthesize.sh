@@ -123,16 +123,18 @@ run_chair() {  # $1=model $2=err-file → records to "$OUT" (passed through scru
   ANTHROPIC_MODEL="$1" timeout "$CHAIR_TIMEOUT" \
     claude -p "$(cat "$WORK/synth-prompt.txt")" --output-format text \
     --allowedTools "Read Grep Glob Bash(gh pr diff:*) Bash(gh pr view:*)" \
-    < "$WORK/synth-stdin.txt" 2>"$2" | scrub_secrets > "$OUT" || true
+    < "$WORK/synth-stdin.txt" 2>"$2" | strip_ansi | scrub_secrets > "$OUT" || true
 }
 
-# Newlines are folded out because the excerpt is interpolated into a ::warning:: line — a
-# stderr line starting with '::' would otherwise be parsed as a fresh workflow command.
+# Line breaks are folded out because the excerpt is interpolated into a ::warning:: line —
+# text after one that starts with '::' would otherwise be parsed as a fresh workflow
+# command. CR counts: the runner reads stdout with .NET ReadLine semantics, where a lone
+# \r also terminates a line.
 stderr_excerpt() {
   local scrubbed
   scrubbed="$(mktemp "$WORK/chair-stderr.XXXXXX")"
   strip_ansi < "$1" | scrub_secrets > "$scrubbed"
-  head -c 500 "$scrubbed" | tr '\n' ' '
+  head -c 500 "$scrubbed" | tr '\r\n' '  '
   rm -f "$scrubbed"
 }
 

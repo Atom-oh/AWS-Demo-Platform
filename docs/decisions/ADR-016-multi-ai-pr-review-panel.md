@@ -115,16 +115,20 @@ prior fact when adding the Opus 5 fallback.
 Removed GitHub MCP tools from the Claude self-review and chair allowlists after MCP
 authentication failures caused the CLI to wait until the panel or chair timeout. Both
 roles retain `Read`/`Grep`/`Glob` and bounded read-only `gh` commands, preserving the
-required repository and PR context without depending on MCP startup.
+required repository and PR context without depending on MCP tool calls. `pr-review.yml`
+still wires `GITHUB_PERSONAL_ACCESS_TOKEN` for the MCP plugin; with no `mcp__github__*`
+tool allowlisted it is now dead wiring, and removing it is a follow-up.
 
 The chair still receives the diff and panel outputs through stdin to stay below the
 kernel argv limit. Each run now wraps those inputs in matching unpredictable nonce
 boundaries and explicitly treats marker-like text inside the diff block as untrusted
-data. On every path that reaches a public log — panel cells and chair stderr — ANSI
-CSI/OSC sequences are removed before credential scrubbing, and stderr is scrubbed in
-full before its excerpt is truncated and folded to a single line. The diff itself is
-passed through verbatim: it is already public on GitHub, and altering it would
-misrepresent the code under review.
+data. On every path that reaches a public log — panel cells, chair stdout, chair stderr —
+ANSI CSI/OSC sequences are removed before credential scrubbing, and stderr is scrubbed in
+full before its excerpt is truncated and folded to a single line (both `\n` and `\r`, since
+the runner treats either as a line terminator and would otherwise let stderr open a new
+workflow command). The diff itself is passed through verbatim apart from a normalizing
+trailing newline: it is already public on GitHub, and altering it would misrepresent the
+code under review.
 
 Chair generation failure remains fail-closed, but is distinct from a code-finding
 failure: an invalid primary and fallback response creates `chair-failed.flag`, while a

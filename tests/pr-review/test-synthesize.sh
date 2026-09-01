@@ -39,6 +39,7 @@ setup() { # $1 = cell count (default 1), $2 = bytes per cell (default 100)
   export ARGV_FILE="$WORK/claude-argv.txt"
   export CLAUDE_STUB_MODE=ok
   export STDERR_PAYLOAD_FILE=""
+  export STDOUT_PAYLOAD_FILE=""
   export CHAIR_PRIMARY_MODEL="us.anthropic.claude-fable-5"
   export CHAIR_FALLBACK_MODEL="us.anthropic.claude-opus-5"
 }
@@ -57,6 +58,7 @@ if [ "$CLAUDE_STUB_MODE" = fail ]; then
   exit 1
 fi
 echo "Summary: ok"
+[ -n "${STDOUT_PAYLOAD_FILE:-}" ] && cat "$STDOUT_PAYLOAD_FILE"
 echo "VERDICT: PASS"
 EOF
   chmod +x "$BIN/claude"
@@ -183,8 +185,29 @@ elif grep -Fq '[REDACTED-GH-TOKEN]' "$WORK/review.md" && grep -Fq '[REDACTED-GH-
 else
   fail "synthesize (d) scrubs stderr before truncating public excerpts" "redaction marker missing"
 fi
+# The documented fail-closed contract for a double chair failure (ADR-016).
+[ -e "$WORK/chair-failed.flag" ] \
+  && pass "synthesize (d) double chair failure raises chair-failed.flag" \
+  || fail "synthesize (d) double chair failure raises chair-failed.flag" "flag not created"
+[ "$(awk 'NF{last=$0} END{print last}' "$WORK/review.md")" = "VERDICT: FAIL" ] \
+  && pass "synthesize (d) double chair failure fails closed with VERDICT: FAIL" \
+  || fail "synthesize (d) double chair failure fails closed with VERDICT: FAIL" \
+          "last line was not VERDICT: FAIL"
 
-# An excerpt spanning a newline would let stderr open a new ::error:: workflow command.
+# An excerpt spanning a line break would let stderr open a new ::error:: workflow command.
+# Both terminators are covered: the runner's ReadLine also breaks on a lone \r, which a
+# grep '^' anchor cannot see — so assert on the raw bytes instead.
+setup; mkclaude
+export CLAUDE_STUB_MODE=fail
+export STDERR_PAYLOAD_FILE="$WORK/stderr-payload.txt"
+printf 'boom\r::error::spoofed via CR\n' > "$STDERR_PAYLOAD_FILE"
+"$SCRIPT" "$DIFF" "$WORK" 1 "test pr" "$WORK/review.md" >"$WORK/synth.log" 2>&1
+if LC_ALL=C grep -q $'\r' "$WORK/synth.log" || LC_ALL=C grep -q $'\r' "$WORK/review.md"; then
+  fail "synthesize (d) stderr excerpt folds CR line terminators" "CR survived into public output"
+else
+  pass "synthesize (d) stderr excerpt folds CR line terminators"
+fi
+
 setup; mkclaude
 export CLAUDE_STUB_MODE=fail
 export STDERR_PAYLOAD_FILE="$WORK/stderr-payload.txt"
@@ -194,6 +217,21 @@ if grep -q '^::error::' "$WORK/synth.log" || grep -q '^::error::' "$WORK/review.
   fail "synthesize (d) stderr excerpt cannot open a workflow command" "'::error::' reached line start"
 else
   pass "synthesize (d) stderr excerpt cannot open a workflow command"
+fi
+
+# The chair's own stdout is the most public path — it lands verbatim in the PR comment —
+# so it needs the same strip-before-scrub ordering as the panel cells.
+setup; mkclaude
+export STDOUT_PAYLOAD_FILE="$WORK/stdout-payload.txt"
+STDOUT_TOKEN="ghp_QRSTUVWXYZ1122334455667788990aabbccdd"
+printf 'leak: ghp_QRSTUVWXYZ\033[32m1122334455667788990aabbccdd\033[0m\n' > "$STDOUT_PAYLOAD_FILE"
+"$SCRIPT" "$DIFF" "$WORK" 1 "test pr" "$WORK/review.md" >"$WORK/synth.log" 2>&1
+if grep -Fq "$STDOUT_TOKEN" "$WORK/review.md"; then
+  fail "synthesize (d) chair stdout redacts ANSI-split tokens" "plaintext token reached review.md"
+elif grep -Fq '[REDACTED-GH-TOKEN]' "$WORK/review.md"; then
+  pass "synthesize (d) chair stdout redacts ANSI-split tokens"
+else
+  fail "synthesize (d) chair stdout redacts ANSI-split tokens" "redaction marker missing"
 fi
 
 # (e) A successful retry in a reused workdir clears a stale chair failure signal.
@@ -216,7 +254,7 @@ else
 fi
 
 cleanup
-unset STDIN_SIZE_FILE ARGV_FILE CLAUDE_STUB_MODE STDERR_PAYLOAD_FILE
+unset STDIN_SIZE_FILE ARGV_FILE CLAUDE_STUB_MODE STDERR_PAYLOAD_FILE STDOUT_PAYLOAD_FILE
 unset CHAIR_PRIMARY_MODEL CHAIR_FALLBACK_MODEL
 
 if [ "${_t_fail+set}" = set ]; then
