@@ -119,13 +119,13 @@ for lens_file in "${LENS_FILES[@]}"; do
     else echo "[skip] $MODEL_TAG/$lens (binary absent)" >&2; : > "$SLOT/$MODEL_TAG-$lens.md"; fi
   elif [ "$MODEL_TAG" = claude-self ]; then
     # Independent Claude review (separate voice from the chair). --allowedTools is pinned
-    # to read-only GitHub context tools.
+    # to bounded local and gh read-only context tools; GitHub MCP auth failures can hang startup.
     if command -v claude >/dev/null 2>&1; then
       CLAUDE_SELF_PROMPT="$LENS_PROMPT
 
 [Claude self-review — running on the plugin-equipped runner]
-- If needed, use read-only tools (gh pr diff/view, gh search, Read/Grep/Glob, github MCP
-  where available) to check files/PR context beyond the diff directly.
+- If needed, use read-only tools (gh pr diff/view, gh search, Read/Grep/Glob) to check
+  files/PR context beyond the diff directly.
 - code-review methodology: focus on real bugs, logic errors, security, CLAUDE.md violations.
   Exclude minor nitpicks, anything a linter/type-checker would catch, pre-existing issues, and
   problems on lines the PR didn't touch. Discard false positives.
@@ -134,7 +134,7 @@ for lens_file in "${LENS_FILES[@]}"; do
 Respond in English only (token/context efficiency — do not mix in other languages)."
       ( try_panel "$SLOT/claude-self-$lens.md" "$SLOT/claude-self-$lens.err" \
           timeout "$T" claude -p "$CLAUDE_SELF_PROMPT" --output-format text \
-            --allowedTools "Read Grep Glob Bash(gh pr diff:*) Bash(gh pr view:*) Bash(gh search:*) Bash(gh issue view:*) mcp__github__get_file_contents mcp__github__search_code mcp__github__get_pull_request mcp__github__list_commits" ) &
+            --allowedTools "Read Grep Glob Bash(gh pr diff:*) Bash(gh pr view:*) Bash(gh search:*) Bash(gh issue view:*)" ) &
     else echo "[skip] claude-self/$lens (binary absent)" >&2; : > "$SLOT/claude-self-$lens.md"; fi
   fi
 done

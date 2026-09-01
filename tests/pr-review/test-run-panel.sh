@@ -5,12 +5,22 @@
 # Roster (lib.sh): codex, kiro-fable (claude-fable-5), kiro-sol (gpt-5.6-sol), claude-self.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$(cd "$HERE/../../scripts/pr-review" && pwd)/run-panel.sh"
+ORIGINAL_PATH="$PATH"
 
 if ! declare -F pass >/dev/null 2>&1; then
   _t_fail=0
   pass() { echo "  OK $1"; }
   fail() { echo "  FAIL $1 -> ${2:-}"; _t_fail=1; }
 fi
+
+cleanup() {
+  PATH="$ORIGINAL_PATH"
+  export PATH
+  [ -n "${WORK:-}" ] && rm -rf "$WORK"
+  [ -n "${BIN:-}" ] && rm -rf "$BIN"
+  [ -n "${LENSES:-}" ] && rm -rf "$LENSES"
+  WORK=""; BIN=""; LENSES=""
+}
 
 mkfake() { # $1 binname, $2 exitcode, $3 marker
   cat > "$BIN/$1" <<EOF
@@ -19,9 +29,12 @@ if [ "$2" -eq 0 ]; then echo "$3"; cat; else exit $2; fi
 EOF
   chmod +x "$BIN/$1"
 }
+
 setup() { # $1 = space-separated list of lens tags (default L2)
+  cleanup
   WORK=$(mktemp -d); BIN=$(mktemp -d); LENSES=$(mktemp -d)
-  export PATH="$BIN:$PATH"
+  PATH="$BIN:$ORIGINAL_PATH"
+  export PATH
   echo "diff --git a b" > "$WORK/diff.txt"
   for l in ${1:-L2}; do echo "review lens $l" > "$LENSES/$l.txt"; done
 }
@@ -72,7 +85,32 @@ setup; rm -f "$LENSES"/*.txt; mkfake codex 0 "codex-finding"
 rc=$?
 [ "$rc" -ne 0 ] && pass "run-panel (e) empty lenses_dir fails loudly" || fail "run-panel (e) empty lenses_dir fails loudly" "exited 0 with no lens files"
 
-# standalone exit code (skipped under harness, where _t_fail is undefined)
+# (f) Claude self-review keeps bounded local/gh read tools but excludes GitHub MCP tools.
+setup
+export CLAUDE_ARGV_FILE="$WORK/claude-argv.txt"
+cat > "$BIN/claude" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "$CLAUDE_ARGV_FILE"
+echo "claude-finding"
+cat
+EOF
+chmod +x "$BIN/claude"
+"$SCRIPT" "$WORK/diff.txt" "$LENSES" "$WORK" claude-self >/dev/null 2>&1
+if grep -Fq 'mcp__github__' "$CLAUDE_ARGV_FILE"; then
+  fail "run-panel (f) Claude self-review argv excludes GitHub MCP tools" "GitHub MCP tool present"
+elif grep -Fq 'Read Grep Glob' "$CLAUDE_ARGV_FILE" \
+  && grep -Fq 'Bash(gh pr diff:*)' "$CLAUDE_ARGV_FILE" \
+  && grep -Fq 'Bash(gh pr view:*)' "$CLAUDE_ARGV_FILE" \
+  && grep -Fq 'Bash(gh search:*)' "$CLAUDE_ARGV_FILE" \
+  && grep -Fq 'Bash(gh issue view:*)' "$CLAUDE_ARGV_FILE"; then
+  pass "run-panel (f) Claude self-review argv uses bounded read-only tools"
+else
+  fail "run-panel (f) Claude self-review argv uses bounded read-only tools" "expected allowedTools missing"
+fi
+
+cleanup
+unset CLAUDE_ARGV_FILE
+
 if [ "${_t_fail+set}" = set ]; then
   [ "$_t_fail" = 0 ] && echo "PASS: test-run-panel" || exit 1
 fi

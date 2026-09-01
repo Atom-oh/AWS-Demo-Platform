@@ -98,8 +98,9 @@ Fixed a runner-credentials gap: the shared `claude-runner` SA was missing from
 ## Update (2026-06-23b) — Claude self-review panelist
 
 Added an independent `claude -p` self-review to the panel, using the code-review
-methodology and read-only tools (gh/Read/Grep/Glob, github MCP read-only) to see
-context beyond the truncated diff — findings only, no comment/VERDICT authority.
+methodology and read-only tools to see context beyond the truncated diff — findings
+only, no comment/VERDICT authority. The original allowlist included GitHub MCP read
+tools; the 2026-08-31 update below replaces them with bounded `gh` commands.
 Auth is job-scoped (`github.token`), not a pod-wide PAT; in the
 `pull_request_target` write context, tool access is a read-only allowlist (no
 `gh api`/comment ability). See
@@ -108,3 +109,22 @@ Bedrock data-retention posture behind the `claude-fable-5` chair model. The
 chair-primary switch from Opus 4.8 to Fable 5 itself has no ADR of its own —
 [ADR-014](ADR-014-pr-review-opus5-model-bump.md) treats it as an unchanged
 prior fact when adding the Opus 5 fallback.
+
+## Update (2026-08-31) — bounded GitHub context and chair input hardening
+
+Removed GitHub MCP tools from the Claude self-review and chair allowlists after MCP
+authentication failures caused the CLI to wait until the panel or chair timeout. Both
+roles retain `Read`/`Grep`/`Glob` and bounded read-only `gh` commands, preserving the
+required repository and PR context without depending on MCP startup.
+
+The chair still receives the diff and panel outputs through stdin to stay below the
+kernel argv limit. Each run now wraps those inputs in matching unpredictable nonce
+boundaries and explicitly treats marker-like text inside the diff block as untrusted
+data. ANSI CSI/OSC sequences are removed before credential scrubbing, and stderr is
+scrubbed in full before public excerpts are truncated.
+
+Chair generation failure remains fail-closed, but is distinct from a code-finding
+failure: an invalid primary and fallback response creates `chair-failed.flag`, while a
+successful retry clears any stale flag from a reused work directory. The workflow can
+therefore request a rerun without misrepresenting an infrastructure failure as a
+confirmed CRITICAL or MAJOR code finding.
