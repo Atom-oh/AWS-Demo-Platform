@@ -100,7 +100,8 @@ Fixed a runner-credentials gap: the shared `claude-runner` SA was missing from
 Added an independent `claude -p` self-review to the panel, using the code-review
 methodology and read-only tools to see context beyond the truncated diff — findings
 only, no comment/VERDICT authority. The original allowlist included GitHub MCP read
-tools; the 2026-08-31 update below replaces them with bounded `gh` commands.
+tools alongside bounded `gh` commands; the 2026-08-31 update below removes the MCP
+tools and keeps the `gh` commands.
 Auth is job-scoped (`github.token`), not a pod-wide PAT; in the
 `pull_request_target` write context, tool access is a read-only allowlist (no
 `gh api`/comment ability). See
@@ -122,8 +123,14 @@ tool allowlisted it is now dead wiring, and removing it is a follow-up.
 The chair still receives the diff and panel outputs through stdin to stay below the
 kernel argv limit. Each run now wraps those inputs in matching unpredictable nonce
 boundaries and explicitly treats marker-like text inside the diff block as untrusted
-data. On every path that reaches a public log — panel cells, chair stdout, chair stderr —
-ANSI CSI/OSC sequences are removed before credential scrubbing, and stderr is scrubbed in
+data. On every path that reaches a public log — panel cells, chair stdout, chair stderr, and
+the skipped-cell stderr tail in `run-panel.sh` — escape and control sequences are removed
+before credential scrubbing. The shared `strip_ansi` in `lib.sh` covers ESC-introduced
+CSI/OSC/charset sequences, raw 8-bit C1 introducers, and C0 controls other than tab/newline/
+CR, so none of them can split a credential past the redaction regexes while rendering
+invisibly; it deliberately does not strip `0x80`–`0x9f` wholesale, which would corrupt
+multibyte findings. Arbitrary non-UTF-8 bytes remain out of scope, and `scrub_secrets`
+stays the documented last line of defense. Chair stderr is scrubbed in
 full before its excerpt is truncated and folded to a single line (both `\n` and `\r`, since
 the runner treats either as a line terminator and would otherwise let stderr open a new
 workflow command). The diff itself is passed through verbatim apart from a normalizing

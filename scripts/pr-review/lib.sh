@@ -33,6 +33,28 @@ record_result() {
   fi
 }
 
+# Must run before scrub_secrets on every path that reaches a public log, so a control byte
+# can't split a credential past the redaction regexes below while rendering invisibly.
+# Ordering inside: named sequences first (their payloads contain bytes the catch-all would
+# eat), then any residual ESC, then raw C0/C1 controls — \t\n\r survive, since scrub_secrets
+# and the callers' line handling depend on them.
+# The OSC payload class excludes ESC as well as BEL: with only BEL excluded, ERE
+# leftmost-longest matching spans two ST-terminated OSC-8 sequences and deletes the visible
+# text between them (PR#85 review L4).
+strip_ansi() {
+  # LC_ALL=C: the patterns are byte-exact, and a raw C1 byte is invalid UTF-8 — under a
+  # UTF-8 locale sed would not match it as part of a character range.
+  LC_ALL=C sed -E \
+    -e 's/\x1b\][^\x07\x1b]*(\x07|\x1b\\)//g' \
+    -e 's/\x1b\[[0-?]*[ -\/]*[@-~]//g' \
+    -e 's/\x1b[()*+][0-~]//g' \
+    -e 's/\x1b[@-_]//g' \
+    -e 's/\x1b//g' \
+    -e 's/\x9d[^\x07\x9c]*(\x07|\x9c)//g' \
+    -e 's/\x9b[0-?]*[ -\/]*[@-~]//g' \
+    -e 's/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x9b\x9d]//g'
+}
+
 # Last line of defense, not prevention (ADR-002 residual risk) — strips credential
 # patterns from cell output before the chair sees it. Reuses co-agent's
 # `consensus_hooks.py::_SECRET_RE` set plus EKS Pod Identity JWT detection.

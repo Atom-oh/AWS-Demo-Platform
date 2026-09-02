@@ -153,5 +153,5 @@ for e in "$SLOT"/*.err; do
   b="$(basename "$e" .err)"
   [ -s "$SLOT/$b.md" ] && continue   # skip if the response succeeded
   echo "--- [$b] skipped; stderr (last 25 lines, scrubbed) ---" >&2
-  tail -25 "$e" | scrub_secrets >&2
+  tail -25 "$e" | strip_ansi | scrub_secrets >&2
 done

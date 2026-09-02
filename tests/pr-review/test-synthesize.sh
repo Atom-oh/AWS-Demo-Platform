@@ -120,6 +120,33 @@ grep -Fq 'CRITICAL see-here leaks' "$WORK/synth-stdin.txt" \
   || fail "synthesize (b) ST-terminated OSC-8 keeps the visible finding text" \
           "text between OSC sequences was deleted"
 
+# Beyond ESC-introduced sequences: raw 8-bit C1 introducers (0x9b CSI, 0x9d OSC), the
+# charset-designator form ESC ( B, and bare C0 controls all split a token invisibly.
+setup; mkclaude
+{
+  printf 'c1csi: ghp_AAAAAAAAAA\233m1234567890abcdefghijklmnop\n'
+  printf 'charset: ghp_BBBBBBBBBB\033(B1234567890abcdefghijklmnop\n'
+  printf 'c0: ghp_CCCCCCCCCC\001\0021234567890abcdefghijklmnop\n'
+  printf 'c1osc: ghp_DDDDDDDDDD\235x\2341234567890abcdefghijklmnop\n'
+} > "$WORK/slot/model0-L2.md"
+"$SCRIPT" "$DIFF" "$WORK" 1 "test pr" "$WORK/review.md" >"$WORK/synth.log" 2>&1
+if grep -Eq 'ghp_(AAAA|BBBB|CCCC|DDDD)' "$WORK/synth-stdin.txt"; then
+  fail "synthesize (b) control-byte-split tokens are redacted" "plaintext token prefix found"
+elif [ "$(grep -c '\[REDACTED-GH-TOKEN\]' "$WORK/synth-stdin.txt")" -ge 4 ]; then
+  pass "synthesize (b) control-byte-split tokens are redacted"
+else
+  fail "synthesize (b) control-byte-split tokens are redacted" "expected 4 redaction markers"
+fi
+
+# The control-byte rules must stay byte-exact: a blanket 0x80-0x9f range would eat
+# continuation bytes and mangle multibyte findings.
+setup; mkclaude
+printf 'em—dash 한글 ok — keep\n' > "$WORK/slot/model0-L2.md"
+"$SCRIPT" "$DIFF" "$WORK" 1 "test pr" "$WORK/review.md" >"$WORK/synth.log" 2>&1
+grep -Fq 'em—dash 한글 ok — keep' "$WORK/synth-stdin.txt" \
+  && pass "synthesize (b) multibyte UTF-8 text survives control-byte stripping" \
+  || fail "synthesize (b) multibyte UTF-8 text survives control-byte stripping" "text mangled"
+
 # (c) Diff and panel data use a nonce-delimited trust boundary.
 setup; mkclaude
 cat > "$DIFF" <<'EOF'

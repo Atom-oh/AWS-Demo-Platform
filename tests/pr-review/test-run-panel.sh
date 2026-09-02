@@ -108,6 +108,25 @@ else
   fail "run-panel (f) Claude self-review argv uses bounded read-only tools" "expected allowedTools missing"
 fi
 
+# (g) A skipped cell's stderr tail goes to the world-readable Actions log, so control
+# bytes must be stripped before scrubbing or an escape sequence smuggles the token out.
+setup
+cat > "$BIN/codex" <<'EOF'
+#!/usr/bin/env bash
+printf 'boom: ghp_EEEEEEEEEE\033[31m1234567890abcdefghijklmnop\n' >&2
+printf 'raw: ghp_FFFFFFFFFF\233m1234567890abcdefghijklmnop\n' >&2
+exit 1
+EOF
+chmod +x "$BIN/codex"
+"$SCRIPT" "$WORK/diff.txt" "$LENSES" "$WORK" codex >/dev/null 2>"$WORK/panel.err"
+if grep -Eq 'ghp_(EEEE|FFFF)' "$WORK/panel.err"; then
+  fail "run-panel (g) skipped-cell stderr redacts control-byte-split tokens" "plaintext token in log"
+elif [ "$(grep -c '\[REDACTED-GH-TOKEN\]' "$WORK/panel.err")" -ge 2 ]; then
+  pass "run-panel (g) skipped-cell stderr redacts control-byte-split tokens"
+else
+  fail "run-panel (g) skipped-cell stderr redacts control-byte-split tokens" "expected 2 redaction markers"
+fi
+
 cleanup
 unset CLAUDE_ARGV_FILE
 
