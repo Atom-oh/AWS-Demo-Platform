@@ -6,6 +6,9 @@
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$(cd "$HERE/../../scripts/pr-review" && pwd)/run-panel.sh"
 ORIGINAL_PATH="$PATH"
+# Own these before the first setup's cleanup runs: sourced by run-all.sh, an earlier test
+# file's leftover values would otherwise be the rm -rf targets.
+WORK=""; BIN=""; LENSES=""
 
 if ! declare -F pass >/dev/null 2>&1; then
   _t_fail=0

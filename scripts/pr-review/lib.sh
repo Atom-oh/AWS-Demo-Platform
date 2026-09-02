@@ -35,24 +35,77 @@ record_result() {
 
 # Must run before scrub_secrets on every path that reaches a public log, so a control byte
 # can't split a credential past the redaction regexes below while rendering invisibly.
-# Ordering inside: named sequences first (their payloads contain bytes the catch-all would
-# eat), then any residual ESC, then raw C0/C1 controls — \t\n\r survive, since scrub_secrets
-# and the callers' line handling depend on them.
-# The OSC payload class excludes ESC as well as BEL: with only BEL excluded, ERE
-# leftmost-longest matching spans two ST-terminated OSC-8 sequences and deletes the visible
-# text between them (PR#85 review L4).
+# A UTF-8-aware byte state machine, not sed byte classes: 0x9b and 0x9d are C1 introducers
+# but ALSO legitimate UTF-8 continuation bytes, so a byte-oriented rule deletes real text —
+# `이` is EC 9D B4, and a 0x9d..0x9c rule swallows everything up to the 9C ending `한`
+# (PR#85 review L4). Valid UTF-8 sequences are emitted untouched, so only bytes that cannot
+# be part of one are read as controls; that also makes it safe to cover every C1 introducer
+# rather than just CSI/OSC. Tab, LF and CR survive — scrub_secrets and the callers' line
+# handling depend on them. Invalid bytes that are not C0/C1 pass through: they cannot
+# introduce a sequence, and scrub_secrets stays the last line of defense.
 strip_ansi() {
-  # LC_ALL=C: the patterns are byte-exact, and a raw C1 byte is invalid UTF-8 — under a
-  # UTF-8 locale sed would not match it as part of a character range.
-  LC_ALL=C sed -E \
-    -e 's/\x1b\][^\x07\x1b]*(\x07|\x1b\\)//g' \
-    -e 's/\x1b\[[0-?]*[ -\/]*[@-~]//g' \
-    -e 's/\x1b[()*+][0-~]//g' \
-    -e 's/\x1b[@-_]//g' \
-    -e 's/\x1b//g' \
-    -e 's/\x9d[^\x07\x9c]*(\x07|\x9c)//g' \
-    -e 's/\x9b[0-?]*[ -\/]*[@-~]//g' \
-    -e 's/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x9b\x9d]//g'
+  LC_ALL=C awk '
+    BEGIN {
+      for (i = 0; i < 256; i++) ORD[sprintf("%c", i)] = i
+      # Second-byte bounds rejecting overlong forms, surrogates and out-of-range code
+      # points — accepting them would let a crafted sequence carry a C1 byte past this
+      # validity check to a renderer that decodes it leniently.
+      LO[224] = 160; HI[224] = 191; LO[237] = 128; HI[237] = 159
+      LO[240] = 144; HI[240] = 191; LO[244] = 128; HI[244] = 143
+    }
+    function b(i) { return ORD[substr(L, i, 1)] }
+    function seqlen(i,   v, need, lo, hi, k) {
+      v = b(i)
+      if (v >= 194 && v <= 223) need = 1
+      else if (v >= 224 && v <= 239) need = 2
+      else if (v >= 240 && v <= 244) need = 3
+      else return 0
+      if (i + need > N) return 0
+      lo = (v in LO) ? LO[v] : 128
+      hi = (v in HI) ? HI[v] : 191
+      if (b(i + 1) < lo || b(i + 1) > hi) return 0
+      for (k = 2; k <= need; k++) if (b(i + k) < 128 || b(i + k) > 191) return 0
+      return need + 1
+    }
+    function csi(i,   j) {   # parameter bytes, intermediates, one final byte
+      j = i
+      while (j <= N && b(j) >= 48 && b(j) <= 63) j++
+      while (j <= N && b(j) >= 32 && b(j) <= 47) j++
+      if (j <= N && b(j) >= 64 && b(j) <= 126) j++
+      return j
+    }
+    function ctlstr(i,   j) {   # up to and including BEL, ST, or ESC-backslash
+      j = i
+      while (j <= N) {
+        if (b(j) == 7 || b(j) == 156) return j + 1
+        if (b(j) == 27 && j < N && b(j + 1) == 92) return j + 2
+        j++
+      }
+      return j
+    }
+    {
+      L = $0; N = length(L); out = ""; i = 1
+      while (i <= N) {
+        n = seqlen(i)
+        if (n) { out = out substr(L, i, n); i += n; continue }
+        v = b(i)
+        if (v == 27) {
+          w = (i < N) ? b(i + 1) : -1
+          if (w == 91) i = csi(i + 2)
+          else if (w == 93 || w == 80 || w == 88 || w == 94 || w == 95) i = ctlstr(i + 2)
+          else if (w >= 40 && w <= 43) i += 3
+          else if (w >= 64 && w <= 95) i += 2
+          else i++
+        }
+        else if (v == 155) i = csi(i + 1)
+        else if (v == 157 || v == 144 || v == 152 || v == 158 || v == 159) i = ctlstr(i + 1)
+        else if (v == 9 || v == 13) { out = out substr(L, i, 1); i++ }
+        else if (v < 32 || v == 127 || (v >= 128 && v <= 159)) i++
+        else { out = out substr(L, i, 1); i++ }
+      }
+      print out
+    }
+  '
 }
 
 # Last line of defense, not prevention (ADR-002 residual risk) — strips credential

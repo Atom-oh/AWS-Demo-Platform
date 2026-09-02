@@ -125,12 +125,18 @@ kernel argv limit. Each run now wraps those inputs in matching unpredictable non
 boundaries and explicitly treats marker-like text inside the diff block as untrusted
 data. On every path that reaches a public log — panel cells, chair stdout, chair stderr, and
 the skipped-cell stderr tail in `run-panel.sh` — escape and control sequences are removed
-before credential scrubbing. The shared `strip_ansi` in `lib.sh` covers ESC-introduced
-CSI/OSC/charset sequences, raw 8-bit C1 introducers, and C0 controls other than tab/newline/
-CR, so none of them can split a credential past the redaction regexes while rendering
-invisibly; it deliberately does not strip `0x80`–`0x9f` wholesale, which would corrupt
-multibyte findings. Arbitrary non-UTF-8 bytes remain out of scope, and `scrub_secrets`
-stays the documented last line of defense. Chair stderr is scrubbed in
+before credential scrubbing, so none of them can split a credential past the redaction
+regexes while rendering invisibly. The shared `strip_ansi` in `lib.sh` is a UTF-8-aware byte
+state machine rather than a set of `sed` byte classes, because `0x9b` (CSI) and `0x9d` (OSC)
+are also legitimate UTF-8 continuation bytes: stripping them by byte deletes real text and,
+via a `0x9d`…`0x9c` rule, silently swallows whole spans of a Korean finding. Valid UTF-8
+sequences are emitted untouched — with overlong forms, surrogates and out-of-range code
+points rejected, so a crafted sequence cannot smuggle a C1 byte through — and only bytes
+that cannot belong to one are read as controls. That makes it safe to cover every C1
+introducer (CSI, OSC, DCS, SOS, PM, APC, lone ST) alongside the ESC-introduced
+CSI/OSC/charset forms and C0 controls other than tab, LF and CR. Invalid bytes that are not
+C0/C1 pass through unchanged: they cannot introduce a sequence, and `scrub_secrets` stays
+the documented last line of defense. Chair stderr is scrubbed in
 full before its excerpt is truncated and folded to a single line (both `\n` and `\r`, since
 the runner treats either as a line terminator and would otherwise let stderr open a new
 workflow command). The diff itself is passed through verbatim apart from a normalizing

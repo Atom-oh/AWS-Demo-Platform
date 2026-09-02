@@ -4,6 +4,9 @@
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$(cd "$HERE/../../scripts/pr-review" && pwd)/synthesize.sh"
 ORIGINAL_PATH="$PATH"
+# Own these before the first setup's cleanup runs: sourced by run-all.sh, an earlier test
+# file's leftover values would otherwise be the rm -rf targets.
+WORK=""; BIN=""; DIFF=""
 
 if ! declare -F pass >/dev/null 2>&1; then
   _t_fail=0
@@ -120,30 +123,43 @@ grep -Fq 'CRITICAL see-here leaks' "$WORK/synth-stdin.txt" \
   || fail "synthesize (b) ST-terminated OSC-8 keeps the visible finding text" \
           "text between OSC sequences was deleted"
 
-# Beyond ESC-introduced sequences: raw 8-bit C1 introducers (0x9b CSI, 0x9d OSC), the
-# charset-designator form ESC ( B, and bare C0 controls all split a token invisibly.
+# Beyond ESC-introduced sequences: raw 8-bit C1 introducers, the charset-designator form
+# ESC ( B, and bare C0 controls all split a token invisibly. DCS/APC are covered too — a
+# UTF-8-aware pass can strip every introducer, not just CSI/OSC.
 setup; mkclaude
 {
   printf 'c1csi: ghp_AAAAAAAAAA\233m1234567890abcdefghijklmnop\n'
   printf 'charset: ghp_BBBBBBBBBB\033(B1234567890abcdefghijklmnop\n'
   printf 'c0: ghp_CCCCCCCCCC\001\0021234567890abcdefghijklmnop\n'
   printf 'c1osc: ghp_DDDDDDDDDD\235x\2341234567890abcdefghijklmnop\n'
+  printf 'dcs: ghp_EEEEEEEEEE\220x\2341234567890abcdefghijklmnop\n'
+  printf 'apc: ghp_FFFFFFFFFF\237x\2341234567890abcdefghijklmnop\n'
 } > "$WORK/slot/model0-L2.md"
 "$SCRIPT" "$DIFF" "$WORK" 1 "test pr" "$WORK/review.md" >"$WORK/synth.log" 2>&1
-if grep -Eq 'ghp_(AAAA|BBBB|CCCC|DDDD)' "$WORK/synth-stdin.txt"; then
+if grep -Eq 'ghp_(AAAA|BBBB|CCCC|DDDD|EEEE|FFFF)' "$WORK/synth-stdin.txt"; then
   fail "synthesize (b) control-byte-split tokens are redacted" "plaintext token prefix found"
-elif [ "$(grep -c '\[REDACTED-GH-TOKEN\]' "$WORK/synth-stdin.txt")" -ge 4 ]; then
+elif [ "$(grep -c '\[REDACTED-GH-TOKEN\]' "$WORK/synth-stdin.txt")" -ge 6 ]; then
   pass "synthesize (b) control-byte-split tokens are redacted"
 else
-  fail "synthesize (b) control-byte-split tokens are redacted" "expected 4 redaction markers"
+  fail "synthesize (b) control-byte-split tokens are redacted" "expected 6 redaction markers"
 fi
 
-# The control-byte rules must stay byte-exact: a blanket 0x80-0x9f range would eat
-# continuation bytes and mangle multibyte findings.
+# 0x9b and 0x9d are C1 introducers AND valid UTF-8 continuation bytes, so a byte-oriented
+# strip deletes real text: `이` is EC 9D B4 and a 0x9d..0x9c rule swallows everything up to
+# the 9C ending `한`. Fixtures must carry those exact bytes — 한글/em-dash alone pass even
+# against the broken implementation.
 setup; mkclaude
-printf 'em—dash 한글 ok — keep\n' > "$WORK/slot/model0-L2.md"
+{
+  printf '이것은 한국어 문장입니다\n'
+  printf 'file\xc4\x9b.txt matters\n'
+  printf 'em—dash 한글 ok — keep\n'
+} > "$WORK/slot/model0-L2.md"
 "$SCRIPT" "$DIFF" "$WORK" 1 "test pr" "$WORK/review.md" >"$WORK/synth.log" 2>&1
-grep -Fq 'em—dash 한글 ok — keep' "$WORK/synth-stdin.txt" \
+utf8ok=1
+grep -Fq '이것은 한국어 문장입니다' "$WORK/synth-stdin.txt" || utf8ok=0
+grep -Fq "$(printf 'file\xc4\x9b.txt matters')" "$WORK/synth-stdin.txt" || utf8ok=0
+grep -Fq 'em—dash 한글 ok — keep' "$WORK/synth-stdin.txt" || utf8ok=0
+[ "$utf8ok" = 1 ] \
   && pass "synthesize (b) multibyte UTF-8 text survives control-byte stripping" \
   || fail "synthesize (b) multibyte UTF-8 text survives control-byte stripping" "text mangled"
 
