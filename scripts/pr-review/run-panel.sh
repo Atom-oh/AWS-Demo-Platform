@@ -153,5 +153,8 @@ for e in "$SLOT"/*.err; do
   b="$(basename "$e" .err)"
   [ -s "$SLOT/$b.md" ] && continue   # skip if the response succeeded
   echo "--- [$b] skipped; stderr (last 25 lines, scrubbed) ---" >&2
-  tail -25 "$e" | strip_ansi | scrub_secrets >&2
+  # Truncate last: scrub_secrets' PEM state machine anchors on the BEGIN line, and its
+  # other patterns on a token's prefix, so a window that starts mid-secret loses the
+  # anchor and publishes the rest verbatim.
+  strip_ansi < "$e" | scrub_secrets | tail -25 >&2
 done

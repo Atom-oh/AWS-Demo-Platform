@@ -130,6 +130,28 @@ else
   fail "run-panel (g) skipped-cell stderr redacts control-byte-split tokens" "expected 2 redaction markers"
 fi
 
+# (h) The 25-line window must be taken after scrubbing: scrub_secrets' PEM redaction
+# anchors on the BEGIN line, so a window starting inside the body publishes bare base64.
+setup
+cat > "$BIN/codex" <<'EOF'
+#!/usr/bin/env bash
+{
+  echo "-----BEGIN RSA PRIVATE KEY-----"
+  i=0
+  while [ "$i" -lt 40 ]; do echo "MIIEowIBAAKCAQEAxLEAKSECRETBODYLINE$i"; i=$((i + 1)); done
+  echo "-----END RSA PRIVATE KEY-----"
+} >&2
+exit 1
+EOF
+chmod +x "$BIN/codex"
+"$SCRIPT" "$WORK/diff.txt" "$LENSES" "$WORK" codex >/dev/null 2>"$WORK/panel.err"
+if grep -Fq 'SECRETBODYLINE' "$WORK/panel.err"; then
+  fail "run-panel (h) skipped-cell stderr scrubs the PEM body before truncating" \
+       "private key body reached the public log"
+else
+  pass "run-panel (h) skipped-cell stderr scrubs the PEM body before truncating"
+fi
+
 cleanup
 unset CLAUDE_ARGV_FILE
 
