@@ -144,6 +144,36 @@ else
   fail "synthesize (b) control-byte-split tokens are redacted" "expected 6 redaction markers"
 fi
 
+# C2 80-C2 9F is valid UTF-8 AND the canonical encoding of the same C1 controls, so a
+# UTF-8-aware pass must not wave it through as ordinary text (PR#85 review L3). ESC forms
+# outside the ESC-@..ESC-_ range (ESC # 8) must not leave visible residue either.
+setup; mkclaude
+{
+  printf 'u8csi: ghp_AAAAAAAAAA\xc2\x9bm1234567890abcdefghijklmnop\n'
+  printf 'u8osc: ghp_BBBBBBBBBB\xc2\x9dx\xc2\x9c1234567890abcdefghijklmnop\n'
+  printf 'u8dcs: ghp_CCCCCCCCCC\xc2\x90x\xc2\x9c1234567890abcdefghijklmnop\n'
+  printf 'u8pad: ghp_DDDDDDDDDD\xc2\x801234567890abcdefghijklmnop\n'
+  printf 'escres: ghp_EEEEEEEEEE\033#81234567890abcdefghijklmnop\n'
+} > "$WORK/slot/model0-L2.md"
+"$SCRIPT" "$DIFF" "$WORK" 1 "test pr" "$WORK/review.md" >"$WORK/synth.log" 2>&1
+if grep -Eq 'ghp_(AAAA|BBBB|CCCC|DDDD|EEEE)' "$WORK/synth-stdin.txt"; then
+  fail "synthesize (b) UTF-8-encoded C1 controls cannot split a token" "plaintext token prefix found"
+elif [ "$(grep -c '\[REDACTED-GH-TOKEN\]' "$WORK/synth-stdin.txt")" -ge 5 ]; then
+  pass "synthesize (b) UTF-8-encoded C1 controls cannot split a token"
+else
+  fail "synthesize (b) UTF-8-encoded C1 controls cannot split a token" "expected 5 redaction markers"
+fi
+
+# A 0x9c that is a UTF-8 continuation byte (`한` = ED 95 9C) inside an OSC payload must not
+# be read as ST, which would end the control string early and emit its tail as visible text.
+setup; mkclaude
+printf 'CRITICAL \033]8;;한국\007see-here\033]8;;\007 leaks\n' > "$WORK/slot/model0-L2.md"
+"$SCRIPT" "$DIFF" "$WORK" 1 "test pr" "$WORK/review.md" >"$WORK/synth.log" 2>&1
+grep -Fq 'CRITICAL see-here leaks' "$WORK/synth-stdin.txt" \
+  && pass "synthesize (b) multibyte OSC payload terminates only at a real ST" \
+  || fail "synthesize (b) multibyte OSC payload terminates only at a real ST" \
+          "payload bytes leaked into the text or text was eaten"
+
 # 0x9b and 0x9d are C1 introducers AND valid UTF-8 continuation bytes, so a byte-oriented
 # strip deletes real text: `이` is EC 9D B4 and a 0x9d..0x9c rule swallows everything up to
 # the 9C ending `한`. Fixtures must carry those exact bytes — 한글/em-dash alone pass even

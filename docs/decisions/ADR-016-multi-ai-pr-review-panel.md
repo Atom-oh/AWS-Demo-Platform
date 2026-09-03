@@ -123,20 +123,26 @@ tool allowlisted it is now dead wiring, and removing it is a follow-up.
 The chair still receives the diff and panel outputs through stdin to stay below the
 kernel argv limit. Each run now wraps those inputs in matching unpredictable nonce
 boundaries and explicitly treats marker-like text inside the diff block as untrusted
-data. On every path that reaches a public log — panel cells, chair stdout, chair stderr, and
-the skipped-cell stderr tail in `run-panel.sh` — escape and control sequences are removed
-before credential scrubbing, so none of them can split a credential past the redaction
-regexes while rendering invisibly. The shared `strip_ansi` in `lib.sh` is a UTF-8-aware byte
-state machine rather than a set of `sed` byte classes, because `0x9b` (CSI) and `0x9d` (OSC)
-are also legitimate UTF-8 continuation bytes: stripping them by byte deletes real text and,
-via a `0x9d`…`0x9c` rule, silently swallows whole spans of a Korean finding. Valid UTF-8
-sequences are emitted untouched — with overlong forms, surrogates and out-of-range code
-points rejected, so a crafted sequence cannot smuggle a C1 byte through — and only bytes
-that cannot belong to one are read as controls. That makes it safe to cover every C1
-introducer (CSI, OSC, DCS, SOS, PM, APC, lone ST) alongside the ESC-introduced
-CSI/OSC/charset forms and C0 controls other than tab, LF and CR. Invalid bytes that are not
-C0/C1 pass through unchanged: they cannot introduce a sequence, and `scrub_secrets` stays
-the documented last line of defense. Chair stderr is scrubbed in
+data. On every path that reaches a public log — panel cells, chair stdout, chair stderr, the
+skipped-cell stderr tail in `run-panel.sh`, and the cell/stderr artifacts uploaded by
+`pr-review.yml`, which anyone with repo read access can download — escape and control
+sequences are removed before credential scrubbing, so none of them can split a credential
+past the redaction regexes while rendering invisibly. The shared `strip_ansi` in `lib.sh` is
+a UTF-8-aware byte state machine rather than a set of `sed` byte classes, because `0x9b`
+(CSI) and `0x9d` (OSC) are also legitimate UTF-8 continuation bytes: stripping them by byte
+deletes real text and, via a `0x9d`…`0x9c` rule, silently swallows whole spans of a Korean
+finding. Valid UTF-8 sequences are emitted untouched, with overlong forms, surrogates and
+out-of-range code points rejected; `C2 80`–`C2 9F` is the one exception, since it is both
+structurally valid UTF-8 and the canonical encoding of `U+0080`–`U+009F`, so it is routed to
+the same handling as the raw C1 bytes it decodes to rather than passed through as text. That
+makes it safe to cover every C1 introducer (CSI, OSC, DCS, SOS, PM, APC, lone ST) in both
+raw and UTF-8-encoded form, alongside the ESC-introduced CSI/OSC/charset forms, the
+intermediates-plus-final ESC grammar, and C0 controls other than tab, LF and CR. Control
+string payloads are stepped a whole UTF-8 sequence at a time, so a continuation byte that
+happens to be `0x9c` does not terminate them early. Out of scope: invalid bytes that are not
+C0/C1, which cannot introduce a sequence, and invisible-format code points (zero-width
+joiners, `U+FEFF`, bidi controls), which split a token without being control sequences —
+`scrub_secrets` stays the documented last line of defense for both. Chair stderr is scrubbed in
 full before its excerpt is truncated and folded to a single line (both `\n` and `\r`, since
 the runner treats either as a line terminator and would otherwise let stderr open a new
 workflow command). The diff itself is passed through verbatim apart from a normalizing

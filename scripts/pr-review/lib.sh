@@ -74,18 +74,41 @@ strip_ansi() {
       if (j <= N && b(j) >= 64 && b(j) <= 126) j++
       return j
     }
-    function ctlstr(i,   j) {   # up to and including BEL, ST, or ESC-backslash
+    # Terminator forms: BEL, raw ST, ESC-backslash, and ST as its UTF-8 encoding C2 9C.
+    # Payload bytes are stepped over a whole UTF-8 sequence at a time, so a continuation
+    # byte that happens to be 0x9c (`한` = ED 95 9C) is not mistaken for a terminator.
+    function esc_final(i,   j) {   # intermediates 0x20-0x2f then one final byte 0x30-0x7e
+      j = i
+      while (j <= N && b(j) >= 32 && b(j) <= 47) j++
+      if (j <= N && b(j) >= 48 && b(j) <= 126) j++
+      return j
+    }
+    function ctlstr(i,   j, m) {
       j = i
       while (j <= N) {
         if (b(j) == 7 || b(j) == 156) return j + 1
         if (b(j) == 27 && j < N && b(j + 1) == 92) return j + 2
-        j++
+        if (b(j) == 194 && j < N && b(j + 1) == 156) return j + 2
+        m = seqlen(j)
+        j += (m ? m : 1)
       }
       return j
     }
     {
       L = $0; N = length(L); out = ""; i = 1
       while (i <= N) {
+        # C2 80-C2 9F is structurally valid UTF-8 AND the canonical encoding of U+0080-U+009F,
+        # i.e. the same C1 controls handled in raw-byte form below. Checked before seqlen or
+        # it is emitted as ordinary text, re-opening the invisible credential split: browsers
+        # render Cc code points as nothing and UTF-8 terminals decode them as controls
+        # (PR#85 review L3). No legitimate text encodes these code points.
+        if (b(i) == 194 && i < N && b(i + 1) >= 128 && b(i + 1) <= 159) {
+          w = b(i + 1)
+          if (w == 155) i = csi(i + 2)
+          else if (w == 157 || w == 144 || w == 152 || w == 158 || w == 159) i = ctlstr(i + 2)
+          else i += 2
+          continue
+        }
         n = seqlen(i)
         if (n) { out = out substr(L, i, n); i += n; continue }
         v = b(i)
@@ -95,7 +118,9 @@ strip_ansi() {
           else if (w == 93 || w == 80 || w == 88 || w == 94 || w == 95) i = ctlstr(i + 2)
           else if (w >= 40 && w <= 43) i += 3
           else if (w >= 64 && w <= 95) i += 2
-          else i++
+          # Remaining ESC forms (ESC 7, ESC c, ESC # 8): optional intermediates then a
+          # final byte. Without this the residue is emitted as visible text.
+          else i = esc_final(i + 1)
         }
         else if (v == 155) i = csi(i + 1)
         else if (v == 157 || v == 144 || v == 152 || v == 158 || v == 159) i = ctlstr(i + 1)

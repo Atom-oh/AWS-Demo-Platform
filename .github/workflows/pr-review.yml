@@ -89,15 +89,17 @@ jobs:
         run: |
           # .err has never been exposed as an artifact before; scrub secrets and
           # tail-truncate in place so raw stack traces aren't published to anyone with
-          # repo read access.
+          # repo read access. strip_ansi runs first on both loops — these artifacts are a
+          # public-log path like the chair's, so a control byte must not be able to split a
+          # credential past scrub_secrets (ADR-016).
           DIR="${GITHUB_WORKSPACE}/scripts/pr-review"; . "$DIR/lib.sh"
           for f in /tmp/pr-review/slot/*.md; do
             [ -f "$f" ] || continue
-            scrub_secrets < "$f" > "$f.scrubbed" && mv "$f.scrubbed" "$f"
+            strip_ansi < "$f" | scrub_secrets > "$f.scrubbed" && mv "$f.scrubbed" "$f"
           done
           for f in /tmp/pr-review/slot/*.err; do
             [ -f "$f" ] || continue
-            tail -c 4000 "$f" | scrub_secrets > "$f.scrubbed" && mv "$f.scrubbed" "$f"
+            tail -c 4000 "$f" | strip_ansi | scrub_secrets > "$f.scrubbed" && mv "$f.scrubbed" "$f"
           done
 
       # Upload the $SLOT directory as a single path, not individual files/wildcards —
