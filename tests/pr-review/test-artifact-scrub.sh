@@ -34,11 +34,16 @@ fi
 
 # A token straddling the 4000-bytes-from-end boundary: truncating first cuts off the `ghp_`
 # prefix every scrub_secrets pattern is anchored on, publishing the still-secret suffix.
+# The padding must be on its own lines — appended to the token's line, the greedy
+# [A-Za-z0-9]{30,} match absorbs it and the fixture stops straddling anything. Sized so the
+# 4000-byte cut lands inside the token, and asserted on the leaked suffix rather than on the
+# redaction marker's position, which shifts with the padding length.
 TOKEN="ghp_STRADDLE0123456789abcdefghijklmnopqrs"
+LEAKED_SUFFIX="defghijklmnopqrs"   # token tail, survives any cut landing inside the token
 {
   head -c 200 /dev/zero | tr '\0' 'A'
-  printf '\n%s' "$TOKEN"
-  head -c 3990 /dev/zero | tr '\0' 'B'
+  printf '\n%s\n' "$TOKEN"
+  head -c 3977 /dev/zero | tr '\0' 'B'
   printf '\n'
 } > "$WORK/slot/codex-L2.err"
 # Same threat with a control byte splitting the token, to keep strip-before-scrub covered.
@@ -48,10 +53,11 @@ GITHUB_WORKSPACE="$ROOT" bash "$STEP" > "$WORK/step.log" 2>&1
 
 if grep -Fq 'ghp_' "$WORK/slot/codex-L2.err"; then
   fail "artifact-scrub .err scrubs before truncating" "token survived into the uploaded artifact"
-elif grep -Fq '[REDACTED-GH-TOKEN]' "$WORK/slot/codex-L2.err"; then
-  pass "artifact-scrub .err scrubs before truncating"
+elif grep -Fq "$LEAKED_SUFFIX" "$WORK/slot/codex-L2.err"; then
+  fail "artifact-scrub .err scrubs before truncating" \
+       "prefix-stripped token suffix published unredacted"
 else
-  fail "artifact-scrub .err scrubs before truncating" "redaction marker missing"
+  pass "artifact-scrub .err scrubs before truncating"
 fi
 
 ERR_BYTES=$(wc -c < "$WORK/slot/codex-L2.err")
