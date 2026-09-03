@@ -116,9 +116,10 @@ prior fact when adding the Opus 5 fallback.
 Removed GitHub MCP tools from the Claude self-review and chair allowlists after MCP
 authentication failures caused the CLI to wait until the panel or chair timeout. Both
 roles retain `Read`/`Grep`/`Glob` and bounded read-only `gh` commands, preserving the
-required repository and PR context without depending on MCP tool calls. `pr-review.yml`
-still wires `GITHUB_PERSONAL_ACCESS_TOKEN` for the MCP plugin; with no `mcp__github__*`
-tool allowlisted it is now dead wiring, and removing it is a follow-up.
+required repository and PR context without depending on MCP tool calls.
+`GITHUB_PERSONAL_ACCESS_TOKEN`, which only the MCP plugin consumed, is dropped from both
+`pr-review.yml` jobs: an unused standing credential in the environment of a process that
+ingests untrusted PR content is leak surface with no remaining consumer.
 
 The chair still receives the diff and panel outputs through stdin to stay below the
 kernel argv limit. Each run now wraps those inputs in matching unpredictable nonce
@@ -137,12 +138,19 @@ structurally valid UTF-8 and the canonical encoding of `U+0080`–`U+009F`, so i
 the same handling as the raw C1 bytes it decodes to rather than passed through as text. That
 makes it safe to cover every C1 introducer (CSI, OSC, DCS, SOS, PM, APC, lone ST) in both
 raw and UTF-8-encoded form, alongside the ESC-introduced CSI/OSC/charset forms, the
-intermediates-plus-final ESC grammar, and C0 controls other than tab, LF and CR. Control
-string payloads are stepped a whole UTF-8 sequence at a time, so a continuation byte that
-happens to be `0x9c` does not terminate them early. Out of scope: invalid bytes that are not
+intermediates-plus-final ESC grammar, and C0 controls other than tab, LF and CR (`DEL` is
+stripped with them). Control string payloads are stepped a whole UTF-8 sequence at a time, so
+a continuation byte that happens to be `0x9c` does not terminate them early. Parsing is
+record-at-a-time, so control-string state does not carry across a newline and a multiline
+payload is emitted as text from its second line on; that direction is safe, because the text
+still reaches `scrub_secrets` contiguously and leaves no open control string behind. Out of
+scope: invalid bytes that are not
 C0/C1, which cannot introduce a sequence, and invisible-format code points (zero-width
 joiners, `U+FEFF`, bidi controls), which split a token without being control sequences —
-`scrub_secrets` stays the documented last line of defense for both. Chair stderr is scrubbed in
+`scrub_secrets` stays the documented last line of defense for both. Truncation always follows scrubbing — on the chair's stderr excerpt and on the
+uploaded `.err` artifacts alike — because every `scrub_secrets` pattern is prefix-anchored, so
+cutting first can remove a token's `ghp_`/`AKIA` prefix and publish the still-secret suffix.
+Chair stderr is scrubbed in
 full before its excerpt is truncated and folded to a single line (both `\n` and `\r`, since
 the runner treats either as a line terminator and would otherwise let stderr open a new
 workflow command). The diff itself is passed through verbatim apart from a normalizing
@@ -150,7 +158,8 @@ trailing newline: it is already public on GitHub, and altering it would misrepre
 code under review.
 
 Chair generation failure remains fail-closed, but is distinct from a code-finding
-failure: an invalid primary and fallback response creates `chair-failed.flag`, while a
-successful retry clears any stale flag from a reused work directory. The workflow can
+failure: an invalid primary and fallback response creates `chair-failed.flag`, and every run
+clears the flag up front, so a stale one from a reused work directory cannot outlive a
+subsequent success. The workflow can
 therefore request a rerun without misrepresenting an infrastructure failure as a
 confirmed CRITICAL or MAJOR code finding.

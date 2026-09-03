@@ -43,6 +43,11 @@ record_result() {
 # rather than just CSI/OSC. Tab, LF and CR survive — scrub_secrets and the callers' line
 # handling depend on them. Invalid bytes that are not C0/C1 pass through: they cannot
 # introduce a sequence, and scrub_secrets stays the last line of defense.
+# awk parses record-at-a-time, so control-string state does not survive a newline: a
+# multiline OSC/DCS payload is emitted as text from its second line on. That direction is
+# safe — the text reaches scrub_secrets contiguously and no open control string remains for
+# a renderer to hide it in. Do NOT make the state span lines downstream of scrubbing; that
+# would let a payload swallow the redaction markers instead.
 strip_ansi() {
   LC_ALL=C awk '
     BEGIN {
