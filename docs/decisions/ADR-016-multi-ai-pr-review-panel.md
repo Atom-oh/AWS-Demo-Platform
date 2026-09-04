@@ -98,8 +98,10 @@ Fixed a runner-credentials gap: the shared `claude-runner` SA was missing from
 ## Update (2026-06-23b) — Claude self-review panelist
 
 Added an independent `claude -p` self-review to the panel, using the code-review
-methodology and read-only tools (gh/Read/Grep/Glob, github MCP read-only) to see
-context beyond the truncated diff — findings only, no comment/VERDICT authority.
+methodology and read-only tools to see context beyond the truncated diff — findings
+only, no comment/VERDICT authority. The original allowlist included GitHub MCP read
+tools alongside bounded `gh` commands; the 2026-08-31 update below removes the MCP
+tools and keeps the `gh` commands.
 Auth is job-scoped (`github.token`), not a pod-wide PAT; in the
 `pull_request_target` write context, tool access is a read-only allowlist (no
 `gh api`/comment ability). See
@@ -108,3 +110,56 @@ Bedrock data-retention posture behind the `claude-fable-5` chair model. The
 chair-primary switch from Opus 4.8 to Fable 5 itself has no ADR of its own —
 [ADR-014](ADR-014-pr-review-opus5-model-bump.md) treats it as an unchanged
 prior fact when adding the Opus 5 fallback.
+
+## Update (2026-08-31) — bounded GitHub context and chair input hardening
+
+Removed GitHub MCP tools from the Claude self-review and chair allowlists after MCP
+authentication failures caused the CLI to wait until the panel or chair timeout. Both
+roles retain `Read`/`Grep`/`Glob` and bounded read-only `gh` commands, preserving the
+required repository and PR context without depending on MCP tool calls.
+`GITHUB_PERSONAL_ACCESS_TOKEN`, which only the MCP plugin consumed, is dropped from both
+`pr-review.yml` jobs: an unused standing credential in the environment of a process that
+ingests untrusted PR content is leak surface with no remaining consumer.
+
+The chair still receives the diff and panel outputs through stdin to stay below the
+kernel argv limit. Each run now wraps those inputs in matching unpredictable nonce
+boundaries and explicitly treats marker-like text inside the diff block as untrusted
+data. On every path that reaches a public log — panel cells, chair stdout, chair stderr, the
+skipped-cell stderr tail in `run-panel.sh`, and the cell/stderr artifacts uploaded by
+`pr-review.yml`, which anyone with repo read access can download — escape and control
+sequences are removed before credential scrubbing, so none of them can split a credential
+past the redaction regexes while rendering invisibly. The shared `strip_ansi` in `lib.sh` is
+a UTF-8-aware byte state machine rather than a set of `sed` byte classes, because `0x9b`
+(CSI) and `0x9d` (OSC) are also legitimate UTF-8 continuation bytes: stripping them by byte
+deletes real text and, via a `0x9d`…`0x9c` rule, silently swallows whole spans of a Korean
+finding. Valid UTF-8 sequences are emitted untouched, with overlong forms, surrogates and
+out-of-range code points rejected; `C2 80`–`C2 9F` is the one exception, since it is both
+structurally valid UTF-8 and the canonical encoding of `U+0080`–`U+009F`, so it is routed to
+the same handling as the raw C1 bytes it decodes to rather than passed through as text. That
+makes it safe to cover every C1 introducer (CSI, OSC, DCS, SOS, PM, APC, lone ST) in both
+raw and UTF-8-encoded form, alongside the ESC-introduced CSI/OSC/charset forms, the
+intermediates-plus-final ESC grammar, and C0 controls other than tab, LF and CR (`DEL` is
+stripped with them). Control string payloads are stepped a whole UTF-8 sequence at a time, so
+a continuation byte that happens to be `0x9c` does not terminate them early. Parsing is
+record-at-a-time, so control-string state does not carry across a newline and a multiline
+payload is emitted as text from its second line on; that direction is safe, because the text
+still reaches `scrub_secrets` contiguously and leaves no open control string behind. Out of
+scope: invalid bytes that are not
+C0/C1, which cannot introduce a sequence, and invisible-format code points (zero-width
+joiners, `U+FEFF`, bidi controls), which split a token without being control sequences —
+`scrub_secrets` stays the documented last line of defense for both. Truncation always follows scrubbing — on the chair's stderr excerpt and on the
+uploaded `.err` artifacts alike — because every `scrub_secrets` pattern is prefix-anchored, so
+cutting first can remove a token's `ghp_`/`AKIA` prefix and publish the still-secret suffix.
+Chair stderr is scrubbed in
+full before its excerpt is truncated and folded to a single line (both `\n` and `\r`, since
+the runner treats either as a line terminator and would otherwise let stderr open a new
+workflow command). The diff itself is passed through verbatim apart from a normalizing
+trailing newline: it is already public on GitHub, and altering it would misrepresent the
+code under review.
+
+Chair generation failure remains fail-closed, but is distinct from a code-finding
+failure: an invalid primary and fallback response creates `chair-failed.flag`, and every run
+clears the flag up front, so a stale one from a reused work directory cannot outlive a
+subsequent success. The workflow can
+therefore request a rerun without misrepresenting an infrastructure failure as a
+confirmed CRITICAL or MAJOR code finding.

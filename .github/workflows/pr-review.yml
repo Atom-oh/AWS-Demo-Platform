@@ -71,16 +71,15 @@ jobs:
 
       - name: "Run panel cell (model: ${{ matrix.model }}, all lenses)"
         env:
-          # claude-self does extra read-only tool calls (gh/github MCP/Read/Grep/Glob)
+          # claude-self does extra read-only tool calls (gh/Read/Grep/Glob)
           # on top of the diff, so it needs more headroom than the other panelists,
           # which only process the diff text — PR #92 saw it hit 300s on all 4 lenses
           # on a large (65-file) diff. 480x2=960s stays under the 20min job timeout.
           PANEL_TIMEOUT: ${{ matrix.model == 'claude-self' && '480' || '300' }}
           PANEL_RETRIES: ${{ matrix.model == 'claude-self' && '2' || '3' }}
-          # Only claude-self uses this token (read-only gh/MCP tools); codex/kiro run
+          # Only claude-self uses this token (read-only gh tools); codex/kiro run
           # with no tool access, so we don't expose the token to their process env.
           GH_TOKEN: ${{ matrix.model == 'claude-self' && github.token || '' }}
-          GITHUB_PERSONAL_ACCESS_TOKEN: ${{ matrix.model == 'claude-self' && github.token || '' }}
         run: |
           bash scripts/pr-review/run-panel.sh /tmp/pr-review/pr-diff-truncated.txt \
             /tmp/pr-review/lenses /tmp/pr-review "${{ matrix.model }}"
@@ -89,15 +88,20 @@ jobs:
         run: |
           # .err has never been exposed as an artifact before; scrub secrets and
           # tail-truncate in place so raw stack traces aren't published to anyone with
-          # repo read access.
+          # repo read access. strip_ansi runs first on both loops — these artifacts are a
+          # public-log path like the chair's, so a control byte must not be able to split a
+          # credential past scrub_secrets (ADR-016). Truncation is last for the same reason
+          # stderr_excerpt scrubs in full first: every scrub_secrets pattern is
+          # prefix-anchored, so cutting at 4000 bytes first can strip a token's `ghp_`/`AKIA`
+          # prefix and publish the still-secret suffix unredacted.
           DIR="${GITHUB_WORKSPACE}/scripts/pr-review"; . "$DIR/lib.sh"
           for f in /tmp/pr-review/slot/*.md; do
             [ -f "$f" ] || continue
-            scrub_secrets < "$f" > "$f.scrubbed" && mv "$f.scrubbed" "$f"
+            strip_ansi < "$f" | scrub_secrets > "$f.scrubbed" && mv "$f.scrubbed" "$f"
           done
           for f in /tmp/pr-review/slot/*.err; do
             [ -f "$f" ] || continue
-            tail -c 4000 "$f" | scrub_secrets > "$f.scrubbed" && mv "$f.scrubbed" "$f"
+            strip_ansi < "$f" | scrub_secrets | tail -c 4000 > "$f.scrubbed" && mv "$f.scrubbed" "$f"
           done
 
       # Upload the $SLOT directory as a single path, not individual files/wildcards —
@@ -167,10 +171,11 @@ jobs:
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
-          # GH_TOKEN for gh CLI, GITHUB_PERSONAL_ACCESS_TOKEN for the github MCP plugin —
-          # both job-scoped (pull-requests: write, contents: read), not a pod-wide PAT.
+          # GH_TOKEN for the gh CLI, job-scoped (pull-requests: write, contents: read),
+          # not a pod-wide PAT. No GITHUB_PERSONAL_ACCESS_TOKEN: with no mcp__github__*
+          # tool allowlisted it had no consumer, and an unused standing credential in a
+          # process that ingests untrusted PR content is pure leak surface.
           GH_TOKEN: ${{ github.token }}
-          GITHUB_PERSONAL_ACCESS_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           bash scripts/pr-review/aggregate.sh /tmp/pr-review/lenses /tmp/pr-review
