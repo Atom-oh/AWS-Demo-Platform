@@ -102,10 +102,10 @@ for lens_file in "${LENS_FILES[@]}"; do
   # here — re-listing them created a second copy that silently drifted out of sync when a
   # Kiro model was added/renamed (PR#88 review MINOR).
   if [ "$MODEL_TAG" = codex ]; then
-    # AWS_REGION is forced: gpt-5.6-sol (bedrock-mantle) only supports us-east-1.
+    # global.openai.gpt-6-astra via amazon-bedrock-runtime (config.toml) is a global
+    # model — no region pinning needed, unlike the prior gpt-5.6-sol/bedrock-mantle setup.
     if command -v codex >/dev/null 2>&1; then
       ( try_panel "$SLOT/codex-$lens.md" "$SLOT/codex-$lens.err" \
-          env AWS_REGION="${CODEX_AWS_REGION:-us-east-1}" AWS_DEFAULT_REGION="${CODEX_AWS_REGION:-us-east-1}" \
           timeout "$T" codex exec -s read-only --skip-git-repo-check "$LENS_PROMPT" ) &
     else echo "[skip] codex/$lens (binary absent)" >&2; : > "$SLOT/codex-$lens.md"; fi
   elif [ -n "$KIRO_TAG" ]; then

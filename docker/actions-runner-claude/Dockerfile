@@ -77,7 +77,8 @@ RUN test "$TARGETARCH" = "arm64" \
  && grep -F -- "trust no tools: '--trust-tools='" /tmp/kiro-chat-help \
  && rm /tmp/kiro-chat-help
 
-# Codex Bedrock config (us-east-1, openai.gpt-5.6-sol) via the runner node's IAM credentials.
+# Codex Bedrock config (global, global.openai.gpt-6-astra via amazon-bedrock-runtime)
+# via the runner node's IAM credentials.
 COPY --chown=runner:runner config.toml /home/runner/.codex/config.toml
 
 # Claude Code plugins, installed as USER runner so they persist under ~/.claude.
