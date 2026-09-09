@@ -16,14 +16,14 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Must stay us-east-1: claude-fable-5 needs the on-demand US geo inference profile —
-  # endpoint and AWS_REGION must match or SigV4 signing fails. Codex's own model
-  # (global.openai.gpt-6-astra via amazon-bedrock-runtime, config.toml) is global and no
-  # longer needs region pinning, but this job-level var still applies to it harmlessly.
-  ANTHROPIC_MODEL: us.anthropic.claude-fable-5
+  # claude-fable-5-1 is a global inference profile (like Codex's global.openai.gpt-6-astra)
+  # — no AWS_REGION pinning needed anymore. ANTHROPIC_BEDROCK_BASE_URL still names a real
+  # regional bedrock-runtime endpoint as the entry point; the "global." prefix on the
+  # model ID is what lets Bedrock route the request to wherever has capacity, so this can
+  # point at the nearest region (ap-northeast-2/Seoul) instead of us-east-1.
+  ANTHROPIC_MODEL: global.anthropic.claude-fable-5-1
   CLAUDE_CODE_USE_BEDROCK: 1
-  ANTHROPIC_BEDROCK_BASE_URL: https://bedrock-runtime.us-east-1.amazonaws.com
-  AWS_REGION: us-east-1
+  ANTHROPIC_BEDROCK_BASE_URL: https://bedrock-runtime.ap-northeast-2.amazonaws.com
 
 jobs:
   panel:

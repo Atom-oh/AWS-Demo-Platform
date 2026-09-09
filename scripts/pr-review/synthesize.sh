@@ -97,15 +97,16 @@ PROMPT_EOF
 
 # Deliberately not the job-global ANTHROPIC_MODEL (may be pinned differently per repo) —
 # using it here would collapse PRIMARY==FALLBACK and defeat the fallback.
-PRIMARY_MODEL="${CHAIR_PRIMARY_MODEL:-us.anthropic.claude-fable-5}"
-FALLBACK_MODEL="${CHAIR_FALLBACK_MODEL:-us.anthropic.claude-opus-5}"
+PRIMARY_MODEL="${CHAIR_PRIMARY_MODEL:-global.anthropic.claude-fable-5-1}"
+FALLBACK_MODEL="${CHAIR_FALLBACK_MODEL:-global.anthropic.claude-opus-5}"
 # 600s: a normal chair run has taken up to ~286s (oh-my-cloud-skills #105); must exceed the largest per-model PANEL_TIMEOUT (claude-self's 480s).
 CHAIR_TIMEOUT="${CHAIR_TIMEOUT:-600}"
 
 chair_label() { case "$1" in
-  *fable-5*) echo "Claude Fable 5" ;;
-  *opus-5*)  echo "Claude Opus 5" ;;
-  *)         echo "$1" ;;
+  *fable-5-1*) echo "Claude Fable 5.1" ;;
+  *fable-5*)   echo "Claude Fable 5" ;;
+  *opus-5*)    echo "Claude Opus 5" ;;
+  *)           echo "$1" ;;
 esac ; }
 
 run_chair() {  # $1=model $2=err-file → records to "$OUT" (passed through scrub). Continues via || true even if claude fails.

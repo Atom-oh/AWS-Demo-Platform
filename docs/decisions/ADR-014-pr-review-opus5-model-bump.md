@@ -68,3 +68,29 @@ this ADR) — no code change was needed for that slot.
   this ADR already moved both slots off it. If `claude-opus-5` turns out to be a short-lived
   preview id (as Kiro's catalog description hints — "Experimental preview" — similar to
   `gpt-5.5`/`gpt-5.6-*` in ADR-013), the next bump should re-verify both slots independently.
+
+> **Update (2026-09-09):** the chair *primary* — explicitly untouched by this ADR's original
+> Decision — is bumped: `us.anthropic.claude-fable-5` → `global.anthropic.claude-fable-5-1`
+> (`scripts/pr-review/synthesize.sh`'s `PRIMARY_MODEL` default, and the `claude-self` panel
+> job's `ANTHROPIC_MODEL` in `.github/workflows/pr-review.yml`). The chair *fallback* also
+> moves from the region-pinned `us.` prefix to `global.`: `us.anthropic.claude-opus-5` →
+> `global.anthropic.claude-opus-5` (both `ACTIVE` per this ADR's own original verification).
+> Kiro's roster slot (`KIRO_MODELS` in `scripts/pr-review/lib.sh`) moves
+> `claude-fable-5:kiro-fable` → `claude-fable-5.1:kiro-fable` — Kiro's catalog names this
+> model with a dot (`claude-fable-5.1`, confirmed live via `kiro-cli chat --list-models`),
+> not the hyphenated Bedrock inference-profile ID; the two catalogs using different alias
+> spellings for related models is already established precedent, not a typo (see the
+> `gpt-5.6-sol`/`gpt-5.6-terra` note in ADR-013/ADR-015). `synthesize.sh`'s `chair_label()`
+> gained a `*fable-5-1*` case (checked before the pre-existing `*fable-5*` case) so the new
+> primary still resolves to a readable label instead of falling through to the raw id.
+>
+> Going global also drops the region pin this repo previously needed for the chair/`claude-self`
+> path: `.github/workflows/pr-review.yml`'s job-level `AWS_REGION: us-east-1` is removed
+> entirely (it was required only so the "us."-profile endpoint and signing region matched;
+> a global profile has no such constraint). `ANTHROPIC_BEDROCK_BASE_URL` is repointed from
+> `us-east-1` to `ap-northeast-2` (Seoul) — with the model now global, the base URL is just
+> the nearest real regional entry point, not a pin. This mirrors the same "us." → "global."
+> move already made for Codex's own model (commit `c7a41bb`: `openai.gpt-5.6-sol` on the
+> region-pinned `amazon-bedrock` provider → `global.openai.gpt-6-astra` on
+> `amazon-bedrock-runtime`, baked into the runner image's `config.toml`; the equivalent
+> region-pin cleanup was propagated to sibling repos' `run-panel.sh` in the same session).

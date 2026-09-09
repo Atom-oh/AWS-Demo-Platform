@@ -43,8 +43,8 @@ setup() { # $1 = cell count (default 1), $2 = bytes per cell (default 100)
   export CLAUDE_STUB_MODE=ok
   export STDERR_PAYLOAD_FILE=""
   export STDOUT_PAYLOAD_FILE=""
-  export CHAIR_PRIMARY_MODEL="us.anthropic.claude-fable-5"
-  export CHAIR_FALLBACK_MODEL="us.anthropic.claude-opus-5"
+  export CHAIR_PRIMARY_MODEL="global.anthropic.claude-fable-5-1"
+  export CHAIR_FALLBACK_MODEL="global.anthropic.claude-opus-5"
 }
 
 mkclaude() {
