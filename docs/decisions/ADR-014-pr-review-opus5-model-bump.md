@@ -84,13 +84,20 @@ this ADR) — no code change was needed for that slot.
 > gained a `*fable-5-1*` case (checked before the pre-existing `*fable-5*` case) so the new
 > primary still resolves to a readable label instead of falling through to the raw id.
 >
-> Going global also drops the region pin this repo previously needed for the chair/`claude-self`
-> path: `.github/workflows/pr-review.yml`'s job-level `AWS_REGION: us-east-1` is removed
-> entirely (it was required only so the "us."-profile endpoint and signing region matched;
-> a global profile has no such constraint). `ANTHROPIC_BEDROCK_BASE_URL` is repointed from
-> `us-east-1` to `ap-northeast-2` (Seoul) — with the model now global, the base URL is just
-> the nearest real regional entry point, not a pin. This mirrors the same "us." → "global."
-> move already made for Codex's own model (commit `c7a41bb`: `openai.gpt-5.6-sol` on the
-> region-pinned `amazon-bedrock` provider → `global.openai.gpt-6-astra` on
-> `amazon-bedrock-runtime`, baked into the runner image's `config.toml`; the equivalent
-> region-pin cleanup was propagated to sibling repos' `run-panel.sh` in the same session).
+> `ANTHROPIC_BEDROCK_BASE_URL` moves from `us-east-1` to `ap-northeast-2` (Seoul) — with the
+> model now global, ANY region works, not specifically `us-east-1`. This does **not** mean
+> `AWS_REGION` can be dropped, though: `global.` only affects Bedrock's internal routing
+> *after* the request lands, not the SigV4 signing region, which must still match the
+> endpoint. An initial version of this update removed `AWS_REGION` entirely, on the
+> (incorrect, for this code path) assumption that a global model needs no region config at
+> all — the AI review panel on the sibling-propagation PR caught the resulting endpoint/
+> signing-region mismatch (cc-on-bedrock #114, L4 MAJOR) before it merged anywhere. The
+> corrected, final state keeps `AWS_REGION: ap-northeast-2` matched to
+> `ANTHROPIC_BEDROCK_BASE_URL`'s same region — moved as a pair, not dropped.
+>
+> This is distinct from the same-session "us." → "global." move made for Codex's own model
+> (commit `c7a41bb`: `openai.gpt-5.6-sol` on the region-pinned `amazon-bedrock` provider →
+> `global.openai.gpt-6-astra` on `amazon-bedrock-runtime`, baked into the runner image's
+> `config.toml`) — Codex's `amazon-bedrock-runtime` provider genuinely has no equivalent
+> region-pin requirement, so that region-pin cleanup (propagated to sibling repos'
+> `run-panel.sh`) was correct as originally done and needed no follow-up correction.
