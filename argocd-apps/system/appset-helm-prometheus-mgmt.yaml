@@ -29,6 +29,10 @@ spec:
                 node-pool: platform
             grafana:
               enabled: true
+              admin:
+                existingSecret: grafana-admin
+                userKey: admin-user
+                passwordKey: admin-password
               replicas: 1
               deploymentStrategy:
                 type: Recreate
