@@ -13,6 +13,7 @@ running the latest image.
 | [Developer onboarding](onboarding.md) | Local setup and development workflow |
 | [Review and release](runbooks/review-and-release.md) | Evidence required around review, deployment and removal |
 | [Grafana operations](runbooks/grafana-private-ingress.md) | Private ingress and managed administrator lifecycle |
+| [Dashboard deployment execution record](runbooks/dashboard-public-deploy-execution.md) | Historical June 2026 rollout; use current module/release guides for new deployments |
 | [Decisions](decisions/) | Dated architectural rationale and accepted trade-offs |
 | [Specs and plans](superpowers/) | Historical design/implementation records; not deployment status |
 | [Changelog](../CHANGELOG.md) | Notable repository changes |
@@ -30,6 +31,10 @@ Kiro's `.kiro/steering/project-context.md` points at `AGENTS.md`; it is not a se
 copy of the context. Keep generated guidance concise and point to module guides
 rather than duplicating every implementation detail. Never include credential
 values or temporary machine/session state in shared agent context.
+
+The generator's marker uses the mode form `/co-agent sync-context`; the standalone
+command `/co-agent:sync-context` invokes the same operation. Preserve the emitted
+marker rather than editing its provenance by hand.
 
 ## Ownership and evidence
 

@@ -48,7 +48,10 @@ when running integration tests, then run `pnpm -r build`, `pnpm -r lint` and
 worker path, run `PORT=8087 node packages/api/dist/dev-server.js` after building.
 
 From `dashboard/frontend`, install dependencies and run
-`API_ORIGIN=http://localhost:8087 PORT=3001 pnpm dev`. Validate with `pnpm typecheck`,
+`NEXT_PUBLIC_AUTH_ENABLED=false API_ORIGIN=http://localhost:8087 PORT=3001 pnpm dev`.
+The explicit flag is required for tokenless local use; unset means auth enabled.
+Alternatively copy `.env.local.example` to `.env.local`. This bypass is for the
+simulated local API, not the deployed JWT-protected API. Validate with `pnpm typecheck`,
 `pnpm lint`, `pnpm test` and `pnpm build`. The local API has simulated resource state;
 it is not a health probe for deployed AWS resources.
 

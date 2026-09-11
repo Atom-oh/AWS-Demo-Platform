@@ -19,7 +19,16 @@ pnpm workspaces monorepo. Three packages:
 
 Install dependencies with `pnpm install`. Run `pnpm -r build` first, then `pnpm -r lint` and `pnpm -r test`. `pnpm typecheck` first builds `shared`, then runs workspace `tsc --noEmit`; `pnpm build` compiles via `tsc -b` into `dist/`. Vitest integration tests need LocalStack on `:4566` (`pnpm stack:up`). `pnpm stack:down` also deletes its local volumes.
 
-Docker images build per-package. Before a manual build, reproduce the `_config` bundling step in `backend-ci.yml`: API/worker images need project files, and the worker also needs `accounts.yaml`. Project/account-only changes do not trigger the current backend CI filters; arrange an explicit build and service rollout.
+Docker images build per-package. From `dashboard/backend`, prepare a fresh generated
+`_config` bundle as `backend-ci.yml` does: remove the old generated bundle, create
+`_config`, copy `../../projects` to `_config/projects`, and copy
+`../../accounts.yaml` to `_config/accounts.yaml`. Do not keep hand-written files in
+that generated directory. Then use
+`docker build --platform=linux/arm64 -f packages/api/Dockerfile -t demo-platform-api:dev .`
+or
+`docker build --platform=linux/arm64 -f packages/worker/Dockerfile -t demo-platform-worker:dev .`.
+Release builds use the native ARM64 runner. Project/account-only changes do not
+trigger current backend CI filters; arrange the build and service rollout explicitly.
 
 ### Non-obvious patterns
 - **Node16 ESM**: relative imports rely on `.js` extensions to resolve; `tsc -b` is the real typecheck gate, since vitest and esbuild both skip type errors.

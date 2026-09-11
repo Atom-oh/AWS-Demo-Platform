@@ -1,4 +1,4 @@
-<!-- generated-by: co-agent · source: CLAUDE.md · claude-md-sha: a9bc93e3df0a · generated-at: 2026-09-11 · DO NOT EDIT — edit CLAUDE.md then run /co-agent sync-context -->
+<!-- generated-by: co-agent · source: CLAUDE.md · claude-md-sha: 163866638b88 · generated-at: 2026-09-11 · DO NOT EDIT — edit CLAUDE.md then run /co-agent sync-context -->
 > You are an external reviewer for this repo — project context below, distilled from CLAUDE.md. This file is shared verbatim by Kiro, Codex, and Agy (not a per-AI copy).
 
 # AWS Demo Platform — reviewer context
@@ -82,8 +82,8 @@ workload replicas to 1, not zero; on restores captured values. ArgoCD calls use 
 with workload namespace per call (ADR-002). Cluster metadata alone does not select
 another ArgoCD API endpoint.
 
-`scale` is independent of project on/off status. Targets persist with the job.
-HPA scaling pins its range, but a write-once first-observed baseline must survive
+`scale` requires project status `on`; the worker rechecks it and never mutates
+that status. Targets persist with the job. HPA scaling pins its range, but a write-once first-observed baseline must survive
 repeated scales so a later off/on cycle can restore it. Respect ADR-017's accepted
 races/partial failures rather than treating every non-production trade-off as a bug.
 

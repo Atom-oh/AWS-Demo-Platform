@@ -78,9 +78,12 @@ restart containers or refresh their environment variables automatically.
 4. Refresh ESO or wait for its configured one-hour interval. Require ExternalSecret
    Ready and compare both Kubernetes Secret values with AWSCURRENT in memory,
    without printing them. Ready alone may describe an older synchronized value.
-5. Explicitly roll Grafana through the deployment workflow so the main container
-   and both sidecars reload the Secret. For an authorized operator restart:
-   `kubectl --context mall-apne2-mgmt -n monitoring rollout restart deployment/prometheus-mall-apne2-mgmt-grafana`.
+5. Roll Grafana through GitOps so the main container and both sidecars reload the
+   Secret: add/update a non-secret rollout marker under `grafana.podAnnotations`
+   in `argocd-apps/system/appset-helm-prometheus-mgmt.yaml`, then review/merge and
+   sync it. Keeping the changed Pod template in Git avoids self-heal removing an
+   out-of-band restart annotation and causing another `Recreate` rollout. Never
+   use a credential value as the rollout marker.
 6. Verify rollout completion, all six credential references, target health, login
    and an authenticated datasource query. Until consumers restart, old sidecar
    credentials can cause provisioning-reload 401s. Avoid repeated bad logins while

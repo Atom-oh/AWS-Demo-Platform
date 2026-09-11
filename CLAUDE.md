@@ -122,8 +122,9 @@ through ArgoCD REST, not direct Kubernetes calls from the backend. The worker us
 one configured ArgoCD base URL; cluster metadata alone does not connect an
 independent ArgoCD installation.
 
-`scale` is a separate asynchronous operation and does not change project on/off
-status. Targets are persisted on the job for restart recovery. HPA scaling pins
+`scale` is a separate asynchronous operation: the API requires project status `on`,
+the worker rechecks it, and the operation never changes that status. Targets are
+persisted on the job for restart recovery. HPA scaling pins
 min/max; the first observed original bounds are stored as a write-once DDB baseline
 so a later off/on cycle can restore them. Preserve this baseline across repeated
 scales. See [ADR-001](docs/decisions/ADR-001-sqs-worker-for-async-jobs.md),

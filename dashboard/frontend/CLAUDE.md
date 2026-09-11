@@ -13,7 +13,7 @@ defined. Code on main and an image pushed to ECR do not prove that the running
 service uses the latest revision; verify deployment separately.
 
 ## Run (from `dashboard/frontend/`)
-Install dependencies with `pnpm install`. For local dev, run `API_ORIGIN=http://localhost:8087 PORT=3001 pnpm dev` with the dev API already up. `pnpm build` produces the production build, `pnpm typecheck` runs `tsc --noEmit`, and `pnpm lint` runs `next lint`.
+Install dependencies with `pnpm install`. For local dev, run `NEXT_PUBLIC_AUTH_ENABLED=false API_ORIGIN=http://localhost:8087 PORT=3001 pnpm dev` with the dev API already up. Auth is enabled unless the flag is literally `false`; `.env.local.example` provides the same local setting if copied to `.env.local`. `pnpm build` produces the production build, `pnpm typecheck` runs `tsc --noEmit`, and `pnpm lint` runs `next lint`.
 
 The backend API in dev is the **dev-server** (`dashboard/backend`, see below),
 not the deployed `admin-api-dev`.
@@ -85,7 +85,9 @@ dependencies and keep the Next/ESLint configuration versions aligned.
 - `NEXT_PUBLIC_*` (see `.env.local.example`) are **build-time inlined**. The deployed
   image receives the configured Cognito values as build args.
   `NEXT_PUBLIC_AUTH_ENABLED=false` bypasses the local login UI; it does not weaken
-  the API's independent JWT enforcement.
+  the API's independent JWT enforcement. Without an access token, calls to the
+  deployed API still return 401. For local Cognito testing, configure real client
+  and callback values matching the chosen port instead of using the bypass.
 - Deploy build: **arm64/Graviton** — `frontend-ci` builds `--platform=linux/arm64` on the
   `aws-demo-platform-arm` self-hosted runner; frontend task `cpu_architecture=ARM64`,
   consistent with api/worker after the PR #16 Graviton migration landed on main.

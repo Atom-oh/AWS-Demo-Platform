@@ -218,4 +218,5 @@ remains distinct from implemented enforcement.
 - [Grafana ingress and credentials](runbooks/grafana-private-ingress.md): resource owners, staged Secret rollout and live checks.
 - [ECS runtime guide](../infra/dashboard-ecs/CLAUDE.md): initial definitions versus actual revisions/counts.
 - [ARM64 migration record](runbooks/arm64-graviton-migration.md): historical migration mechanics, not current service status.
+- [Public dashboard deployment record](runbooks/dashboard-public-deploy-execution.md): historical June 2026 execution plan, not current revisions or rollout approval.
 - [Developer onboarding](onboarding.md) and [friend-account onboarding](onboarding/friend-account-setup.md).

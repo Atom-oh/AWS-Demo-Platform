@@ -1,5 +1,10 @@
 # Runbook: execute the public dashboard deploy (admin-dev.atomai.click)
 
+This is the historical June 2026 execution record. Its task revisions, preflight
+observations and open-PR instructions are not current deployment state. For new
+rollouts use [the ECS guide](../../infra/dashboard-ecs/CLAUDE.md) and the
+[review/release procedure](review-and-release.md).
+
 **ARM64 / Graviton throughout** (PR #16 landed on main mid-deploy). Region
 `ap-northeast-2`, cluster `demo-platform-dev`. Pre-verified: Cognito secrets
 populated (pool `ap-northeast-2_xmcmwdt3y`, client `15nrbre7cihib0urg46r025ajp`),
