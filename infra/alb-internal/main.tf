@@ -213,3 +213,36 @@ resource "aws_lb_listener_rule" "dashboard_frontend" {
     host_header { values = ["admin-dev.atomai.click"] }
   }
 }
+
+# Grafana remains a ClusterIP Service; the hub's TargetGroupBinding registers its pods.
+resource "aws_lb_target_group" "grafana" {
+  name        = "demo-platform-grafana"
+  port        = 3000
+  protocol    = "HTTP"
+  vpc_id      = local.vpc_id
+  target_type = "ip"
+
+  health_check {
+    path                = "/api/health"
+    protocol            = "HTTP"
+    matcher             = "200"
+    interval            = 15
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+  }
+}
+
+resource "aws_lb_listener_rule" "grafana" {
+  listener_arn = aws_lb_listener.https.arn
+  priority     = 140
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.grafana.arn
+  }
+
+  condition {
+    host_header { values = ["grafana-kr.atomai.click", "grafana.atomai.click"] }
+  }
+}
