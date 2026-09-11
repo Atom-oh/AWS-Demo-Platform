@@ -1,0 +1,11 @@
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  serviceRef:
+    name: prometheus-mall-apne2-mgmt-grafana
+    port: 80
+  targetGroupName: demo-platform-grafana
+  targetType: ip
