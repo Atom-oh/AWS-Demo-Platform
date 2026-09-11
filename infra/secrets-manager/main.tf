@@ -7,7 +7,8 @@
 # The operator/terraformer external-ids are NOT managed here — they were created
 # out-of-band in Stage 1 and already hold values.
 #
-# recovery_window_in_days = 0 → non-prod, immediate delete on destroy.
+# Dashboard slot resources use recovery_window_in_days = 0 (non-prod).
+# The separately managed Grafana administrator container has a 7-day recovery window.
 
 locals {
   slots = [
@@ -22,4 +23,11 @@ resource "aws_secretsmanager_secret" "slot" {
   for_each                = toset(local.slots)
   name                    = each.value
   recovery_window_in_days = 0
+}
+
+# Values are populated out-of-band and must never enter Terraform state.
+resource "aws_secretsmanager_secret" "grafana_admin" {
+  name                    = "/demo-platform/grafana/admin"
+  description             = "Grafana administrator credentials synchronized to the hub by ESO"
+  recovery_window_in_days = 7
 }

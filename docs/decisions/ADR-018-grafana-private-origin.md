@@ -41,3 +41,18 @@ unchanged ALB ingress rules. Keep these checks separate from AI diff review.
 
 See `docs/runbooks/grafana-private-ingress.md`. The public NLB is not a rollback
 option; repairs must preserve the private-origin path.
+
+## Administrator credential rollout
+
+Pre-cutover testing confirmed the chart default administrator credential was
+still valid. Store the replacement in Secrets Manager and synchronize it through
+ESO, preserving the existing `admin` login. Use a separate seven-day recovery
+window for this credential container; the older dashboard slots keep their
+zero-day policy. Values are managed out-of-band, never in Terraform state.
+
+The persisted Grafana database must be rotated through the API and verified
+against the managed value. Land the container and ExternalSecret first and require
+ESO Ready before a separate Helm consumer change. This avoids a race between
+the dashboard and Prometheus Applications: `Recreate` cannot start Grafana while
+its referenced Secret is absent. Sidecar credentials must match the database,
+so complete the consumer rollout promptly after rotation.
