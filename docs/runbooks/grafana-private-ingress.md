@@ -26,6 +26,20 @@ both states. The VPC Origin remains in this repository's `infra/cloudfront`.
    `Managed-CachingDisabled`, and `Managed-AllViewer`.
 5. Wait for CloudFront deployment and run the checks below.
 
+Before an external cutover, confirm the chart's default administrator credential
+is rejected. The administrator credential lives in Secrets Manager at
+`/demo-platform/grafana/admin` as JSON `username`/`password`. ESO synchronizes it
+to `monitoring/grafana-admin`, which the Grafana chart and its sidecars reference.
+Terraform manages only the empty secret container.
+
+When replacing a default credential, populate the secret through a protected
+operator process and update the existing Grafana administrator through its API
+before exposing the route. The persisted Grafana database does not automatically
+change its password when the Kubernetes Secret changes. Roll Grafana after ESO
+reports Ready so its sidecars receive the matching credential, then verify a
+successful authenticated query and rejection of the old default. Never place the
+password in Git, a Terraform value, a command argument, or log output.
+
 During an outage, a separately reviewed targeted apply of the Grafana
 distribution may isolate the repair from unrelated changes in the shared state.
 Record the selected resource and plan; reconcile the source through a PR.
@@ -40,6 +54,8 @@ Record the selected resource and plan; reconcile the source through a PR.
   then `describe-target-health` with the returned ARN: at least one healthy target.
 - Both public hostnames: `/api/health` and `/login` return 200; an unauthenticated
   `/api/user` request returns 401 rather than account data.
+- The chart default administrator login is rejected. An authenticated
+  administrator request and a datasource query succeed with the managed secret.
 - ALB HTTPS ingress remains exactly the CloudFront VPC Origin source SG plus
   `10.0.0.0/8`. No internet-facing Grafana NLB is recreated.
 

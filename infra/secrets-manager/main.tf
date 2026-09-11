@@ -23,3 +23,10 @@ resource "aws_secretsmanager_secret" "slot" {
   name                    = each.value
   recovery_window_in_days = 0
 }
+
+# Values are populated out-of-band and must never enter Terraform state.
+resource "aws_secretsmanager_secret" "grafana_admin" {
+  name                    = "/demo-platform/grafana/admin"
+  description             = "Grafana administrator credentials synchronized to the hub by ESO"
+  recovery_window_in_days = 7
+}
