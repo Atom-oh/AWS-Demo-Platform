@@ -8,8 +8,9 @@ Master-detail discovery + lifecycle control over the projects the backend manage
 toggles, a detail drawer (resources, GitHub repo link, briefing, history), a
 bulk "turn on all" action, and per-resource demo-scale controls (ArgoCD/HPA
 replicas, ECS `desiredCount` — see [ADR-017](../../docs/decisions/ADR-017-demo-scale-job-operation.md))
-against the backend API. Not yet deployed (Stage 3 target is ECS Fargate
-behind the same CloudFront origin as `api`).
+against the backend API. ECS Fargate and same-origin CloudFront routing are already
+defined. Code on main and an image pushed to ECR do not prove that the running
+service uses the latest revision; verify deployment separately.
 
 ## Run (from `dashboard/frontend/`)
 Install dependencies with `pnpm install`. For local dev, run `API_ORIGIN=http://localhost:8087 PORT=3001 pnpm dev` with the dev API already up. `pnpm build` produces the production build, `pnpm typecheck` runs `tsc --noEmit`, and `pnpm lint` runs `next lint`.
@@ -20,9 +21,10 @@ not the deployed `admin-api-dev`.
 ## How it talks to the API
 - All data goes through **same-origin `/api/*`**. `next.config.mjs` `rewrites()`
   proxies `/api/*` → `${API_ORIGIN}` (default `http://localhost:8087`) in dev.
-- In prod (Stage 3) `api` and the frontend sit behind one CloudFront origin, so
-  `/api/*` is genuinely same-origin and the rewrite is a no-op — the goal this
-  achieves is no CORS handling and no hardcoded API host anywhere in client code.
+- In the deployed path, one CloudFront distribution has separate frontend and API
+  origins. `/api/*` is routed to the API before it reaches Next.js, using
+  `AllViewerExceptHostHeader` and disabled caching. The local rewrite is not the
+  production routing mechanism; client requests remain same-origin.
 - The frontend carries no AWS SDK; every cross-account operation is routed
   through the backend instead (per `../CLAUDE.md`).
 
@@ -61,15 +63,16 @@ shapes (`ResourceRef.stepKey` is echoed by the api, never computed here).
 - `POST /api/projects/:owner/:name/actions/scale` (`{targets: ScaleTarget[]}`)
   → `202 {job_id}` (409 if project isn't `on`, 400 on target validation
   failure) — see [ADR-017](../../docs/decisions/ADR-017-demo-scale-job-operation.md)
-- `GET /api/jobs/:id` → `{status, progress, error, ...}` (poll until succeeded/failed)
+- `GET /api/jobs/:id` → `{status, progress, error, ...}` (terminal statuses include `succeeded`, `failed` and `partial_failure`)
 
 ## Conventions
 TypeScript strict throughout. `lib/types.ts` mirrors the backend Zod schemas, so
 it needs to stay in sync whenever the API shape changes. Toggleable resource
 types are `ecs`, `ec2`, `argocd-app`, `rds`; others render as
-always-on/visibility-only chips. The Next version is pinned at `14.2.35`
-(patched) — the floor is `14.2.33`, tied to a security advisory, so any
-downgrade needs to stay above that line.
+always-on/visibility-only chips. `package.json` pins Next at `14.2.35`; the existing
+repository downgrade floor is `14.2.33`. This records a dependency constraint, not
+a current security-support assessment. Review advisories separately when changing
+dependencies and keep the Next/ESLint configuration versions aligned.
 
 ## Auth (Cognito)
 - **Authorization Code + PKCE** against the Hosted UI (public SPA client, no secret).
@@ -79,9 +82,10 @@ downgrade needs to stay above that line.
   `components/LoginGate.tsx` (gates the dashboard), `app/auth/callback/page.tsx`.
 - `lib/api.ts` sends the **ACCESS token** as `Authorization: Bearer` (the api
   verifies `tokenUse:'access'` and matches `cognito:username` vs `ADMIN_USERNAMES`).
-- `NEXT_PUBLIC_*` (see `.env.local.example`) are **build-time inlined** — the prod
-  image is built with prod values as build args. `NEXT_PUBLIC_AUTH_ENABLED=false`
-  is the local-dev bypass, mirroring the api's `skipJwt`.
+- `NEXT_PUBLIC_*` (see `.env.local.example`) are **build-time inlined**. The deployed
+  image receives the configured Cognito values as build args.
+  `NEXT_PUBLIC_AUTH_ENABLED=false` bypasses the local login UI; it does not weaken
+  the API's independent JWT enforcement.
 - Deploy build: **arm64/Graviton** — `frontend-ci` builds `--platform=linux/arm64` on the
   `aws-demo-platform-arm` self-hosted runner; frontend task `cpu_architecture=ARM64`,
   consistent with api/worker after the PR #16 Graviton migration landed on main.
@@ -92,6 +96,8 @@ downgrade needs to stay above that line.
 - Runtime infra: `infra/dashboard-ecs` frontend service + `infra/alb-internal` TG
   (priority 130) + `infra/cloudfront` same-origin distribution (`/api/*`→api) +
   `infra/route53-private-zone` public alias `admin-dev.atomai.click`.
+- Image CI does not roll ECS services. Select an explicit task-definition revision
+  and verify running tasks, TLS, login and authenticated API access after rollout.
 
 ## Tests
 `pnpm test` runs vitest (`vitest.config.mts` — jsdom, `vite-tsconfig-paths` for
@@ -100,7 +106,8 @@ auto-cleanup runs between tests). Component tests live under
 `components/__tests__/`, hook tests under `hooks/__tests__/`.
 
 ## Not yet done (follow-ups)
-- Secrets management UI, code-server URL surfacing in the drawer
+- Secrets management UI and dynamic `ec2-tag` code-server resolution. Explicit
+  code-server URLs already render in the drawer.
 - Real-time updates (SSE/WebSocket) instead of poll-on-toggle
 - Token storage hardening (httpOnly cookie BFF): the current in-memory/sessionStorage
   approach is XSS-exposed, which is acceptable for a single-admin non-prod tool but

@@ -9,5 +9,7 @@ Admin auth (Stage 2 Phase 4, dev). User Pool `atomoh-demo-platform-dev`
   secret slots (created by `infra/secrets-manager`) via `aws_secretsmanager_secret_version`.
 - Creating the `atomoh` user in the pool (console or `aws cognito-idp admin-create-user`) is
   a manual step, not managed in TF, since it needs an email/password that TF shouldn't hold.
-- Applying this module before `dashboard-ecs` matters only if the api task ever injects
-  cognito secrets — the current prod entry does not, so the ordering isn't strict yet.
+- The API task injects the Cognito IDs from these slots and the production entry
+  uses them for JWT verification. Create/populate them before starting that runtime;
+  empty containers alone are insufficient. These IDs are public configuration, not
+  a client secret or administrator password.

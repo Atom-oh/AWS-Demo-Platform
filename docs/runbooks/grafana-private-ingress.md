@@ -1,99 +1,124 @@
-# Grafana private ingress
+# Grafana private ingress and administrator operations
 
-## Ownership and path
+## Current contract and ownership
 
-`grafana-kr.atomai.click` and `grafana.atomai.click` → CloudFront
-`E2T67VYMCTJW6A` → VPC Origin `vo_22VbzKdu79hDrHuT2h1j2B` → internal ALB
-`demo-platform-internal` (HTTPS, priority 140) → target group
-`demo-platform-grafana` (HTTP 3000) → `monitoring/grafana` TargetGroupBinding →
-`prometheus-mall-apne2-mgmt-grafana` ClusterIP Service.
+Public requests use `grafana-kr.atomai.click` or `grafana.atomai.click` → CloudFront
+→ VPC Origin → internal ALB HTTPS listener, priority 140 → Grafana Pod IPs on port
+3000. `monitoring/grafana` TargetGroupBinding references the existing
+`prometheus-mall-apne2-mgmt-grafana` ClusterIP Service to register those Pod IPs.
+Neither the binding object nor the Service ClusterIP is an additional ALB traffic hop.
 
-CloudFront and DNS are Terraform-managed in `Atom-oh/multi-region-architecture`,
-`terraform/environments/production/ap-northeast-2/shared`; the ALB and target group
-are in this repository's `infra/alb-internal`. Never manage the distribution in
-both states. The VPC Origin remains in this repository's `infra/cloudfront`.
+| Resource | Owner / reference |
+| --- | --- |
+| Grafana distribution and public aliases | `Atom-oh/multi-region-architecture`, Korea `shared/` Terraform state |
+| Shared VPC Origin | This repository, `infra/cloudfront`, output `cf_vpc_origin_id` |
+| Internal ALB and Grafana target group | This repository, `infra/alb-internal`; `demo-platform-internal` and `demo-platform-grafana` |
+| TargetGroupBinding, dashboard ConfigMaps and ExternalSecret | `k8s/system/grafana`, synced by `grafana-dashboards-mall-apne2-mgmt` |
+| Grafana deployment and sidecars | `argocd-apps/system/appset-helm-prometheus-mgmt.yaml`, child Application `prometheus-mall-apne2-mgmt` |
+| Administrator value | Secrets Manager `/demo-platform/grafana/admin`, JSON `username` / `password` |
 
-## Deploy
+The repository already configures the chart and both sidecars to use
+`monitoring/grafana-admin`. Its Secret keys are `admin-user` and `admin-password`.
+The persisted login remains `admin`; changing the JSON username alone does not
+rename that database account. Terraform manages only the secret container, with
+seven-day recovery; older dashboard `slot` resources retain their zero-day policy.
 
-1. Plan and apply `infra/alb-internal` through Atlantis. Require a plan limited to
-   the intended target group/listener changes and inspect any security-group diff.
-2. Confirm the chosen Kubernetes context resolves to `mall-apne2-mgmt`. Merge the
-   binding and allow `grafana-dashboards-mall-apne2-mgmt` to sync from main.
-3. Verify a healthy IP target on port 3000. The Grafana Pod ENI must allow that port
-   from the internal ALB; change security groups through Terraform if needed.
-4. Complete the administrator procedure below if replacing a default or
-   unmanaged credential. This is mandatory regardless of whether the external
-   route is currently available.
-5. In the owning repository, review and apply the Grafana distribution's
-   private-origin change. Preserve aliases, the existing wildcard certificate,
-   `Managed-CachingDisabled`, and `Managed-AllViewer`.
-6. Wait for CloudFront deployment and run the checks below.
+Resolve live IDs from outputs/APIs before operations. The 2026-09-11 recovery used
+CloudFront `E2T67VYMCTJW6A` and VPC Origin `vo_22VbzKdu79hDrHuT2h1j2B`; these are
+incident references, not a substitute for checking the current owners and bindings.
+Never import the distribution into both Terraform states.
 
-During an outage, a separately reviewed targeted apply of the Grafana
-distribution may isolate the repair from unrelated changes in the shared state.
-Record the selected resource and plan; reconcile the source through a PR.
+## Ingress deployment or recovery
 
-## Administrator credential: two separate rollout phases
+1. Verify AWS identity and the selected `mall-apne2-mgmt` context/account. Inspect
+   CloudFront/DNS, TLS and target health in both owning repositories.
+2. Plan/apply `infra/alb-internal` through Atlantis. Apply the target group before
+   merging a binding that resolves it by name. The ALB SG remains HTTPS from the
+   CloudFront VPC Origin source SG plus `10.0.0.0/8` only.
+3. Merge/sync the binding and verify at least one healthy current Pod target on
+   port 3000. Inspect Pod SG connectivity through the supported infrastructure
+   path if needed; do not open broad ingress as a shortcut.
+4. Verify the managed administrator works and the default is rejected. If rotating
+   a default/unmanaged value, use the procedure below regardless of whether the
+   external route is already reachable.
+5. In the Grafana distribution's owning repository, review/apply the private-origin
+   change. Preserve the existing distribution, aliases, wildcard certificate,
+   `Managed-CachingDisabled` and `Managed-AllViewer`; both viewer hosts must match
+   the ALB rule. The HTTPS origin hostname must match the certificate SAN.
+6. Wait for CloudFront deployment and run public checks. Remove obsolete origins
+   only after identifying all consumers and validating the replacement.
 
-The credential is JSON `username`/`password` in
-`/demo-platform/grafana/admin`. Keep `username` equal to the existing persisted
-login, `admin`; this procedure does not rename users. Terraform creates only the
-container. The existing database does not adopt a new password from Helm or a
-Kubernetes Secret.
+If a binding was merged before its target group and sync exhausted its retries,
+fix the prerequisite and explicitly re-sync the same revision through ArgoCD.
+An authorized, reviewed targeted Terraform plan may be appropriate for incident
+recovery; record its scope and reconcile source afterward. It does not validate
+unrelated shared-state resources.
 
-1. **Phase A:** open a PR containing only the Terraform container, ExternalSecret
-   and documentation. Do not include `grafana.admin.existingSecret` in this PR.
-   Apply `infra/secrets-manager` through Atlantis and confirm the container exists.
-2. Generate a strong value in a protected operator process and store it as
-   `AWSPENDING`. With the existing administrator authenticated, call
-   `PUT /api/user/password` with `oldPassword`, `newPassword` and `confirmNew`;
-   supply those fields from process memory, never command arguments or logs.
-   Verify `/api/user` succeeds as the existing administrator with the staged
-   password and rejects the old default before promoting that version to
-   `AWSCURRENT`. This API update is mandatory, including when Grafana is already
-   publicly reachable. Retain the staged value for recovery if any step fails.
-3. Merge phase A and wait for the dashboard Application to sync. Confirm
+## Rotate an existing administrator credential
+
+Changing a Kubernetes Secret or Helm value does not rotate the persisted Grafana
+database password. With `existingSecret`, a Secret value change also does not
+restart containers or refresh their environment variables automatically.
+
+1. Confirm the current account is the intended persisted `admin` login. Preserve
+   access to the existing value and stage the generated replacement in Secrets
+   Manager as `AWSPENDING`; keep values out of Git, Terraform, command arguments
+   and logs.
+2. Authenticate as that administrator and call `PUT /api/user/password` with
+   `oldPassword`, `newPassword` and `confirmNew` through a protected operator
+   process. If public routing is unavailable, use the internal ALB with verified
+   TLS from an authorized 10/8 host, or an authenticated loopback-only Kubernetes
+   port-forward. Do not disable certificate validation to send credentials.
+3. Verify `/api/user` succeeds with the new value and rejects the actual previous
+   password. Also check default rejection when replacing a default credential,
+   then promote the verified version to `AWSCURRENT` and clean up staging labels.
+   If interrupted, inspect actual authentication and version stages before retrying;
+   promotion may have succeeded even if a later cleanup failed. Retain the working
+   value for recovery rather than generating another blindly.
+4. Refresh ESO or wait for its configured one-hour interval. Require ExternalSecret
+   Ready and compare both Kubernetes Secret values with AWSCURRENT in memory,
+   without printing them. Ready alone may describe an older synchronized value.
+5. Explicitly roll Grafana through the deployment workflow so the main container
+   and both sidecars reload the Secret. For an authorized operator restart:
+   `kubectl --context mall-apne2-mgmt -n monitoring rollout restart deployment/prometheus-mall-apne2-mgmt-grafana`.
+6. Verify rollout completion, all six credential references, target health, login
+   and an authenticated datasource query. Until consumers restart, old sidecar
+   credentials can cause provisioning-reload 401s. Avoid repeated bad logins while
+   checking rejection.
+
+## Introduce a new Secret producer or consumer
+
+This sequence is for first setup or a Secret-name/ownership migration, not a demand
+to reopen the original rollout PRs for each password rotation.
+
+1. Land only the producer/container changes. Apply the container through Atlantis,
+   populate the managed value and perform any required database rotation.
+2. Sync the producer Application. Require
    `kubectl --context mall-apne2-mgmt -n monitoring wait --for=condition=Ready externalsecret/grafana-admin --timeout=90s`
-   succeeds. Verify both expected Secret keys exist without printing their values.
-4. **Phase B:** only after the preceding checks succeed, open and merge a
-   separate PR for `argocd-apps/system/appset-helm-prometheus-mgmt.yaml` setting
-   `grafana.admin.existingSecret: grafana-admin`,
-   `userKey: admin-user` and `passwordKey: admin-password`. Do not combine this
-   consumer change with phase A: the two auto-synced Applications have no ordering
-   guarantee. Complete phase B promptly after rotation so sidecars receive the
-   matching credential; until the rollout, their old credentials can cause
-   provisioning-reload requests to return 401.
-5. Wait for the Grafana rollout, healthy target and successful authenticated
-   datasource query. Confirm default rejection again if needed without repeatedly
-   attempting bad logins. Only then complete an external origin cutover.
+   and verify key/value agreement with AWSCURRENT. Confirm ESO is permitted to read
+   the relevant `/demo-platform/` path without broadening IAM unnecessarily.
+3. Only then merge the separate consumer change in
+   `argocd-apps/system/appset-helm-prometheus-mgmt.yaml`. Producer and consumer
+   Applications have no implicit ordering. On a fresh cluster, a missing Secret
+   prevents Grafana from starting; resolve the producer rather than falling back
+   to a weak default.
+4. Complete the rollout and verification promptly. Do not prune the producer while
+   Grafana depends on it.
 
-The Grafana container has a seven-day recovery window; the older dashboard
-`aws_secretsmanager_secret.slot` resources retain their zero-day policy.
-Never place a password in Git, Terraform state or log output.
+## Verification and rollback boundaries
 
-## Verify
+- Dashboard and Prometheus Applications: intended revision/configuration, Synced
+  and Healthy. The Helm Application's revision is its chart version, not a Git SHA.
+- Deployment: updated Pods Ready; Grafana and both sidecars reference `grafana-admin`.
+- Target group: current Pod IP registered and healthy on port 3000.
+- Both public aliases: TLS valid, `/api/health` and `/login` return 200; anonymous
+  `/api/user` returns 401; managed authentication and a real datasource query succeed.
+- Administrator: replaced password rejected, chart default rejected when applicable,
+  and authoritative managed value preserved.
+- ALB: HTTPS ingress remains exactly the CloudFront source SG plus `10.0.0.0/8`.
 
-- `kubectl --context mall-apne2-mgmt -n argocd get application grafana-dashboards-mall-apne2-mgmt`:
-  Synced/Healthy at the intended commit.
-- `kubectl --context mall-apne2-mgmt -n monitoring get targetgroupbinding grafana`:
-  binding present; inspect events if reconciliation fails.
-- `aws elbv2 describe-target-groups --names demo-platform-grafana --region ap-northeast-2`,
-  then `describe-target-health` with the returned ARN: at least one healthy target.
-- Both public hostnames: `/api/health` and `/login` return 200; an unauthenticated
-  `/api/user` request returns 401 rather than account data.
-- The chart default administrator login is rejected. An authenticated
-  administrator request and a datasource query succeed with the managed secret.
-- ALB HTTPS ingress remains exactly the CloudFront VPC Origin source SG plus
-  `10.0.0.0/8`. No internet-facing Grafana NLB is recreated.
-
-If the Pod and ArgoCD are healthy but public requests return 502, inspect
-CloudFront's origin and its owning Terraform before removing or recreating load
-balancers. Check DNS aliases and origin dependencies before destructive changes;
-repository-local AI review cannot discover every live dependency.
-
-## Authentication on the development instance
-
-The instance profile `mgmt-vpc-VSCode-Role` supplies existing AWS credentials.
-A sandboxed CLI can report `NoCredentials` when metadata access is blocked.
-Verify `aws sts get-caller-identity` with the required network access before
-concluding credentials are absent. Never print credential values.
+Reverting the Helm consumer does not undo the database password change and can
+regenerate credentials that no longer match it. Use the known managed value and
+coordinate database, Secret and consumer rollout. Do not recreate the public NLB
+as a rollback shortcut. See [ADR-018](../decisions/ADR-018-grafana-private-origin.md)
+and the [review/release runbook](review-and-release.md) for the incident lessons.
