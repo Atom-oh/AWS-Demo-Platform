@@ -2,7 +2,7 @@
 
 ## Role
 Stage 2–3 admin platform for AWS Demo Platform.
-- **`backend/`** — Stage 2 **Lifecycle Controller**. Node.js TypeScript pnpm-workspaces monorepo, built and deployed (dev).
+- **`backend/`** — Implemented **Lifecycle Controller**. Node.js TypeScript pnpm-workspaces monorepo with dev ECS runtime definitions; verify running revisions separately.
 - **`frontend/`** — Stage 3 admin UI (Next.js 14, App Router). **MVP built (dev only):** live project list, faceted discovery, on/off toggles, detail drawer (resources, GitHub link, briefing, history), bulk turn-on-all, and per-resource demo-scale controls — via same-origin `/api/*` proxy. See `frontend/CLAUDE.md`.
 
 ## backend/ — Lifecycle Controller (implemented)
@@ -17,14 +17,23 @@ pnpm workspaces monorepo. Three packages:
 
 ### Commands (run from `dashboard/backend/`)
 
-Install dependencies with `pnpm install`. `pnpm test` runs vitest — unit tests plus LocalStack integration tests, which need the stack up first. `pnpm typecheck` runs `tsc --noEmit` across all three packages, and `pnpm lint` runs eslint. `pnpm build` compiles via `tsc -b` into `dist/`. `pnpm stack:up` brings up LocalStack on `:4566` (`docker compose up -d`) for the integration tests; `pnpm stack:down` tears it back down.
+Install dependencies with `pnpm install`. Run `pnpm -r build` first, then `pnpm -r lint` and `pnpm -r test`. `pnpm typecheck` first builds `shared`, then runs workspace `tsc --noEmit`; `pnpm build` compiles via `tsc -b` into `dist/`. Vitest integration tests need LocalStack on `:4566` (`pnpm stack:up`). `pnpm stack:down` also deletes its local volumes.
 
-Docker images build per-package: `docker build -f packages/{api,worker}/Dockerfile -t demo-platform-{api,worker}:dev .`
+Docker images build per-package. From `dashboard/backend`, prepare a fresh generated
+`_config` bundle as `backend-ci.yml` does: remove the old generated bundle, create
+`_config`, copy `../../projects` to `_config/projects`, and copy
+`../../accounts.yaml` to `_config/accounts.yaml`. Do not keep hand-written files in
+that generated directory. Then use
+`docker build --platform=linux/arm64 -f packages/api/Dockerfile -t demo-platform-api:dev .`
+or
+`docker build --platform=linux/arm64 -f packages/worker/Dockerfile -t demo-platform-worker:dev .`.
+Release builds use the native ARM64 runner. Project/account-only changes do not
+trigger current backend CI filters; arrange the build and service rollout explicitly.
 
 ### Non-obvious patterns
 - **Node16 ESM**: relative imports rely on `.js` extensions to resolve; `tsc -b` is the real typecheck gate, since vitest and esbuild both skip type errors.
 - **AssumeRole flow**: the worker assumes `DemoPlatformOperator` per `accounts.yaml`, using the ExternalId stored in Secrets Manager; creds are cached with TTL skew.
-- **HPA-2 (ArgoCD controller)**: the goal of `turn_off` is a scaled-down state that ArgoCD won't fight, so it patches HPA `min=max=1` plus Deployment `replicas=1` rather than a true zero.
+- **HPA-2 (ArgoCD controller)**: the goal of `turn_off` is a scaled-down state that ArgoCD won't fight, so it patches HPA `min=max=1` plus Deployment/StatefulSet `replicas=1` rather than a true zero.
 - **turn_on restores resources**: `worker/src/job-runner.ts` reads `restoration_data` off the DDB state record and dispatches per-resource into each controller's `turnOn(rd)` (ECS desiredCount / EC2 start / RDS start / ArgoCD HPA-2 restore). RDS `waitForAvailable` is fire-and-forget. Restoration keys each entry by a **unique per-resource `stepKey`** (e.g. `argocd-app:<application>`) so that same-type resources don't collide. A partial `turn_on` failure calls `markError`, which preserves `restoration_data` for retry, instead of `markOn`.
 - **Job model**: the api enqueues to SQS and the worker processes idempotently; SQS visibility is 300s, and RDS start polling runs in the background so it doesn't trigger redelivery.
 - **`scale` operation**: independent of `turn_on`/`turn_off` — never mutates the project's on/off `state.status` (no `markOn`/`markError`). `targets` (`{stepKey, replicas?|desiredCount?}[]`) are persisted on the job record itself so restart recovery has something to reconstruct from. A worker-side status recheck at the start of the branch narrows (doesn't eliminate) the race against a concurrent `turn_off`. See [ADR-017](../docs/decisions/ADR-017-demo-scale-job-operation.md) for the full design and its accepted limitations.
@@ -41,11 +50,13 @@ Next.js 14 (App Router) + TypeScript. Dashboard with stat strip, faceted sidebar
 (category/account/status), search, project cards with working on/off toggles +
 job polling, a detail drawer (resources, GitHub repo link, briefing, history),
 a bulk "turn on all" action, and per-resource demo-scale controls. Talks to the
-backend via same-origin `/api/*` (dev: `next.config.mjs` rewrites to the
-dev-server on :8087; prod: same CloudFront origin as `api`). Backed in dev by
+backend via same-origin `/api/*` (local dev: `next.config.mjs` rewrites to the
+dev-server on :8087; deployed routing: one CloudFront distribution with separate
+frontend/API origins). Local development is backed by
 `backend/packages/api/src/dev-server.ts` (real API, in-memory state, simulated
 worker). Full details in `frontend/CLAUDE.md`.
-Not yet: real-time updates (SSE/WebSocket instead of poll-on-toggle), ECS deploy.
+Real-time push updates remain a follow-up. ECS service/CloudFront definitions and
+image publication already exist; a new image still needs an explicit ECS rollout.
 
 ## Conventions
-The intent is to keep both sides strictly typed and share the Node16 ESM import convention (`.js` extensions) across the boundary. All cross-account operations belong in the backend, which assumes `DemoPlatformOperator` per `accounts.yaml` — the frontend has no AWS SDK dependency and never handles that layer directly. AWS credentials likewise stay out of the frontend entirely: the backend runs as `DashboardEcsTaskRole-dev`, does its STS AssumeRole into `DemoPlatformOperator` there, and doesn't persist the resulting tokens.
+Keep both sides strictly typed. Backend Node16 ESM relative imports need `.js`; the frontend uses Next.js/bundler resolution and `@/` aliases. All cross-account operations belong in the backend, which assumes `DemoPlatformOperator` per `accounts.yaml` with an ExternalId. The frontend has no AWS SDK dependency or AWS credentials; it sends the Cognito access token to the API. The API's runtime JWT bypass is restricted to the literal development environment and verified usernames must be in `ADMIN_USERNAMES`.

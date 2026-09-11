@@ -1,19 +1,28 @@
 # infra/cloudfront
 
 CloudFront distributions + VPC Origin for the CloudFront-only ingress pattern, where
-CloudFront is the sole public entry point and load balancers and Kubernetes Ingress
-stay off the open internet. Each distribution's origin is an Internal ALB target
-group reached via `aws_cloudfront_vpc_origin`, with the `*.atomai.click` wildcard
-ACM cert looked up via `data.aws_acm_certificate` so every distribution reuses the
+CloudFront is the sole public entry point and the platform ALB is private. Each
+distribution reaches the Internal ALB through `aws_cloudfront_vpc_origin`; listener
+rules select target groups. The `*.atomai.click` wildcard
+ACM certificate is looked up via `data.aws_acm_certificate` so every distribution reuses the
 same pre-existing cert rather than issuing a new one.
 
 - **State**: shared backend bucket `multi-region-mall-terraform-state`.
 - **Distributions**: `argocd` (`argocd.atomai.click`), `atlantis`, `dashboard_api`,
   `dashboard_frontend` — all VPC-origin → Internal ALB.
+- **External consumer**: Grafana's distribution and DNS are owned by
+  `Atom-oh/multi-region-architecture` in its Korea `shared/` state. It consumes this
+  module's `cf_vpc_origin_id`; coordinate changes before replacing/removing that
+  origin. Do not import the distribution into both states.
 - Apply via Atlantis: `atlantis plan -d infra/cloudfront` then
   `atlantis apply -d infra/cloudfront`.
 
 ## Incident log
+- **2026-09-11**: Atlantis webhook delivery was blocked by an expired viewer
+  certificate. A reviewed recovery plan updated only the Atlantis distribution's
+  certificate binding to the existing valid wildcard selected by the data source.
+  HTTPS health then passed and normal Atlantis plan/apply resumed. This did not
+  issue a new certificate or assert that every other endpoint was healthy.
 - **2026-06-24**: `aws_cloudfront_distribution.argocd` (`E30DX8JLNHJL7C`,
   `argocd.atomai.click`) was deleted directly in AWS (not via Terraform/Atlantis) —
   CloudTrail shows `DeleteDistribution` from `mgmt-vpc-VSCode-Role` (EC2

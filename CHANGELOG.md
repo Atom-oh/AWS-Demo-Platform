@@ -6,7 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Restored Grafana through the existing private VPC Origin/internal ALB, with explicit cross-repository ownership and a staged Secrets Manager/ESO administrator credential rollout (PRs #99–101, ADR-018).
+- Added a documentation map and review/release runbook separating code review, plans, producer readiness and public runtime verification.
+
 ### Changed
+- Aligned root/module context, onboarding and architecture with implemented dashboard features and deployment boundaries; regenerated `AGENTS.md` from canonical `CLAUDE.md` with a fresh source marker.
 - Retired the bilingual English/Korean documentation convention — ADRs, README, CHANGELOG, runbooks, and code comments are now English-only. `AskUserQuestion` prompts to the user remain the one exception.
 - Rewrote all `CLAUDE.md` files (root + module-level) and `AGENTS.md` from imperative rule lists into goal-oriented prose, with no fenced code blocks.
 

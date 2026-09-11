@@ -1,124 +1,104 @@
-# Developer Onboarding
+# Developer onboarding
 
-## Quick Start
+## Prerequisites
 
-### 1. Prerequisites
-- [ ] AWS CLI v2 installed and configured for the `atomoh-main` account
-- [ ] Terraform 1.9.8 (NOT 1.10+ — backend uses `dynamodb_table` not `use_lockfile`)
-- [ ] kubectl with kubeconfig for hub (`mall-apne2-mgmt`) and spokes (`mall-apne2-az-{a,c}`)
-- [ ] ArgoCD CLI (`brew install argocd` or equivalent)
-- [ ] GitHub access to `Atom-oh/AWS-Demo-Platform` and `Atom-oh/multi-region-architecture`
-- [ ] Read-access to AWS Secrets Manager path `/demo-platform/*` (for ExternalIds, admin password)
+- Authorized AWS CLI v2 identity for the intended account, cluster and needed secret paths.
+- Terraform 1.9.6, matching `atlantis.yaml`; use DynamoDB-table locking.
+- Node 20/pnpm 9 for the dashboard; Docker for LocalStack integration tests.
+- kubectl with hub/spoke contexts, ArgoCD access, and Python PyYAML for Grafana checks.
+- Access to this repository and any resource-owner repository involved in the change.
 
-### 2. Setup
+## Setup and identity
 
 ```bash
 git clone git@github.com:Atom-oh/AWS-Demo-Platform.git
 cd AWS-Demo-Platform
 bash scripts/setup.sh
+aws sts get-caller-identity
+kubectl --context mall-apne2-mgmt config view --minify
 ```
 
-For each Terraform module you will work on:
+Verify the selected context resolves to `mall-apne2-mgmt` and the expected account;
+`kubectl config current-context` reports only the default, which may be another
+cluster. Pass `--context` on cluster operations. A sandbox can block instance
+metadata and make existing instance credentials appear absent; verify the permitted
+network path before replacing credentials.
 
-```bash
-cd infra/<module>
-terraform init
-terraform plan
-```
+Use an existing authorized ArgoCD session or interactive login. Do not put passwords
+in command arguments or print tokens from Secrets Manager into logs. Verify TLS
+before authenticating. The [Grafana runbook](runbooks/grafana-private-ingress.md)
+separately describes its administrator secret and private access path.
 
-For ArgoCD CLI access:
+## Read current context first
 
-```bash
-ADMIN=$(aws secretsmanager get-secret-value \
-  --secret-id /demo-platform/argocd/admin-password \
-  --query SecretString --output text)
-argocd login argocd.atomai.click --username admin --password "$ADMIN"
-```
+1. [CLAUDE.md](../CLAUDE.md) and the relevant module guide.
+2. [Documentation map](README.md) and [architecture](architecture.md).
+3. [Review/release procedure](runbooks/review-and-release.md).
+4. Relevant [ADRs](decisions/) and [friend-account setup](onboarding/friend-account-setup.md).
+5. Dated specs/plans only for historical rationale; they are not current deployment status.
 
-### 3. Verify
+`AGENTS.md` is distilled from root `CLAUDE.md`; regenerate it after source changes
+with `/co-agent:sync-context` and validate its marker, source hash, size and secrets.
 
-```bash
-# Project structure
-bash tests/run-all.sh
+## Local development and checks
 
-# kube context (must show mall-apne2-mgmt for hub ops)
-kubectl config current-context
+From `dashboard/backend`, install dependencies, start LocalStack with `pnpm stack:up`
+when running integration tests, then run `pnpm -r build`, `pnpm -r lint` and
+`pnpm -r test`. Compilation is the real TypeScript gate. For the simulated local
+worker path, run `PORT=8087 node packages/api/dist/dev-server.js` after building.
 
-# ArgoCD apps
-argocd app list
+From `dashboard/frontend`, install dependencies and run
+`NEXT_PUBLIC_AUTH_ENABLED=false API_ORIGIN=http://localhost:8087 PORT=3001 pnpm dev`.
+The explicit flag is required for tokenless local use; unset means auth enabled.
+Alternatively copy `.env.local.example` to `.env.local`. This bypass is for the
+simulated local API, not the deployed JWT-protected API. Validate with `pnpm typecheck`,
+`pnpm lint`, `pnpm test` and `pnpm build`. The local API has simulated resource state;
+it is not a health probe for deployed AWS resources.
 
-# Atlantis healthcheck
-curl -sf https://atlantis.atomai.click/healthz
-```
+Run `bash tests/run-all.sh` for the local harness. Terraform verification is per
+module: initialization, format, validation and a real plan against the correct
+backend. Render Kubernetes with `kubectl kustomize`; client/server dry-runs may
+need credentials and already-created dependencies even though they do not deploy.
 
-## Project Overview
+## Development and deployment workflow
 
-Read in order:
-- `CLAUDE.md` — project context, conventions, key commands
-- `docs/architecture.md` — system design with hub-spoke diagram
-- `docs/superpowers/specs/2026-05-26-aws-demo-platform-design.md` — original design spec
-- `docs/superpowers/retrospectives/2026-05-26-stage-1.md` — what was built, surprises encountered
-- `docs/decisions/` — ADRs (architectural choices)
-- `docs/onboarding/friend-account-setup.md` — how to add a new AWS account
+Use focused `feat/`, `fix/`, `docs/`, `refactor/` or `chore/` branches and conventional
+commit messages. Keep the source, documentation and generated context aligned.
 
-## Development Workflow
+- Terraform: review the PR plan, then apply through Atlantis. Apply a target group
+  before merging its binding; a remote-state consumer may need a new plan afterward.
+- Kubernetes: merge reviewed manifests and verify ArgoCD sync plus actual behavior.
+  Separately synchronized Secret producers must be Ready before consumers change.
+- Dashboard: CI builds/pushes images but service revisions/counts are out-of-band.
+  Pin and deploy the intended task definition; verify the running image and endpoint.
+- Project/account metadata: images bundle these files. Current backend CI filters
+  do not trigger on project/account-only changes, so arrange a build and rollout.
+  ArgoCD tenant coverage is needed only when this hub actually owns those workloads.
 
-- **Branch naming**: `feat/`, `fix/`, `docs/`, `refactor/`, `chore/`
-- **Commit convention**: Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`)
-- **PR process**:
-  - For `infra/**`: PR triggers Atlantis. Comment `atlantis plan -d infra/<module>`, review, then `atlantis apply -d infra/<module>`.
-  - For `k8s/**`, `argocd-apps/**`, `projects/**`: merge to `main`, ArgoCD auto-syncs.
-- **Tagging**: semver `vX.Y.Z`. Stage milestones get a tag.
+## Preparing a demo
 
-## Key Concepts
+- Add optional `briefing` text to schema-valid project YAML; the detail drawer
+  expands longer notes with Show more.
+- Cards and the drawer expose GitHub links and configured URLs.
+- Bulk turn-on processes off/error projects with bounded concurrency.
+- Demo scale supports ECS desired counts and ArgoCD workload/HPA replicas without
+  changing the project's on/off status. HPA min/max are pinned by scale; the first
+  observed bounds are preserved so a later off/on cycle can restore them. See
+  [ADR-017](decisions/ADR-017-demo-scale-job-operation.md) for accepted races and
+  partial-failure limitations.
 
-- **Hub** = `mall-apne2-mgmt` EKS cluster, hosts Atlantis + ArgoCD + ESO.
-- **Spokes** = `mall-apne2-az-{a,c}` clusters running tenant workloads.
-- **App-of-Apps** = two ArgoCD root Applications watch `argocd-apps/system/` and `argocd-apps/tenants/`. Drop a YAML in there, it auto-deploys.
-- **HPA-2** = demo on/off uses `min=max=1` on HPA, never `replicas=0`.
-- **TGB pattern** = TG in Terraform, pod binds via TargetGroupBinding CRD.
-- **CF VPC Origin SG quirk** = ALB SG must explicitly allow the CF VPC Origin source SG (`sg-0a67fc7bfa9c2f0c6`), CIDR alone is insufficient.
+## Troubleshooting without losing context
 
-## Preparing for a Demo
+| Symptom | Check before changing anything |
+| --- | --- |
+| Backend initialization conflict | Verify account, bucket and exact state key before reconfiguration; do not invent a new key |
+| `use_lockfile` rejected | This repository pins Terraform 1.9.6 and uses `dynamodb_table` |
+| ArgoCD OutOfSync | Inspect the actual error, ownership and producer readiness; resolve declaratively |
+| Stale ArgoCD revision | Refresh/sync through ArgoCD and verify the resulting revision |
+| Namespace termination | Investigate remaining resources/controllers before considering finalizer removal |
+| Atlantis unavailable | Check Pod health, HTTPS certificate, webhook delivery and `--write-git-creds` |
+| Public 502 with healthy Pods | Trace CloudFront's actual origin and owning repository/state, target health and TLS |
+| Hub Pod pending | Check node selection and required taint tolerations |
 
-The dashboard has a few features specifically for getting ready ahead of a
-live demo:
-
-- **Briefing notes**: add a `briefing:` key (free-text, multi-line YAML) to a
-  project's file under `projects/`. It shows up in that project's detail
-  drawer as talking points — there's no length limit, but very long briefings
-  get truncated for display with a "show more" toggle.
-- **GitHub repo link**: click the repo name on a project's card or in its
-  detail drawer to open the GitHub repo directly.
-- **Turn on all**: one button near the top of the dashboard turns on every
-  `off`/`error` project at once, a few at a time, so you don't have to click
-  through each one before a demo.
-- **Per-resource scale**: in a project's detail drawer, an ECS resource can
-  have its `desiredCount` bumped up for extra headroom during the demo,
-  independent of turning the project on/off. **ArgoCD/HPA scaling doesn't work
-  yet** (the control is shown disabled with an explanation) — pending a
-  separate fix, unrelated to this feature. Once that's fixed: scaling an
-  ArgoCD-managed HPA pins its autoscaling range to a single fixed count, and
-  that original range can't be recovered afterward through this tool, even by
-  scaling back down — plan a scale-up as a one-way trip for the demo, not
-  something to casually undo. See [ADR-017](decisions/ADR-017-demo-scale-job-operation.md)
-  for the full list of accepted limitations.
-
-## Troubleshooting
-
-| Symptom | Likely cause | Fix |
-|---------|--------------|-----|
-| `terraform init` fails with backend conflict | Cross-repo backend state | `terraform init -reconfigure` |
-| `terraform validate` rejects `use_lockfile` | TF 1.10+ syntax with 1.9.8 | Switch to `dynamodb_table = "multi-region-mall-terraform-locks"` |
-| ArgoCD Application stuck OutOfSync | Old resource without owner annotation | ServerSideApply or delete orphaned resource |
-| ArgoCD `repo is empty` cache | Stale repo-server cache | `kubectl rollout restart deployment/argocd-repo-server -n argocd` |
-| Namespace stuck Terminating | Application finalizers | `kubectl patch ns <ns> -p '{"metadata":{"finalizers":[]}}' --type=merge` |
-| Atlantis won't start | Missing `--write-git-creds` flag | Re-add the flag in deployment.yaml |
-| CF distribution can't reach ALB | Missing CF source SG ingress | Add `sg-0a67fc7bfa9c2f0c6` to ALB SG ingress rule |
-| Pod scheduling fails on hub | Missing toleration for taints | Add `workload-type=platform` or `node-role=system-critical` toleration |
-
-## Resources
-
-- Spec: `docs/superpowers/specs/2026-05-26-aws-demo-platform-design.md`
-- Retrospective: `docs/superpowers/retrospectives/2026-05-26-stage-1.md`
-- Friend onboarding: `docs/onboarding/friend-account-setup.md`
+Do not use resource deletion, namespace-finalizer clearing, disabled TLS verification
+or broad SG ingress as generic troubleshooting shortcuts.

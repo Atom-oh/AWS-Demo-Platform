@@ -2,7 +2,10 @@
 
 Covers the one-time switch of the `demo-platform-{api,worker}-dev` ECS Fargate
 services from `X86_64` (amd64 images) to `ARM64` (native arm64 / Graviton),
-introduced in PR #16.
+introduced in PR #16. This is a historical migration procedure; its service counts
+and old architecture describe that rollout, not current runtime status. For ongoing
+rollouts, use [the ECS guide](../../infra/dashboard-ecs/CLAUDE.md) and verify the
+actual task-definition revision and image first.
 
 ## Why order matters
 

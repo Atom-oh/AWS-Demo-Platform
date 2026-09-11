@@ -1,18 +1,42 @@
-# infra/dashboard-ecs
+# Dashboard ECS runtime
 
-Dashboard runtime (Stage 2 Phase 4, dev). ECS Fargate cluster `demo-platform-dev`:
-- **api** service (desiredCount=1) — Fastify; behind the Internal ALB `demo-platform-api-dev` TG → CF `admin-api-dev.atomai.click`. Reaches `/health` 200 with no external deps (prod entry wires no deps, JWT skipPaths /health).
-- **worker** service (desiredCount=**0**, scaffolded OFF).
+This module defines the dev Fargate cluster `demo-platform-dev` and three ARM64
+services: API, worker and frontend. It does not describe their current running
+revisions or guarantee endpoint health.
 
-- **State key**: `production/aws-demo-platform/dashboard-ecs/terraform.tfstate`
-- Images: `…/demo-platform/{api,worker}:main-latest` (built natively linux/arm64 on the `aws-demo-platform-arm` self-hosted runner → tasks pinned `ARM64`/Graviton).
-- Refs via remote_state: shared (vpc/subnets), alb-internal (`dashboard_api_tg_arn`, `alb_sg_id`), iam (`task_role_arn`, `exec_role_arn`).
-- `ignore_changes = [task_definition, desired_count]` — image rolled by GHA / count out-of-band.
+| Service | Definition and ingress |
+| --- | --- |
+| `demo-platform-api-dev` | Initial count 1, port 8080, API target group and `admin-api-dev` route |
+| `demo-platform-worker-dev` | Initial count 0, asynchronous SQS consumer, no public listener |
+| `demo-platform-frontend-dev` | Initial count 1, port 3000, frontend target group and `admin-dev` route |
 
-## Enabling the worker (deferred)
-desiredCount is 0 because the worker entry calls `loadWorkerEnv()`, which requires GITHUB_PAT
-and ARGOCD_ADMIN_TOKEN, and `loadProjects(PROJECTS_DIR)` / accounts.yaml. Scaling to 1 depends
-on populating `/demo-platform/dev/github/pat` and `/demo-platform/argocd/admin-token`, and on
-getting `projects/*.yaml` plus `accounts.yaml` into the worker image (via Dockerfile COPY or a
-mount) — currently neither is baked into the image. Once both are in place, the service can be
-scaled up with an ECS update-service call setting `demo-platform-worker-dev`'s desired count to 1.
+Verify resource names in `main.tf` before operations. State key:
+`production/aws-demo-platform/dashboard-ecs/terraform.tfstate`. Dependencies are
+the shared network, internal ALB, IAM, queues/tables, secret containers and populated
+Cognito IDs. The API production entry wires real DDB/SQS dependencies and enforces
+Cognito/administrator checks; `/health` alone is not an end-to-end application test.
+
+## Images and rollout
+
+Backend CI builds API and worker images; frontend CI builds the Next.js image.
+All use native `linux/arm64` builds and matching task architecture. CI pushes
+`sha-<sha>` and floating image tags, but does not update ECS services.
+
+Services declare `ignore_changes = [task_definition, desired_count]`. Terraform can
+register a task definition without moving a service to it. Select an explicit
+reviewed task-definition revision for `aws ecs update-service`, then verify tasks,
+counts, image architecture, target health and public application behavior. Do not
+infer a rollout from a main merge or image push.
+
+## Worker and configuration prerequisites
+
+The worker's zero count is an initialization default. Current counts are operated
+out-of-band and must be read from ECS. Backend CI already copies `projects/` and
+`accounts.yaml` into `_config`; the worker Dockerfile copies both into its image,
+and the API Dockerfile copies project configuration. Config packaging is implemented.
+
+Before enabling or updating the worker, verify the built image contains the intended
+configuration, the GitHub/ArgoCD secret values are populated, and role/ExternalId
+access is correct. Project/account-only changes do not match current backend CI
+path filters, so arrange an image build and explicit rollout. Do not label the
+worker permanently scaffolded or assume a zero Terraform default means it is off.
