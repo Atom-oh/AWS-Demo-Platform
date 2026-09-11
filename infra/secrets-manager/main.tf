@@ -7,7 +7,8 @@
 # The operator/terraformer external-ids are NOT managed here — they were created
 # out-of-band in Stage 1 and already hold values.
 #
-# recovery_window_in_days = 0 → non-prod, immediate delete on destroy.
+# Dashboard slot resources use recovery_window_in_days = 0 (non-prod).
+# The separately managed Grafana administrator container has a 7-day recovery window.
 
 locals {
   slots = [
