@@ -21,6 +21,7 @@ AWS Demo Platform is a hub-spoke control plane for managing GitHub-linked AWS de
 - **AWS Secrets Manager** — All runtime secrets under `/demo-platform/...`. GitHub App credentials (4 slots), ArgoCD admin password, cross-account ExternalIds.
 - **Terraform state** — Shared S3 backend `multi-region-mall-terraform-state` (cross-repo with `multi-region-architecture`), DynamoDB lock table `multi-region-mall-terraform-locks`.
 - **Observability backends (hub)** — ClickHouse (otel traces/logs, Altinity CHI in `observability` ns) and Grafana Tempo (S3-backed traces) deployed as ArgoCD ApplicationSets `appset-clickhouse` / `appset-tempo` (mgmt-only). Spoke OTel Collectors fan in via internal NLBs (ADR-007).
+- **Grafana dashboards (hub)** — `appset-grafana-dashboards` deploys dashboard ConfigMaps only. The public HTTP `grafana-nlb` Service restored in PR #96 is removed to preserve CloudFront-only ingress; ArgoCD pruning removes that Service after sync, so its direct endpoint is unavailable. This repository does not yet provision a Grafana CloudFront/ALB/TargetGroupBinding route. The hub provisions `prometheus`, `clickhouse`, `tempo`, and `cloudwatch-korea`; the nodepool dashboard uses `prometheus`, while the US comparison dashboard stays unprovisioned until its regional datasources exist.
 - **(Stage 3)** DynamoDB for dashboard project metadata + cache.
 
 ### Presentation Layer

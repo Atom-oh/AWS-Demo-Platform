@@ -242,16 +242,15 @@
   "templating": {
     "list": [
       {
-        "current": { "selected": false, "text": "prometheus-east", "value": "prometheus-east" },
-        "description": "Select region datasource",
+        "current": { "selected": true, "text": "prometheus", "value": "prometheus" },
+        "description": "Select a provisioned hub datasource",
         "hide": 0,
-        "label": "Region",
+        "label": "Datasource",
         "name": "region",
         "options": [
-          { "selected": true, "text": "prometheus-east", "value": "prometheus-east" },
-          { "selected": false, "text": "prometheus-west", "value": "prometheus-west" }
+          { "selected": true, "text": "prometheus", "value": "prometheus" }
         ],
-        "query": "prometheus-east,prometheus-west",
+        "query": "prometheus",
         "type": "custom"
       },
       {

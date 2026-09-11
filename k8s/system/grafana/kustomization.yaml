@@ -1,9 +1,6 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-resources:
-  - grafana-nlb.yaml
-
 patches:
   - target:
       kind: ConfigMap
@@ -119,14 +116,8 @@ configMapGenerator:
       disableNameSuffixHash: true
       labels:
         grafana_dashboard: "1"
-  - name: grafana-dashboard-multi-region-comparison
-    namespace: monitoring
-    files:
-      - dashboards/multi-region-comparison.json
-    options:
-      disableNameSuffixHash: true
-      labels:
-        grafana_dashboard: "1"
+  # multi-region-comparison.json requires regional datasources that the Seoul hub
+  # does not provision. Keep its source for a future regional deployment.
   - name: grafana-dashboard-infrastructure-nodepools
     namespace: monitoring
     files:
