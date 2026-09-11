@@ -56,11 +56,13 @@ Kubernetes Secret.
    `kubectl --context mall-apne2-mgmt -n monitoring wait --for=condition=Ready externalsecret/grafana-admin --timeout=90s`
    succeeds. Verify both expected Secret keys exist without printing their values.
 4. **Phase B:** only after the preceding checks succeed, open and merge a
-   separate Helm-values PR setting `grafana.admin.existingSecret: grafana-admin`,
+   separate PR for `argocd-apps/system/appset-helm-prometheus-mgmt.yaml` setting
+   `grafana.admin.existingSecret: grafana-admin`,
    `userKey: admin-user` and `passwordKey: admin-password`. Do not combine this
    consumer change with phase A: the two auto-synced Applications have no ordering
    guarantee. Complete phase B promptly after rotation so sidecars receive the
-   matching credential.
+   matching credential; until the rollout, their old credentials can cause
+   provisioning-reload requests to return 401.
 5. Wait for the Grafana rollout, healthy target and successful authenticated
    datasource query. Confirm default rejection again if needed without repeatedly
    attempting bad logins. Only then complete an external origin cutover.
