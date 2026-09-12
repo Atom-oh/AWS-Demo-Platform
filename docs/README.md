@@ -12,6 +12,7 @@ running the latest image.
 | [Architecture](architecture.md) | Current component boundaries, routing and ownership |
 | [Developer onboarding](onboarding.md) | Local setup and development workflow |
 | [Review and release](runbooks/review-and-release.md) | Evidence required around review, deployment and removal |
+| [ai-trader review runner](runbooks/ai-trader-review-runner.md) | Dedicated CLI compatibility pin, retained image evidence and recovery |
 | [Grafana operations](runbooks/grafana-private-ingress.md) | Private ingress and managed administrator lifecycle |
 | [Dashboard deployment execution record](runbooks/dashboard-public-deploy-execution.md) | Historical June 2026 rollout; use current module/release guides for new deployments |
 | [Decisions](decisions/) | Dated architectural rationale and accepted trade-offs |
