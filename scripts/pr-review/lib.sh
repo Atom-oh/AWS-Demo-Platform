@@ -7,10 +7,11 @@ set -uo pipefail
 # YAML is a separate literal; drift there is caught by aggregate.sh's degraded-model floor
 # and out-of-roster tag guard.
 # glm-5 (kiro-glm) dropped per ADR-015 (false-positive-prone). Current slots:
-# claude-fable-5.1 (kiro-fable), gpt-5.6-sol (kiro-sol). Kiro's catalog names this model
-# with a dot (claude-fable-5.1), unlike the hyphenated Bedrock inference-profile ID
-# (global.anthropic.claude-fable-5-1) used elsewhere — different catalogs, not a typo.
-KIRO_MODELS=("claude-fable-5.1:kiro-fable" "gpt-5.6-sol:kiro-sol")
+# claude-opus-5 (legacy kiro-fable tag), gpt-5.6-sol (kiro-sol).
+# Kiro rejected claude-fable-5.1 as nonexistent in Actions run 34698223622.
+# claude-opus-5 returned READY in a local kiro-cli 2.11.1 probe and L2-L5
+# review responses; see ADR-014's 2026-09-12 update for evidence and tag compatibility.
+KIRO_MODELS=("claude-opus-5:kiro-fable" "gpt-5.6-sol:kiro-sol")
 PANEL_TAGS=(codex "${KIRO_MODELS[@]##*:}" claude-self)
 
 # Recreate the slot dir fresh every run so stale cell files from a previous run (on a
