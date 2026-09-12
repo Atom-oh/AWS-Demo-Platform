@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { listProjects, getProject, toggleProject, getJob, scaleProject } from '@/lib/api';
 import type { ProjectRow, Status, ScaleTarget } from '@/lib/types';
+import { HPA_SCALE_NOTE } from '@/lib/presentation';
 
 type Notify = (msg: string, err?: boolean) => void;
 
@@ -10,7 +11,7 @@ const TURN_ON_ALL_CONCURRENCY = 4;
 
 const ECS_SCALE_REMINDER = 'this becomes the new turn_off restore point';
 const ARGOCD_SCALE_REMINDER =
-  "if this application contains an HPA, this pins its autoscaling range to a fixed count, which cannot be recovered through this tool afterward, even by scaling back down";
+  HPA_SCALE_NOTE;
 
 export function useProjects() {
   const [rows, setRows] = useState<ProjectRow[]>([]);
@@ -119,7 +120,7 @@ export function useProjects() {
   // for an ecs target, only when its entry is 'done'; for an argocd-app target,
   // on any non-idle entry ('done' OR a 'failed:' one) — HPA-first patch
   // ordering means a target that ultimately reports failed may still have
-  // irreversibly pinned its HPA before a sibling handle failed, so a failed:
+  // pinned its HPA before restoration before a sibling handle failed, so a failed:
   // entry can't be treated as "nothing happened" the way it can for ecs.
   const scale = useCallback(
     async (

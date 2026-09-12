@@ -3,7 +3,7 @@
 ## Role
 Stage 2–3 admin platform for AWS Demo Platform.
 - **`backend/`** — Implemented **Lifecycle Controller**. Node.js TypeScript pnpm-workspaces monorepo with dev ECS runtime definitions; verify running revisions separately.
-- **`frontend/`** — Stage 3 admin UI (Next.js 14, App Router). **MVP built (dev only):** live project list, faceted discovery, on/off toggles, detail drawer (resources, GitHub link, briefing, history), bulk turn-on-all, and per-resource demo-scale controls — via same-origin `/api/*` proxy. See `frontend/CLAUDE.md`.
+- **`frontend/`** — Stage 3 admin UI (Next.js 14, App Router). **MVP built (dev only):** live project list, faceted discovery, on/off toggles, detail drawer (resources, GitHub link, briefing, history), confirmed bulk start of visible projects, and per-resource demo-scale controls — via same-origin `/api/*` proxy. See `frontend/CLAUDE.md`.
 
 ## backend/ — Lifecycle Controller (implemented)
 
@@ -49,7 +49,7 @@ trigger current backend CI filters; arrange the build and service rollout explic
 Next.js 14 (App Router) + TypeScript. Dashboard with stat strip, faceted sidebar
 (category/account/status), search, project cards with working on/off toggles +
 job polling, a detail drawer (resources, GitHub repo link, briefing, history),
-a bulk "turn on all" action, and per-resource demo-scale controls. Talks to the
+a confirmed bulk start scoped to visible projects, and per-resource demo-scale controls. Talks to the
 backend via same-origin `/api/*` (local dev: `next.config.mjs` rewrites to the
 dev-server on :8087; deployed routing: one CloudFront distribution with separate
 frontend/API origins). Local development is backed by

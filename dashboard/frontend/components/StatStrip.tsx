@@ -16,11 +16,11 @@ export function StatStrip({ rows }: { rows: ProjectRow[] }) {
       </div>
       <div className="stat on">
         <div className="n">{on}</div>
-        <div className="l">ON</div>
+        <div className="l">실행 중</div>
       </div>
       <div className="stat off">
         <div className="n">{off}</div>
-        <div className="l">OFF</div>
+        <div className="l">중지됨</div>
       </div>
     </div>
   );

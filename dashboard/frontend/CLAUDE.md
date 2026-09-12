@@ -6,7 +6,7 @@ Master-detail discovery + lifecycle control over the projects the backend manage
 ## Status
 **MVP — dev only.** Renders the live project list, faceted discovery, on/off
 toggles, a detail drawer (resources, GitHub repo link, briefing, history), a
-bulk "turn on all" action, and per-resource demo-scale controls (ArgoCD/HPA
+confirmed bulk start scoped to visible eligible projects, and per-resource demo-scale controls (ArgoCD/HPA
 replicas, ECS `desiredCount` — see [ADR-017](../../docs/decisions/ADR-017-demo-scale-job-operation.md))
 against the backend API. ECS Fargate and same-origin CloudFront routing are already
 defined. Code on main and an image pushed to ECR do not prove that the running
@@ -39,19 +39,38 @@ To run it: from `dashboard/backend`, run `pnpm -r build`, then start it with
 
 ## Structure
 `app/` holds `layout.tsx` (root layout + globals.css), `page.tsx` (the dashboard
-client component — search + filters + grid + toast + "turn on all"), and
-`globals.css` (dark theme). `components/` holds `StatStrip.tsx` (totals for
+client component — search + filters + grid + notifications + confirmed visible-project start), and
+`globals.css` (responsive dark theme, reduced-motion support). `components/` holds `StatStrip.tsx` (totals for
 projects / accounts / on / off), `FacetSidebar.tsx` (category / account /
-status facets with counts), `ProjectCard.tsx` (one project: status pill,
-resource chips, toggle, GitHub link, demo link), and `DetailDrawer.tsx`
+status facets with counts, collapsible on mobile), `ProjectCard.tsx` (one project: status pill,
+service chips, a native detail button, toggle, GitHub link and demo link), and `DetailDrawer.tsx`
 (resources with per-resource scale controls, GitHub link, briefing, URLs,
-history timeline). `hooks/useProjects.ts` loads the list and details and
+history timeline). `ScaleControl.tsx` owns labeled 1–20 inputs, in-flight duplicate
+prevention while mounted, and inline completion/failure feedback. `Icon.tsx` holds
+small shared SVG icons; `lib/presentation.ts` holds status/service labels and scale
+help text. `hooks/useProjects.ts` loads the list and details and
 drives `toggle()` (always resolves `{ok: boolean}`, never rejects),
-`turnOnAll()` (fixed concurrency of 4), and `scale()` — all with job polling.
+`turnOnAll()` (fixed concurrency of 4; the page supplies visible off/error rows only), and `scale()` — all with job polling.
 `lib/api.ts` holds the fetch helpers (`/api/projects`, `/actions/:op`,
 `/actions/scale`, `/jobs/:id`), and `lib/types.ts` holds the `Project` /
 `ProjectRow` / `Job` / `Status` / `ScaleTarget` types, mirroring the backend
 shapes (`ResourceRef.stepKey` is echoed by the api, never computed here).
+
+## Demo workflow
+
+Search trims surrounding whitespace and matches project, repo, account, description
+and resource type. Reset clears search and all facets. Refresh/retry reloads the
+API list, including transitions observed before this page started. An `on` state is the
+last observed lifecycle status, not a service health check.
+
+Bulk start shows the eligible count and asks for confirmation with project names.
+Changing the search/facets dismisses that confirmation. Project cards use native
+buttons for detail access, avoiding nested interactive elements inside a button.
+The drawer traps keyboard focus, restores focus on close and locks page scrolling.
+Error notifications remain until dismissed; successful ones expire after 6.5s.
+Notifications render inside an open drawer so their dismissal stays keyboard-accessible.
+HPA help explains that scale pins its range and a later off/on cycle restores the
+persisted original baseline, matching ADR-017.
 
 ## API contract consumed (must match `@demo-platform/api`)
 - `GET /api/projects` → `{repo,name,account}[]`

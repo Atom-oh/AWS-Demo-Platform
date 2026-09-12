@@ -26,4 +26,15 @@ describe('ProjectCard repo link', () => {
     await userEvent.click(screen.getByRole('link', { name: 'org/demo-repo' }));
     expect(onOpen).not.toHaveBeenCalled();
   });
+
+  it('opens details with a native keyboard button without triggering a lifecycle action', async () => {
+    const onOpen = vi.fn();
+    const onToggle = vi.fn();
+    render(<ProjectCard row={row} onToggle={onToggle} onOpen={onOpen} />);
+    screen.getByRole('button', { name: 'demo-repo 상세 보기' }).focus();
+    await userEvent.keyboard('{Enter}');
+    expect(onOpen).toHaveBeenCalledWith(row.repo);
+    expect(onToggle).not.toHaveBeenCalled();
+    expect(screen.getByRole('article')).not.toHaveAttribute('role', 'button');
+  });
 });

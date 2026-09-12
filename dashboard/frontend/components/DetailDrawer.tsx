@@ -1,15 +1,13 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ProjectRow, HistoryRecord, ResourceRef, ScaleTarget } from '@/lib/types';
 import { getHistory } from '@/lib/api';
+import { RESOURCE_LABEL as LABEL, STATUS_LABEL } from '@/lib/presentation';
+import { Icon } from './Icon';
+import { ScaleControl } from './ScaleControl';
 
 const TOGGLEABLE = new Set(['ecs', 'ec2', 'argocd-app', 'rds']);
 const BRIEFING_PREVIEW_LIMIT = 2000;
-const LABEL: Record<string, string> = {
-  ecs: 'ECS', ec2: 'EC2', 'argocd-app': 'ArgoCD', rds: 'RDS', dynamodb: 'DynamoDB',
-  elasticache: 'ElastiCache', kafka: 'Kafka', msk: 'MSK', stepfunctions: 'StepFn',
-  lambda: 'Lambda', firehose: 'Firehose',
-};
 
 function resourceId(r: ResourceRef): string {
   if (typeof r.cluster === 'string' && typeof r.service === 'string') return `${r.cluster}/${r.service}`;
@@ -40,16 +38,17 @@ export function DetailDrawer({
   onClose,
   onToggle,
   onScale,
+  notification,
 }: {
   row: ProjectRow;
   onClose: () => void;
   onToggle: (repo: string, op: 'turn_on' | 'turn_off') => Promise<{ ok: boolean }> | void;
   onScale?: (repo: string, targets: ScaleTarget[]) => Promise<{ ok: boolean }> | void;
+  notification?: ReactNode;
 }) {
   const [history, setHistory] = useState<HistoryRecord[] | null>(null);
   const [histErr, setHistErr] = useState<string | null>(null);
   const [briefingExpanded, setBriefingExpanded] = useState(false);
-  const [scaleInputs, setScaleInputs] = useState<Record<string, string>>({});
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
@@ -68,7 +67,10 @@ export function DetailDrawer({
     }
   }, [owner, name]);
 
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -88,17 +90,22 @@ export function DetailDrawer({
   // a11y: focus the close button on open, return focus on close, Esc closes, trap Tab.
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     closeRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onCloseRef.current();
       if (e.key === 'Tab' && panelRef.current) {
         const f = panelRef.current.querySelectorAll<HTMLElement>(
-          'a[href],button:not([disabled]),input,[tabindex]:not([tabindex="-1"])',
+          'a[href],button:not([disabled]),input:not([disabled]),[tabindex]:not([tabindex="-1"])',
         );
         if (f.length === 0) return;
         const first = f[0];
         const last = f[f.length - 1];
-        if (e.shiftKey && document.activeElement === first) {
+        if (!panelRef.current.contains(document.activeElement)) {
+          e.preventDefault();
+          first.focus();
+        } else if (e.shiftKey && document.activeElement === first) {
           e.preventDefault();
           last.focus();
         } else if (!e.shiftKey && document.activeElement === last) {
@@ -110,6 +117,7 @@ export function DetailDrawer({
     document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = previousOverflow;
       opener?.focus?.();
     };
   }, []);
@@ -117,20 +125,6 @@ export function DetailDrawer({
   const handleToggle = async (op: 'turn_on' | 'turn_off') => {
     await onToggle(row.repo, op);
     await loadHistory(); // refresh once so the just-performed action appears
-  };
-
-  const handleScaleEcs = async (r: ResourceRef) => {
-    const raw = scaleInputs[r.stepKey];
-    const count = Number(raw);
-    if (!raw || !Number.isInteger(count) || count <= 0) return;
-    await onScale?.(row.repo, [{ stepKey: r.stepKey, desiredCount: count }]);
-  };
-
-  const handleScaleArgocd = async (r: ResourceRef) => {
-    const raw = scaleInputs[r.stepKey];
-    const replicas = Number(raw);
-    if (!raw || !Number.isInteger(replicas) || replicas <= 0) return;
-    await onScale?.(row.repo, [{ stepKey: r.stepKey, replicas }]);
   };
 
   const cs = pr?.urls?.code_server;
@@ -143,15 +137,15 @@ export function DetailDrawer({
         className="drawer"
         role="dialog"
         aria-modal="true"
-        aria-label={`${pr?.name ?? row.name} detail`}
+        aria-label={`${pr?.name ?? row.name} 상세`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="drawer-head">
           <div className="row">
             <h2>{pr?.name ?? row.name}</h2>
-            <span className={`pill ${row.status}`}>{row.status}</span>
-            <button ref={closeRef} className="drawer-close" onClick={onClose} aria-label="Close">
-              ×
+            <span className={`pill ${row.status}`}>{STATUS_LABEL[row.status]}</span>
+            <button ref={closeRef} className="drawer-close" onClick={onClose} aria-label="닫기">
+              <Icon name="close" />
             </button>
           </div>
           <a className="repo" href={`https://github.com/${row.repo}`} target="_blank" rel="noreferrer">
@@ -161,19 +155,21 @@ export function DetailDrawer({
             {pr?.display?.category && <span className="chip cat">{pr.display.category}</span>}
             <span className="chip acct">{row.account}</span>
           </div>
+          {pr?.description && <p className="desc">{pr.description}</p>}
           <footer>
             {row.status === 'on' && (
-              <button className="btn on" onClick={() => void handleToggle('turn_off')}>Turn off</button>
+              <button className="btn" onClick={() => void handleToggle('turn_off')}>끄기</button>
             )}
             {(row.status === 'off' || row.status === 'error') && (
-              <button className="btn off" onClick={() => void handleToggle('turn_on')}>Turn on</button>
+              <button className="btn primary" onClick={() => void handleToggle('turn_on')}>{row.status === 'error' ? '다시 켜기' : '켜기'}</button>
             )}
             {row.status === 'transitioning' && (
               <button className="btn" disabled><span className="spinner" />전환 중</button>
             )}
             {row.status === 'unknown' && (
-              <button className="btn" disabled>{row.status}</button>
+              <button className="btn" disabled>상태 미확인</button>
             )}
+            {demo && <a className="btn primary" href={demo} target="_blank" rel="noopener noreferrer">데모 열기<Icon name="arrow" /></a>}
           </footer>
         </div>
 
@@ -183,7 +179,7 @@ export function DetailDrawer({
           <>
             {pr.briefing && (
               <section className="drawer-sec">
-                <h3>Briefing</h3>
+                <h3>데모 브리핑</h3>
                 <div className="briefing">
                   {briefingExpanded || pr.briefing.length <= BRIEFING_PREVIEW_LIMIT
                     ? pr.briefing
@@ -194,7 +190,7 @@ export function DetailDrawer({
                     className="btn link"
                     onClick={() => setBriefingExpanded((v) => !v)}
                   >
-                    {briefingExpanded ? 'Show less' : 'Show more'}
+                    {briefingExpanded ? '접기' : '더 보기'}
                   </button>
                 )}
               </section>
@@ -202,57 +198,18 @@ export function DetailDrawer({
             <section className="drawer-sec">
               <h3>리소스</h3>
               <div className="reslist">
-                {pr.resources.map((r, i) => {
+                {pr.resources.map((r) => {
                   const on = TOGGLEABLE.has(r.type) && !r.always_on;
                   const isEcs = r.type === 'ecs';
                   const isArgocdApp = r.type === 'argocd-app';
                   return (
-                    <div className="resrow" key={i}>
+                    <div className="resrow" key={r.stepKey}>
                       <span className={`chip ${on ? 'res-on' : 'res-always'}`}>{LABEL[r.type] ?? r.type}</span>
                       <span className="resid">{resourceId(r)}</span>
-                      {isEcs && (
-                        <span className="scale-ctl">
-                          <input
-                            type="number"
-                            placeholder="check the ArgoCD/ECS console for the current count"
-                            value={scaleInputs[r.stepKey] ?? ''}
-                            disabled={row.status !== 'on'}
-                            onChange={(e) =>
-                              setScaleInputs((s) => ({ ...s, [r.stepKey]: e.target.value }))
-                            }
-                          />
-                          <button
-                            className="btn"
-                            disabled={row.status !== 'on'}
-                            onClick={() => void handleScaleEcs(r)}
-                          >
-                            Apply
-                          </button>
-                        </span>
-                      )}
-                      {isArgocdApp && (
-                        <span className="scale-ctl">
-                          <input
-                            type="number"
-                            placeholder="check the ArgoCD/ECS console for the current count"
-                            value={scaleInputs[r.stepKey] ?? ''}
-                            disabled={row.status !== 'on'}
-                            onChange={(e) =>
-                              setScaleInputs((s) => ({ ...s, [r.stepKey]: e.target.value }))
-                            }
-                          />
-                          <button
-                            className="btn"
-                            disabled={row.status !== 'on'}
-                            onClick={() => void handleScaleArgocd(r)}
-                          >
-                            Apply
-                          </button>
-                          <span className="scale-note">
-                            pins this application&apos;s HPA min/max to the entered count —
-                            not recoverable afterward through this tool, even by scaling back down
-                          </span>
-                        </span>
+                      {!on && <span className="muted">상시 유지 · 상태 확인용</span>}
+                      {(isEcs || isArgocdApp) && (
+                        <ScaleControl resource={r} status={row.status}
+                          onScale={onScale ? (targets) => onScale(row.repo, targets) : undefined} />
                       )}
                     </div>
                   );
@@ -262,17 +219,17 @@ export function DetailDrawer({
             </section>
 
             <section className="drawer-sec">
-              <h3>URL</h3>
+              <h3>바로가기</h3>
               {demo ? (
-                <a className="btn link" href={demo} target="_blank" rel="noopener noreferrer">데모 열기 ↗</a>
+                <a className="btn link" href={demo} target="_blank" rel="noopener noreferrer">데모 열기<Icon name="arrow" /></a>
               ) : (
                 <span className="btn link" aria-disabled>데모 URL 없음</span>
               )}
               {cs?.mode === 'explicit' ? (
-                <a className="btn link" href={cs.url} target="_blank" rel="noopener noreferrer">code-server ↗</a>
+                <a className="btn link" href={cs.url} target="_blank" rel="noopener noreferrer">개발 환경<Icon name="arrow" /></a>
               ) : (
                 <span className="btn link" aria-disabled>
-                  {cs?.mode === 'ec2-tag' ? 'code-server (ec2-tag, Stage 4)' : 'code-server 없음'}
+                  {cs?.mode === 'ec2-tag' ? '개발 환경 주소 확인이 필요합니다.' : '개발 환경 미등록'}
                 </span>
               )}
             </section>
@@ -280,7 +237,7 @@ export function DetailDrawer({
         )}
 
         <section className="drawer-sec">
-          <h3>히스토리</h3>
+          <h3>최근 작업</h3>
           {histErr && <div className="empty">히스토리 로드 실패: {histErr}</div>}
           {!histErr && history === null && <div className="empty">불러오는 중…</div>}
           {!histErr && history?.length === 0 && <div className="empty">최근 작업 없음</div>}
@@ -288,14 +245,15 @@ export function DetailDrawer({
             {history?.map((h, i) => (
               <div className="tl-item" key={i}>
                 <span className={`pill ${h.result === 'success' ? 'on' : h.result === 'partial' ? 'transitioning' : 'error'}`}>
-                  {h.result}
+                  {h.result === 'success' ? '완료' : h.result === 'partial' ? '일부 완료' : '실패'}
                 </span>
-                <span className="tl-action">{h.action}</span>
+                <span className="tl-action">{h.action === 'turn_on' ? '켜기' : h.action === 'turn_off' ? '끄기' : h.action === 'scale' ? '수량 변경' : h.action}</span>
                 <span className="tl-meta">{h.actor} · {relTime(h.ts)}</span>
               </div>
             ))}
           </div>
         </section>
+        {notification}
       </div>
     </div>
   );
