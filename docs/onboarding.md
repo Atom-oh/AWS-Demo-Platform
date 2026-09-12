@@ -78,12 +78,14 @@ commit messages. Keep the source, documentation and generated context aligned.
 ## Preparing a demo
 
 - Add optional `briefing` text to schema-valid project YAML; the detail drawer
-  expands longer notes with Show more.
+  expands longer notes with the More button.
 - Cards and the drawer expose GitHub links and configured URLs.
-- Bulk turn-on processes off/error projects with bounded concurrency.
+- Bulk turn-on confirms the visible off/error projects before processing them
+  with bounded concurrency; search and facets determine the scope.
 - Demo scale supports ECS desired counts and ArgoCD workload/HPA replicas without
   changing the project's on/off status. HPA min/max are pinned by scale; the first
-  observed bounds are preserved so a later off/on cycle can restore them. See
+  saved baseline lets a later off/on cycle restore them. A first partial failure
+  can leave the baseline unrecorded, so inspect the current bounds after failure. See
   [ADR-017](decisions/ADR-017-demo-scale-job-operation.md) for accepted races and
   partial-failure limitations.
 

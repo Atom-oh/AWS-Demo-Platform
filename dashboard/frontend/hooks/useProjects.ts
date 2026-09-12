@@ -1,27 +1,25 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { listProjects, getProject, toggleProject, getJob, scaleProject } from '@/lib/api';
 import type { ProjectRow, Status, ScaleTarget } from '@/lib/types';
-import { HPA_SCALE_NOTE } from '@/lib/presentation';
+import { ECS_SCALE_NOTE, HPA_SCALE_NOTE, HPA_SCALE_WARNING } from '@/lib/presentation';
 
 type Notify = (msg: string, err?: boolean) => void;
 
 // Fixed, not a tunable — matches the spec's "4 at a time" concurrency limit.
 const TURN_ON_ALL_CONCURRENCY = 4;
 
-const ECS_SCALE_REMINDER = 'this becomes the new turn_off restore point';
-const ARGOCD_SCALE_REMINDER =
-  HPA_SCALE_NOTE;
-
 export function useProjects() {
   const [rows, setRows] = useState<ProjectRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const rowRevisions = useRef<Record<string, number>>({});
 
   const refreshOne = useCallback(async (repo: string) => {
     const [owner, name] = repo.split('/');
     try {
       const d = await getProject(owner, name);
+      rowRevisions.current[repo] = (rowRevisions.current[repo] ?? 0) + 1;
       setRows((rs) =>
         rs.map((r) =>
           r.repo === repo
@@ -35,6 +33,7 @@ export function useProjects() {
   }, []);
 
   const load = useCallback(async () => {
+    const revisionsAtStart = { ...rowRevisions.current };
     setLoading(true);
     setError(null);
     try {
@@ -50,7 +49,13 @@ export function useProjects() {
           }
         }),
       );
-      setRows(detailed);
+      setRows((current) => {
+        const byRepo = new Map(current.map((row) => [row.repo, row]));
+        return detailed.map((row) =>
+          (rowRevisions.current[row.repo] ?? 0) !== (revisionsAtStart[row.repo] ?? 0)
+            ? byRepo.get(row.repo) ?? row
+            : row);
+      });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -69,6 +74,7 @@ export function useProjects() {
       notify?: Notify,
     ): Promise<{ ok: boolean }> => {
       const [owner, name] = repo.split('/');
+      rowRevisions.current[repo] = (rowRevisions.current[repo] ?? 0) + 1;
       setRows((rs) => rs.map((r) => (r.repo === repo ? { ...r, status: 'transitioning' } : r)));
       let ok = false;
       try {
@@ -120,7 +126,8 @@ export function useProjects() {
   // for an ecs target, only when its entry is 'done'; for an argocd-app target,
   // on any non-idle entry ('done' OR a 'failed:' one) — HPA-first patch
   // ordering means a target that ultimately reports failed may still have
-  // pinned its HPA before restoration before a sibling handle failed, so a failed:
+  // pinned its HPA before a sibling handle failed. That failure may prevent
+  // baseline persistence, so a failed:
   // entry can't be treated as "nothing happened" the way it can for ecs.
   const scale = useCallback(
     async (
@@ -146,7 +153,7 @@ export function useProjects() {
           }
         }
       } catch (e) {
-        notify?.(`${repo} scale failed: ${(e as Error).message}`, true);
+        notify?.(`${repo} 수량 변경 실패: ${(e as Error).message}`, true);
         return { ok: false };
       }
 
@@ -154,14 +161,14 @@ export function useProjects() {
       for (const t of targets) {
         const entry = progress[t.stepKey];
         if (t.desiredCount !== undefined) {
-          if (entry === 'done') reminders.push(`${t.stepKey}: ${ECS_SCALE_REMINDER}`);
+          if (entry === 'done') reminders.push(`${t.stepKey}: ${ECS_SCALE_NOTE}`);
         } else if (entry !== undefined) {
-          reminders.push(`${t.stepKey}: ${ARGOCD_SCALE_REMINDER}`);
+          reminders.push(`${t.stepKey}: ${entry === 'done' ? HPA_SCALE_NOTE : HPA_SCALE_WARNING}`);
         }
       }
       const suffix = reminders.length > 0 ? ` — ${reminders.join('; ')}` : '';
       notify?.(
-        `${repo} scale ${ok ? 'succeeded' : 'failed or incomplete'}${suffix}`,
+        `${repo} 수량 변경 ${ok ? '완료' : '실패 또는 미완료'}${suffix}`,
         ok ? undefined : true,
       );
       return { ok };

@@ -171,6 +171,15 @@ audit trail.
    around this by warning on any non-idle progress-entry outcome for
    `argocd-app` targets (not just `done`), but the underlying job-status
    ambiguity itself isn't fixed.
+
+   **Clarification (2026-09-12):** the 2026-08-21 baseline update above does
+   not guarantee recovery after a first partial failure. `runScaleJob`
+   persists the captured baseline only after `ArgocdController.scale()`
+   returns successfully. If an HPA patch succeeds but a sibling fails first,
+   a baseline may never be saved. Off/on restores a saved baseline; it cannot
+   reconstruct unrecorded original bounds. The UI must warn operators to
+   verify failed targets rather than promise restoration.
+
 7. **No in-flight guard** prevents two `scale` requests targeting the same
    resource from overlapping.
 8. **A restart-recovered `scale` job replays every target** in its `targets`

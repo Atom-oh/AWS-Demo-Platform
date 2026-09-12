@@ -45,8 +45,7 @@ projects / accounts / on / off), `FacetSidebar.tsx` (category / account /
 status facets with counts, collapsible on mobile), `ProjectCard.tsx` (one project: status pill,
 service chips, a native detail button, toggle, GitHub link and demo link), and `DetailDrawer.tsx`
 (resources with per-resource scale controls, GitHub link, briefing, URLs,
-history timeline). `ScaleControl.tsx` owns labeled 1–20 inputs, in-flight duplicate
-prevention while mounted, and inline completion/failure feedback. `Icon.tsx` holds
+history timeline). `ScaleControl.tsx` owns labeled 1–20 inputs, a per-control in-flight duplicate guard, and inline completion/failure feedback. `Icon.tsx` holds
 small shared SVG icons; `lib/presentation.ts` holds status/service labels and scale
 help text. `hooks/useProjects.ts` loads the list and details and
 drives `toggle()` (always resolves `{ok: boolean}`, never rejects),
@@ -58,19 +57,23 @@ shapes (`ResourceRef.stepKey` is echoed by the api, never computed here).
 
 ## Demo workflow
 
-Search trims surrounding whitespace and matches project, repo, account, description
-and resource type. Reset clears search and all facets. Refresh/retry reloads the
-API list, including transitions observed before this page started. An `on` state is the
+Search trims surrounding whitespace and matches displayed project/service names,
+repo, account, description and raw resource type. Reset clears search and all facets. Refresh/retry reloads the
+API list, including transitions observed before this page started. Per-project
+revision tracking preserves newer lifecycle updates when an older list request
+finishes late. An `on` state is the
 last observed lifecycle status, not a service health check.
 
 Bulk start shows the eligible count and asks for confirmation with project names.
-Changing the search/facets dismisses that confirmation. Project cards use native
+Changing search/facets or refreshing dismisses that confirmation. Project cards use native
 buttons for detail access, avoiding nested interactive elements inside a button.
 The drawer traps keyboard focus, restores focus on close and locks page scrolling.
 Error notifications remain until dismissed; successful ones expire after 6.5s.
 Notifications render inside an open drawer so their dismissal stays keyboard-accessible.
-HPA help explains that scale pins its range and a later off/on cycle restores the
-persisted original baseline, matching ADR-017.
+HPA help explains that scale pins its range and a later off/on cycle restores a
+saved baseline. A first partial failure can prevent baseline persistence; failure
+notifications warn operators to inspect the current bounds, matching ADR-017
+limitation 6 and its 2026-09-12 clarification.
 
 ## API contract consumed (must match `@demo-platform/api`)
 - `GET /api/projects` → `{repo,name,account}[]`

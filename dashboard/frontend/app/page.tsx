@@ -9,6 +9,7 @@ import { Icon } from '@/components/Icon';
 import { LoginGate } from '@/components/LoginGate';
 import { useAuth } from '@/components/AuthProvider';
 import { authEnabled } from '@/lib/auth-config';
+import { RESOURCE_LABEL } from '@/lib/presentation';
 
 const EMPTY_FILTERS: Filters = { cat: null, acct: null, status: null };
 
@@ -39,15 +40,16 @@ function DashboardInner() {
       if (filters.cat && r.project?.display?.category !== filters.cat) return false;
       if (filters.acct && r.account !== filters.acct) return false;
       if (filters.status && r.status !== filters.status) return false;
-      const hay = [r.name, r.repo, r.account, r.project?.description,
-        ...(r.project?.resources.map((x) => x.type) ?? [])].join(' ').toLowerCase();
+      const hay = [r.name, r.project?.name, r.repo, r.account, r.project?.description,
+        ...(r.project?.resources.flatMap((x) => [x.type, RESOURCE_LABEL[x.type]]) ?? [])].join(' ').toLowerCase();
       return !query || hay.includes(query);
     });
   }, [rows, filters, q]);
   const candidates = visible.filter((r) => r.status === 'off' || r.status === 'error');
-  const hasFilters = Boolean(q || filters.cat || filters.acct || filters.status);
+  const hasFilters = Boolean(q.trim() || filters.cat || filters.acct || filters.status);
   const selectedRow = rows.find((r) => r.repo === selected);
   const resetFilters = () => { setQ(''); setFilters(EMPTY_FILTERS); setConfirmBulk(false); };
+  const onRefresh = () => { setConfirmBulk(false); void reload(); };
   const onToggle = (repo: string, op: 'turn_on' | 'turn_off') =>
     toggle(repo, op, (msg, err) => setToast({ msg, err }));
   const onScale = (repo: string, targets: Parameters<typeof scale>[1]) =>
@@ -93,7 +95,7 @@ function DashboardInner() {
         <main id="projects">
           <div className="page-heading">
             <div><h1>데모 프로젝트</h1><p>프로젝트를 찾고, 리소스를 준비하고, 데모를 시작하세요.</p></div>
-            <button className="btn" disabled={loading || turningOnAll} onClick={() => void reload()}>
+            <button className="btn" disabled={loading || turningOnAll} onClick={onRefresh}>
               <Icon name="refresh" />새로고침
             </button>
           </div>
@@ -112,7 +114,7 @@ function DashboardInner() {
           {confirmBulk && !error && !loading && (
             <section className="bulk-confirm" aria-label="일괄 실행 확인">
               <div><strong>{candidates.length}개 프로젝트를 켤까요?</strong>
-                <p>{candidates.map((r) => r.name).join(', ') || '실행할 프로젝트가 없습니다.'}</p>
+                <p>{candidates.map((r) => `${r.project?.name ?? r.name} (${r.repo})`).join(', ') || '실행할 프로젝트가 없습니다.'}</p>
                 <span>현재 필터에 표시된 중지·오류 상태의 프로젝트에만 적용됩니다.</span></div>
               <div className="button-row"><button className="btn" onClick={() => setConfirmBulk(false)}>취소</button>
                 <button className="btn primary" disabled={!candidates.length} onClick={() => void onTurnOnAll()}>{candidates.length}개 실행</button></div>
@@ -125,7 +127,7 @@ function DashboardInner() {
           <div className="grid" aria-busy={loading}>
             {loading && <div className="empty"><span className="spinner" /><p>프로젝트 상태를 확인하고 있습니다.</p></div>}
             {error && <div className="empty" role="alert"><h2>프로젝트를 불러오지 못했습니다.</h2><p>{error}</p>
-              <button className="btn" onClick={() => void reload()}>다시 불러오기</button></div>}
+              <button className="btn" onClick={onRefresh}>다시 불러오기</button></div>}
             {!loading && !error && visible.length === 0 && <div className="empty"><Icon name="search" width="32" height="32" />
               <h2>{rows.length ? '조건에 맞는 프로젝트가 없습니다.' : '등록된 프로젝트가 없습니다.'}</h2>
               <p>{rows.length ? '다른 검색어를 사용하거나 필터를 초기화해 보세요.' : '프로젝트를 등록하면 이곳에서 상태와 리소스를 확인할 수 있습니다.'}</p></div>}

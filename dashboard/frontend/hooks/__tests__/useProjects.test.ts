@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { useProjects } from '@/hooks/useProjects';
 import * as api from '@/lib/api';
 import type { Project } from '@/lib/types';
@@ -99,6 +99,44 @@ describe('toggle()', () => {
     const p = result.current.toggle('org/a', 'turn_on');
     await vi.advanceTimersByTimeAsync(1000);
     await expect(p).resolves.toEqual({ ok: false });
+  });
+});
+
+describe('reload during lifecycle polling', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('does not replace a completed toggle with a delayed transitioning snapshot', async () => {
+    mockedApi.listProjects.mockResolvedValue([
+      { repo: 'org/a', name: 'a', account: 'one' },
+      { repo: 'org/b', name: 'b', account: 'one' },
+    ]);
+    let status = 'off';
+    let slowReload = false;
+    let release!: (value: Awaited<ReturnType<typeof api.getProject>>) => void;
+    const delayed = new Promise<Awaited<ReturnType<typeof api.getProject>>>((resolve) => { release = resolve; });
+    const detail = (value: string) => ({ project: null as unknown as Project, state: { status: value } });
+    mockedApi.getProject.mockImplementation(async (_owner, name) =>
+      name === 'b' && slowReload ? delayed : detail(status));
+    mockedApi.toggleProject.mockResolvedValue({ job_id: 'toggle-a' });
+    mockedApi.getJob.mockResolvedValue({ id: 'toggle-a', operation: 'turn_on', status: 'succeeded', progress: {} });
+    const { result } = renderHook(() => useProjects());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    vi.useFakeTimers();
+    let toggle!: Promise<{ ok: boolean }>;
+    await act(async () => { toggle = result.current.toggle('org/a', 'turn_on'); });
+    status = 'transitioning';
+    slowReload = true;
+    let reload!: Promise<void>;
+    await act(async () => { reload = result.current.reload(); });
+    status = 'on';
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); await toggle; });
+    expect(result.current.rows.find((r) => r.repo === 'org/a')?.status).toBe('on');
+    await act(async () => { release(detail('off')); await reload; });
+    expect(result.current.rows.find((r) => r.repo === 'org/a')?.status).toBe('on');
   });
 });
 
@@ -274,7 +312,7 @@ describe('scale()', () => {
     const p = result.current.scale('org/a', [{ stepKey: 'ecs:c/s', desiredCount: 4 }], notify);
     await vi.advanceTimersByTimeAsync(1000);
     await p;
-    const reminded = notify.mock.calls.some((c) => String(c[0]).includes('ecs:c/s') && String(c[0]).includes('restore point'));
+    const reminded = notify.mock.calls.some((c) => String(c[0]).includes('ecs:c/s'));
     expect(reminded).toBe(false);
   });
 
@@ -295,6 +333,7 @@ describe('scale()', () => {
     await p;
     const reminded = notify.mock.calls.some((c) => String(c[0]).includes('argocd-app:app-a'));
     expect(reminded).toBe(true);
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining('저장된 기준이 없으면'), true);
   });
 
   it('does not remind a target with no progress entry at all (job-level abort)', async () => {

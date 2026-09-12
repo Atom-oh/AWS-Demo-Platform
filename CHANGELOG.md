@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a documentation map and review/release runbook separating code review, plans, producer readiness and public runtime verification.
 
 ### Changed
+- Refined the demo dashboard with responsive discovery, visible-project bulk-start confirmation, accessible detail/scale controls, refresh-race protection and qualified HPA restoration guidance.
 - Aligned root/module context, onboarding and architecture with implemented dashboard features and deployment boundaries; regenerated `AGENTS.md` from canonical `CLAUDE.md` with a fresh source marker.
 - Retired the bilingual English/Korean documentation convention — ADRs, README, CHANGELOG, runbooks, and code comments are now English-only. `AskUserQuestion` prompts to the user remain the one exception.
 - Rewrote all `CLAUDE.md` files (root + module-level) and `AGENTS.md` from imperative rule lists into goal-oriented prose, with no fenced code blocks.

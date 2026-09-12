@@ -7,9 +7,8 @@ Refine the existing dark interface; no new backend or auth behavior.
 
 ## Design and scope
 
-The existing screen is the reference. Image generation is unavailable in this
-session, so use code-native UI and retain the sidebar, statistics, project cards
-and detail drawer. Navy surfaces, blue actions, semantic status colors, 8/16/24px
+The existing screen is the reference. Retain its code-native sidebar, statistics,
+project cards and detail drawer. Navy surfaces, blue actions, semantic status colors, 8/16/24px
 spacing and explicit keyboard focus form the shared visual system. Do not call
 an `on` status a successful health check.
 
@@ -29,7 +28,10 @@ the PR rather than in this implementation snapshot.
 
 Add behavior tests for filtered bulk scope, retry, keyboard navigation and scale
 validation/in-flight duplicate prevention. Preserve existing hook tests.
-Use Playwright with the installed Chromium: the Browser plugin is unavailable
-and Playwright MCP expects a missing Chrome binary. Keep screenshots and temporary
-scripts outside Git. Compare hierarchy, copy, typography, palette, spacing and
+Use browser checks for the scenarios below. Keep screenshots and temporary
+scripts outside Git and summarize the validation in the pull request. Compare hierarchy, copy, typography, palette, spacing and
 mobile layout to the existing reference and the explicit changes above.
+
+Manual validation on 2026-09-12 covered 320/390/768/1024/1440px layouts, the local
+simulated lifecycle API, scale success/failure, keyboard focus and API retry.
+The associated pull request retains the integration and review evidence.

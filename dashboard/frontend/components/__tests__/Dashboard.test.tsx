@@ -12,7 +12,10 @@ const mocks = vi.hoisted(() => ({
 }));
 const rows: ProjectRow[] = [
   { repo: 'org/mall', name: 'Mall', account: 'one', project: null, status: 'off' },
-  { repo: 'org/voice', name: 'Voice', account: 'two', project: null, status: 'off' },
+  { repo: 'org/voice', name: 'Voice', account: 'two', status: 'off', project: {
+    name: 'Voice analytics', account: 'two', github: { repo: 'org/voice', branch: 'main' },
+    resources: [{ type: 'stepfunctions', stepKey: 'stepfunctions:voice' }],
+  } },
   { repo: 'org/live', name: 'Live', account: 'one', project: null, status: 'on' },
 ];
 vi.mock('@/hooks/useProjects', () => ({
@@ -63,5 +66,15 @@ describe('Dashboard discovery and bulk scope', () => {
     render(<Page />);
     await userEvent.click(screen.getByRole('button', { name: '새로고침' }));
     expect(mocks.reload).toHaveBeenCalledOnce();
+  });
+
+  it('finds the title and service label actually displayed on the card', async () => {
+    render(<Page />);
+    const search = screen.getByRole('searchbox');
+    await userEvent.type(search, 'Step Functions');
+    expect(screen.getByRole('button', { name: 'Voice analytics 상세 보기' })).toBeInTheDocument();
+    await userEvent.clear(search);
+    await userEvent.type(search, 'Voice analytics');
+    expect(screen.getByRole('article')).toHaveAttribute('aria-label', 'Voice analytics');
   });
 });

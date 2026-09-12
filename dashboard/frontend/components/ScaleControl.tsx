@@ -1,7 +1,7 @@
 'use client';
 import { useId, useRef, useState } from 'react';
 import type { ResourceRef, ScaleTarget, Status } from '@/lib/types';
-import { HPA_SCALE_NOTE, MAX_SCALE_COUNT } from '@/lib/presentation';
+import { ECS_SCALE_NOTE, HPA_SCALE_NOTE, MAX_SCALE_COUNT } from '@/lib/presentation';
 
 export function ScaleControl({ resource, status, onScale }: {
   resource: ResourceRef;
@@ -54,7 +54,7 @@ export function ScaleControl({ resource, status, onScale }: {
       </span>
       <span className="scale-note">{resource.type === 'argocd-app'
         ? HPA_SCALE_NOTE
-        : '변경한 수량이 이후 끄기·켜기의 복원 기준이 됩니다.'}</span>
+        : ECS_SCALE_NOTE}</span>
       {feedback && <span className="scale-feedback" role="status">{feedback}</span>}
     </form>
   );
