@@ -55,9 +55,12 @@ spec:
                   kubernetes.io/arch: arm64
                 containers:
                   - name: runner
-                    image: 180294183052.dkr.ecr.ap-northeast-2.amazonaws.com/actions-runner-claude:latest
+                    # Matches ai-trader-web's reviewed CLI 2.1.240 contract.
+                    image: 180294183052.dkr.ecr.ap-northeast-2.amazonaws.com/actions-runner-claude@sha256:cc315b2a639f1ad215a9907ee92128cadb586bf5390f32a84bcc82db81a7808a
                     command: ["/home/runner/run.sh"]
                     env:
+                      - name: DISABLE_AUTOUPDATER
+                        value: "1"
                       # PR-review panel AI CLI auth (ExternalSecret ai-panel-keys <- /demo-platform/actions/AI-key).
                       # optional: true — a missing key/Secret does not block runner fleet startup (that panel just gracefully skips).
                       - name: KIRO_API_KEY
