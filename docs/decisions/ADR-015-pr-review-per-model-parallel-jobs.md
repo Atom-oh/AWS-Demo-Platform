@@ -154,6 +154,14 @@ graph LR
   chair *primary* (ADR-016) reviewing the same PR diffs, so this isn't a new exposure category.
   Credits per review rose accordingly (4.40x/2.40x vs. the prior 2.20x/1.00x) — accepted
   explicitly, not re-litigated here.
+
+  **Update (2026-09-12):** the later Fable catalog ID was rejected; the slot now
+  resolves `kiro-fable` to `claude-opus-5`. See
+  [ADR-014's catalog recovery update](ADR-014-pr-review-opus5-model-bump.md#update-2026-09-12-kiro-catalog-recovery)
+  for both slots' re-verification, legacy label/artifact compatibility and the
+  model-family overlap with the chair fallback. The historical roster and credit
+  observations above do not describe the current catalog.
+
 - **Terraform version in the prompts corrected**: the lens/chair prompts asserted "Terraform
   1.9.8 pin" as a project rule, but the actual pin (per `CLAUDE.md`) is 1.9.6 — 1.9.8 fails to
   download on an expired upstream HashiCorp GPG key. This pre-existing inaccuracy (carried over
