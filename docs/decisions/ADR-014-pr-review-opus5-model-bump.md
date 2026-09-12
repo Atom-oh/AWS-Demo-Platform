@@ -101,3 +101,44 @@ this ADR) — no code change was needed for that slot.
 > `config.toml`) — Codex's `amazon-bedrock-runtime` provider genuinely has no equivalent
 > region-pin requirement, so that region-pin cleanup (propagated to sibling repos'
 > `run-panel.sh`) was correct as originally done and needed no follow-up correction.
+
+## Update (2026-09-12): Kiro catalog recovery
+
+This update supersedes the Kiro catalog assertions in the 2026-09-09 update above
+and ADR-015's original roster decision. Those earlier observations remain historical.
+In Actions run `34698223622`, Kiro rejected `claude-fable-5.1` as nonexistent and
+listed `claude-opus-5` among its available models. Restore that slot's model to
+`claude-opus-5:kiro-fable` in `scripts/pr-review/lib.sh`.
+
+Both Kiro slots were independently reverified on 2026-09-12:
+
+- **`claude-opus-5`:** a local Kiro CLI 2.11.1 probe returned `READY` in 2 seconds.
+  A subsequent supplemental review for PR #104 HEAD
+  `3fe0811b55ef0c8a7ef042e691c6cf20c9007129` returned actual L2, L3, L4 and L5
+  review responses, each with exit code 0. The local evidence is
+  `/tmp/adp-ui-20260912/kiro-supported-probe.*` and
+  `/tmp/adp-ui-20260912/pr104-supplemental/metadata.json` plus `L2.md`–`L5.md`.
+- **`gpt-5.6-sol`:** its separate `kiro-sol` job in Actions run `34698223622`
+  returned all four L2–L5 responses for HEAD
+  `ecddf170553c5d7afd52539fcb7170162d75eefe`. Downloaded evidence is under
+  `/tmp/adp-ui-20260912/review-ecddf17/remaining/pr-review-slot-kiro-sol/`.
+
+These observations establish model execution and response coverage for the stated
+heads; they do not declare every finding resolved or validate a later commit.
+The probe alone is not a code review. Since `pull_request_target` executes the
+trusted base checkout, PR #104's native Kiro slot still uses the rejected model
+until this repair lands. Supplemental reviews must be bound to each new HEAD and
+assessed alongside native CI; an absent native response remains visible.
+
+Keep the **legacy `kiro-fable` tag** for stable workflow dispatch, artifact names,
+aggregation and coverage compatibility. `strategy.matrix.model` contains slot
+tags; `KIRO_MODELS` resolves the Kiro tags to catalog IDs. Generated labels such as
+`kiro-fable/L4` therefore identify a compatibility slot rather than the literal
+model name. Use the roster mapping to attribute its responses to Claude Opus 5.
+
+The Kiro slot now overlaps the Claude Opus 5 family used by the chair fallback,
+`global.anthropic.claude-opus-5`, through a different access path. Their agreement
+can be correlated; slot count does not establish model-family independence.
+This recovery changes no budgets, timeouts, retries, security/read-only controls,
+or coverage rules. Earlier preview labels and credit multipliers remain dated
+catalog observations, not current availability or pricing guarantees.
