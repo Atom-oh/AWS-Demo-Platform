@@ -12,6 +12,17 @@ superseded by [ADR-015](ADR-015-pr-review-per-model-parallel-jobs.md)
 
 ## Context
 
+### Update (2026-09-12) — ai-trader-web compatibility exception
+
+The dedicated `ai-trader-web-claude-arm` fleet uses a retained version tag plus
+immutable image digest while that consumer verifies Claude CLI `2.1.240`.
+This is a scoped exception to shared `latest` consumption; other fleets and the
+weekly image build remain unchanged. Native Claude self-update is disabled in
+this fleet so the checked binary remains consistent through the review.
+Platform CI and ai-trader-web maintainers own coordinated contract/image upgrades.
+See the [compatibility and recovery runbook](../runbooks/ai-trader-review-runner.md)
+for dated evidence, tag retention and the removal/upgrade trigger.
+
 `pr-review.yml` runs a single `claude` CLI review (Bedrock Opus 4.8) on the
 self-hosted `aws-demo-platform-claude-arm` runner and gates the PR on a final
 `VERDICT: PASS|FAIL` line. We want a multi-AI panel — Codex and Kiro — to feed a
