@@ -103,6 +103,22 @@ describe('toggle()', () => {
 });
 
 describe('reload during lifecycle polling', () => {
+  const list = [{ repo: 'org/a', name: 'a', account: 'one' }];
+  const detail = (status: string) => ({ project: null as unknown as Project, state: { status } });
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((done) => { resolve = done; });
+    return { promise, resolve };
+  }
+  async function setupRow() {
+    vi.resetAllMocks();
+    mockedApi.listProjects.mockResolvedValue(list);
+    mockedApi.getProject.mockResolvedValue(detail('off'));
+    const { result } = renderHook(() => useProjects());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    return result;
+  }
+
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -115,11 +131,9 @@ describe('reload during lifecycle polling', () => {
     ]);
     let status = 'off';
     let slowReload = false;
-    let release!: (value: Awaited<ReturnType<typeof api.getProject>>) => void;
-    const delayed = new Promise<Awaited<ReturnType<typeof api.getProject>>>((resolve) => { release = resolve; });
-    const detail = (value: string) => ({ project: null as unknown as Project, state: { status: value } });
+    const delayed = deferred<ReturnType<typeof detail>>();
     mockedApi.getProject.mockImplementation(async (_owner, name) =>
-      name === 'b' && slowReload ? delayed : detail(status));
+      name === 'b' && slowReload ? delayed.promise : detail(status));
     mockedApi.toggleProject.mockResolvedValue({ job_id: 'toggle-a' });
     mockedApi.getJob.mockResolvedValue({ id: 'toggle-a', operation: 'turn_on', status: 'succeeded', progress: {} });
     const { result } = renderHook(() => useProjects());
@@ -135,8 +149,53 @@ describe('reload during lifecycle polling', () => {
     status = 'on';
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); await toggle; });
     expect(result.current.rows.find((r) => r.repo === 'org/a')?.status).toBe('on');
-    await act(async () => { release(detail('off')); await reload; });
+    await act(async () => { delayed.resolve(detail('off')); await reload; });
     expect(result.current.rows.find((r) => r.repo === 'org/a')?.status).toBe('on');
+  });
+
+  it('does not let an older refreshOne response overwrite a newer manual reload', async () => {
+    const result = await setupRow();
+    const oldRead = deferred<ReturnType<typeof detail>>();
+    mockedApi.toggleProject.mockRejectedValue(new Error('request failed'));
+    mockedApi.getProject.mockImplementationOnce(() => oldRead.promise);
+    let toggle!: Promise<{ ok: boolean }>;
+    await act(async () => { toggle = result.current.toggle('org/a', 'turn_on'); });
+    mockedApi.getProject.mockResolvedValue(detail('on'));
+    await act(async () => { await result.current.reload(); });
+    expect(result.current.rows[0].status).toBe('on');
+    await act(async () => { oldRead.resolve(detail('transitioning')); await toggle; });
+    expect(result.current.rows[0].status).toBe('on');
+  });
+
+  it('accepts a newer detail request even when its list request started before an action', async () => {
+    const result = await setupRow();
+    const delayedList = deferred<typeof list>();
+    mockedApi.listProjects.mockImplementationOnce(() => delayedList.promise);
+    let reload!: Promise<void>;
+    await act(async () => { reload = result.current.reload(); });
+    mockedApi.toggleProject.mockRejectedValue(new Error('request failed'));
+    mockedApi.getProject.mockResolvedValueOnce(detail('transitioning'));
+    await act(async () => { await result.current.toggle('org/a', 'turn_on'); });
+    mockedApi.getProject.mockResolvedValue(detail('on'));
+    await act(async () => { delayedList.resolve(list); await reload; });
+    expect(result.current.rows[0].status).toBe('on');
+  });
+
+  it('keeps loading until the latest reload finishes and ignores an older reload result', async () => {
+    const result = await setupRow();
+    const oldRead = deferred<ReturnType<typeof detail>>();
+    const newRead = deferred<ReturnType<typeof detail>>();
+    mockedApi.getProject.mockImplementationOnce(() => oldRead.promise).mockImplementationOnce(() => newRead.promise);
+    let oldReload!: Promise<void>;
+    let newReload!: Promise<void>;
+    await act(async () => { oldReload = result.current.reload(); });
+    await act(async () => { newReload = result.current.reload(); });
+    await act(async () => { oldRead.resolve(detail('error')); await oldReload; });
+    expect(result.current.loading).toBe(true);
+    expect(result.current.rows[0].status).toBe('off');
+    await act(async () => { newRead.resolve(detail('on')); await newReload; });
+    expect(result.current.loading).toBe(false);
+    expect(result.current.rows[0].status).toBe('on');
   });
 });
 

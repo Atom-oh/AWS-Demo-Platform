@@ -179,9 +179,14 @@ audit trail.
    a baseline may never be saved. Off/on restores a saved baseline; it cannot
    reconstruct unrecorded original bounds. The UI must warn operators to
    verify failed targets rather than promise restoration.
+   A resource's `done` progress entry is written after its baseline is saved,
+   not per HPA handle; a different resource failing does not undo that write.
 
 7. **No in-flight guard** prevents two `scale` requests targeting the same
    resource from overlapping.
+   **UI mitigation (2026-09-12):** the open scale control prevents duplicate
+   submissions locally. No backend or cross-client guard prevents overlap
+   across reopened controls, tabs, operators or direct API clients.
 8. **A restart-recovered `scale` job replays every target** in its `targets`
    array rather than consulting its own `progress` map to skip ones already
    recorded `done` before the restart — usually idempotent (re-applying the

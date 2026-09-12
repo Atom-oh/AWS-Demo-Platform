@@ -74,7 +74,7 @@ describe('DetailDrawer argocd-app scale control', () => {
     expect(screen.getByRole('button', { name: '닫기' })).toHaveFocus();
     await act(async () => finish({ ok: true }));
     expect(screen.getByText('목표 수를 적용했습니다.')).toBeInTheDocument();
-    expect(screen.getByText(/끈 뒤 다시 켜면 복원/)).toBeInTheDocument();
+    expect(screen.getByText(/저장된 기준이 있는 경우에만/)).toBeInTheDocument();
   });
 
   it('keeps notification dismissal inside the modal focus scope', async () => {

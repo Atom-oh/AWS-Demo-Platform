@@ -13,55 +13,70 @@ export function useProjects() {
   const [rows, setRows] = useState<ProjectRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const rowRevisions = useRef<Record<string, number>>({});
+  const rowRequestIds = useRef<Record<string, number>>({});
+  const loadSequence = useRef(0);
 
-  const refreshOne = useCallback(async (repo: string) => {
-    const [owner, name] = repo.split('/');
-    try {
-      const d = await getProject(owner, name);
-      rowRevisions.current[repo] = (rowRevisions.current[repo] ?? 0) + 1;
-      setRows((rs) =>
-        rs.map((r) =>
-          r.repo === repo
-            ? { ...r, project: d.project, status: (d.state?.status as Status) ?? 'unknown' }
-            : r,
-        ),
-      );
-    } catch {
-      /* leave row as-is */
-    }
+  const nextRowRequest = useCallback((repo: string) => {
+    const id = (rowRequestIds.current[repo] ?? 0) + 1;
+    rowRequestIds.current[repo] = id;
+    return id;
   }, []);
 
+  // Both fetch paths share request-start ordering, independent of response timing.
+  const readProject = useCallback(async (repo: string) => {
+    const requestId = nextRowRequest(repo);
+    const [owner, name] = repo.split('/');
+    try {
+      return { requestId, detail: await getProject(owner, name) };
+    } catch {
+      return { requestId, detail: null };
+    }
+  }, [nextRowRequest]);
+
+  const refreshOne = useCallback(async (repo: string) => {
+    const { requestId, detail } = await readProject(repo);
+    if (!detail) return;
+    setRows((rs) => {
+      if (rowRequestIds.current[repo] !== requestId) return rs;
+      return rs.map((r) =>
+          r.repo === repo
+            ? { ...r, project: detail.project, status: (detail.state?.status as Status) ?? 'unknown' }
+            : r,
+      );
+    });
+  }, [readProject]);
+
   const load = useCallback(async () => {
-    const revisionsAtStart = { ...rowRevisions.current };
+    const loadId = ++loadSequence.current;
     setLoading(true);
     setError(null);
     try {
       const list = await listProjects();
+      if (loadId !== loadSequence.current) return;
       const detailed = await Promise.all(
-        list.map(async (it): Promise<ProjectRow> => {
-          const [owner, name] = it.repo.split('/');
-          try {
-            const d = await getProject(owner, name);
-            return { ...it, project: d.project, status: (d.state?.status as Status) ?? 'unknown' };
-          } catch {
-            return { ...it, project: null, status: 'unknown' };
-          }
+        list.map(async (it) => {
+          const { requestId, detail } = await readProject(it.repo);
+          const row: ProjectRow = {
+            ...it, project: detail?.project ?? null,
+            status: (detail?.state?.status as Status) ?? 'unknown',
+          };
+          return { requestId, row };
         }),
       );
       setRows((current) => {
+        if (loadId !== loadSequence.current) return current;
         const byRepo = new Map(current.map((row) => [row.repo, row]));
-        return detailed.map((row) =>
-          (rowRevisions.current[row.repo] ?? 0) !== (revisionsAtStart[row.repo] ?? 0)
+        return detailed.map(({ requestId, row }) =>
+          rowRequestIds.current[row.repo] !== requestId
             ? byRepo.get(row.repo) ?? row
             : row);
       });
     } catch (e) {
-      setError((e as Error).message);
+      if (loadId === loadSequence.current) setError((e as Error).message);
     } finally {
-      setLoading(false);
+      if (loadId === loadSequence.current) setLoading(false);
     }
-  }, []);
+  }, [readProject]);
 
   useEffect(() => {
     void load();
@@ -74,7 +89,7 @@ export function useProjects() {
       notify?: Notify,
     ): Promise<{ ok: boolean }> => {
       const [owner, name] = repo.split('/');
-      rowRevisions.current[repo] = (rowRevisions.current[repo] ?? 0) + 1;
+      nextRowRequest(repo);
       setRows((rs) => rs.map((r) => (r.repo === repo ? { ...r, status: 'transitioning' } : r)));
       let ok = false;
       try {
@@ -98,7 +113,7 @@ export function useProjects() {
       await refreshOne(repo);
       return { ok };
     },
-    [refreshOne],
+    [nextRowRequest, refreshOne],
   );
 
   const turnOnAll = useCallback(

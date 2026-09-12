@@ -205,7 +205,7 @@ export function DetailDrawer({
                     <div className="resrow" key={r.stepKey}>
                       <span className={`chip ${on ? 'res-on' : 'res-always'}`}>{LABEL[r.type] ?? r.type}</span>
                       <span className="resid">{resourceId(r)}</span>
-                      {!on && <span className="muted">상시 유지 · 상태 확인용</span>}
+                      {!on && <span className="muted">일괄 끄기 제외</span>}
                       {(isEcs || isArgocdApp) && (
                         <ScaleControl resource={r} status={row.status}
                           onScale={onScale ? (targets) => onScale(row.repo, targets) : undefined} />

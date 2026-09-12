@@ -3,7 +3,7 @@
 ## Role
 Stage 2–3 admin platform for AWS Demo Platform.
 - **`backend/`** — Implemented **Lifecycle Controller**. Node.js TypeScript pnpm-workspaces monorepo with dev ECS runtime definitions; verify running revisions separately.
-- **`frontend/`** — Stage 3 admin UI (Next.js 14, App Router). **MVP built (dev only):** live project list, faceted discovery, on/off toggles, detail drawer (resources, GitHub link, briefing, history), confirmed bulk start of visible eligible (off/error) projects, and per-resource demo-scale controls — via same-origin `/api/*` proxy. See `frontend/CLAUDE.md`.
+- **`frontend/`** — Next.js 14 admin UI (dev): project discovery, detail/briefing/history, toggles, confirmed visible off/error bulk start and demo-scale controls over same-origin `/api/*`. See `frontend/CLAUDE.md`.
 
 ## backend/ — Lifecycle Controller (implemented)
 
@@ -38,7 +38,7 @@ trigger current backend CI filters; arrange the build and service rollout explic
 - **Job model**: the api enqueues to SQS and the worker processes idempotently; SQS visibility is 300s, and RDS start polling runs in the background so it doesn't trigger redelivery.
 - **`scale` operation**: independent of `turn_on`/`turn_off` — never mutates the project's on/off `state.status` (no `markOn`/`markError`). `targets` (`{stepKey, replicas?|desiredCount?}[]`) are persisted on the job record itself so restart recovery has something to reconstruct from. A worker-side status recheck at the start of the branch narrows (doesn't eliminate) the race against a concurrent `turn_off`. See [ADR-017](../docs/decisions/ADR-017-demo-scale-job-operation.md) for the full design and its accepted limitations.
 - **ArgoCD namespace is per-call, not per-client**: `ArgocdClient.listWorkloads(app, namespace)` takes `namespace` as an argument — it is not baked into the client at construction. Each project's `argocd-app` resource carries its own `workload_selector.namespace`, and `ArgocdController`/`job-runner.ts` thread that value through on every `turnOff`/`turnOn`/`scale` call, since one worker-wide `ArgocdClient` instance serves every project's ArgoCD applications regardless of which K8s namespace each lives in.
-- **HPA baseline preservation**: `scale()` pins an HPA's `min=max` to the requested count, which would otherwise permanently erase its original autoscaling range. `StateClient.recordHpaBaselineIfAbsent`/`readHpaBaseline` persist the *first-ever-observed* bounds for a given `argocd-app` resource as a write-once sibling DDB item (`sk=hpa-baseline#<stepKey>`, conditional `attribute_not_exists(pk)`) — both `ArgocdController.scale()` (via `getLive` before patching) and `job-runner.ts`'s `turnOffOne` (record-then-read, preferring the baseline over its own freshly-observed live bounds) can be the one that captures it first. A `turn_off`→`turn_on` cycle now restores the true original range even after any number of prior `scale` calls.
+- **HPA baseline preservation**: first captured bounds use a write-once `hpa-baseline#<stepKey>` item. Off/on restores a saved baseline; a first partial scale failure may leave none recorded. See ADR-017 limitation 6 and the backend guide for persistence order.
 
 ### Tests
 - Unit: vitest + `aws-sdk-client-mock` / fetch mocks.

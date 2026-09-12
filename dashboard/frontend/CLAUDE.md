@@ -38,42 +38,30 @@ To run it: from `dashboard/backend`, run `pnpm -r build`, then start it with
 `PORT=8087 node packages/api/dist/dev-server.js`.
 
 ## Structure
-`app/` holds `layout.tsx` (root layout + globals.css), `page.tsx` (the dashboard
-client component — search + filters + grid + notifications + confirmed visible-project start), and
-`globals.css` (responsive dark theme, reduced-motion support). `components/` holds `StatStrip.tsx` (totals for
-projects / accounts / on / off), `FacetSidebar.tsx` (category / account /
-status facets with counts, collapsible on mobile), `ProjectCard.tsx` (one project: status pill,
-service chips, a native detail button, toggle, GitHub link and demo link), and `DetailDrawer.tsx`
-(resources with per-resource scale controls, GitHub link, briefing, URLs,
-history timeline). `ScaleControl.tsx` owns labeled 1–20 inputs, a per-control in-flight duplicate guard, and inline completion/failure feedback. `Icon.tsx` holds
-small shared SVG icons; `lib/presentation.ts` holds status/service labels and scale
-help text. `hooks/useProjects.ts` loads the list and details and
-drives `toggle()` (always resolves `{ok: boolean}`, never rejects),
-`turnOnAll()` (fixed concurrency of 4; the page supplies visible off/error rows only), and `scale()` — all with job polling.
-`lib/api.ts` holds the fetch helpers (`/api/projects`, `/actions/:op`,
-`/actions/scale`, `/jobs/:id`), and `lib/types.ts` holds the `Project` /
-`ProjectRow` / `Job` / `Status` / `ScaleTarget` types, mirroring the backend
-shapes (`ResourceRef.stepKey` is echoed by the api, never computed here).
+`app/` owns the layout, dashboard page and responsive dark CSS. `StatStrip`,
+`FacetSidebar` and `ProjectCard` provide discovery; `DetailDrawer` contains
+briefing, resources, links and history. `ScaleControl` owns 1–20 inputs, a
+per-control lock and feedback. `Icon` and `lib/presentation.ts` share visuals/copy.
+`hooks/useProjects.ts` loads state and polls toggle/scale jobs; toggles resolve
+`{ok: boolean}` and bulk start uses concurrency 4. `lib/api.ts` and `lib/types.ts`
+mirror backend contracts; resource `stepKey` values come from the API.
 
 ## Demo workflow
 
-Search trims surrounding whitespace and matches displayed project/service names,
-repo, account, description and raw resource type. Reset clears search and all facets. Refresh/retry reloads the
-API list, including transitions observed before this page started. Per-project
-revision tracking preserves newer lifecycle updates when an older list request
-finishes late. An `on` state is the
-last observed lifecycle status, not a service health check.
+Search covers displayed names, services, repo, account and description; reset clears
+search/facets. Refresh also recovers previously observed transitions. Both fetch
+paths use per-project request-start ordering; overlapping reloads keep the latest
+result/loading state. A toggle invalidates older reads. Status is not a health check.
 
-Bulk start shows the eligible count and asks for confirmation with project names.
-Changing search/facets or refreshing dismisses that confirmation. Project cards use native
-buttons for detail access, avoiding nested interactive elements inside a button.
-The drawer traps keyboard focus, restores focus on close and locks page scrolling.
-Error notifications remain until dismissed; successful ones expire after 6.5s.
-Notifications render inside an open drawer so their dismissal stays keyboard-accessible.
-HPA help explains that scale pins its range and a later off/on cycle restores a
-saved baseline. A first partial failure can prevent baseline persistence; failure
-notifications warn operators to inspect the current bounds, matching ADR-017
-limitation 6 and its 2026-09-12 clarification.
+Bulk start confirms visible off/error projects by name/repo. Search, facet and
+refresh changes dismiss confirmation. Cards use native detail buttons; the drawer
+traps/restores focus and locks page scrolling. Notifications appear inside an open
+drawer. Errors do not auto-expire but later notifications can replace them;
+successes expire after 6.5s.
+
+Scale locks are per-control. HPA recovery needs a saved baseline; a first partial
+failure may prevent its persistence. Failure notifications prompt verification
+(ADR-017 limitation 6, clarified 2026-09-12).
 
 ## API contract consumed (must match `@demo-platform/api`)
 - `GET /api/projects` → `{repo,name,account}[]`
@@ -88,6 +76,7 @@ limitation 6 and its 2026-09-12 clarification.
 - `GET /api/jobs/:id` → `{status, progress, error, ...}` (terminal statuses include `succeeded`, `failed` and `partial_failure`)
 
 ## Conventions
+UI labels are Korean; repository documentation and code comments remain English.
 TypeScript strict throughout. `lib/types.ts` mirrors the backend Zod schemas, so
 it needs to stay in sync whenever the API shape changes. Toggleable resource
 types are `ecs`, `ec2`, `argocd-app`, `rds`; others render as

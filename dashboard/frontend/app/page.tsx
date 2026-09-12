@@ -71,6 +71,8 @@ function DashboardInner() {
       setToast(failed.length
         ? { msg: `${failed.length}개 실행 실패: ${failed.map((r) => r.repo).join(', ')}`, err: true }
         : { msg: `${results.length}개 프로젝트 실행이 완료되었습니다.` });
+    } catch (e) {
+      setToast({ msg: `일괄 실행을 완료하지 못했습니다: ${(e as Error).message}`, err: true });
     } finally {
       bulkLock.current = false;
       setTurningOnAll(false);
