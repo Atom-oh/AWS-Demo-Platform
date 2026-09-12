@@ -1,107 +1,60 @@
 import type { ProjectRow } from '@/lib/types';
+import { RESOURCE_LABEL, STATUS_LABEL } from '@/lib/presentation';
+import { Icon } from './Icon';
 
-const TOGGLEABLE = new Set(['ecs', 'ec2', 'argocd-app', 'rds']);
-const LABEL: Record<string, string> = {
-  ecs: 'ECS',
-  ec2: 'EC2',
-  'argocd-app': 'ArgoCD',
-  rds: 'RDS',
-  dynamodb: 'DynamoDB',
-  elasticache: 'ElastiCache',
-  kafka: 'Kafka',
-  msk: 'MSK',
-  stepfunctions: 'StepFn',
-  lambda: 'Lambda',
-  firehose: 'Firehose',
-};
-
-export function ProjectCard({
-  row,
-  onToggle,
-  onOpen,
-}: {
+export function ProjectCard({ row, onToggle, onOpen }: {
   row: ProjectRow;
   onToggle: (repo: string, op: 'turn_on' | 'turn_off') => void;
   onOpen: (repo: string) => void;
 }) {
   const pr = row.project;
-  const cat = pr?.display?.category;
+  const name = pr?.name ?? row.name;
   const demo = pr?.urls?.demo;
-  const st = row.status;
+  const resources = [...new Set(pr?.resources.map((r) => r.type) ?? [])];
   return (
-    <div
-      className="card"
-      role="button"
-      tabIndex={0}
-      onClick={() => onOpen(row.repo)}
-      onKeyDown={(e) => {
-        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
-          e.preventDefault();
-          onOpen(row.repo);
-        }
-      }}
-    >
-      <div className="row">
-        <h2>{pr?.name ?? row.name}</h2>
-        <span className={`pill ${st}`}>{st}</span>
+    <article className={`card status-${row.status}`} aria-label={name}>
+      <div className="card-meta">
+        <span>{pr?.display?.category ?? '프로젝트'}</span>
+        <span className={`pill ${row.status}`}>{STATUS_LABEL[row.status]}</span>
       </div>
-      <a
-        className="repo"
-        href={`https://github.com/${row.repo}`}
-        target="_blank"
-        rel="noreferrer"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {row.repo}
-      </a>
-      <div className="chips">
-        {cat && <span className="chip cat">{cat}</span>}
-        <span className="chip acct">{row.account}</span>
+      <h2>
+        <button className="card-title" aria-label={`${name} 상세 보기`} onClick={() => onOpen(row.repo)}>
+          {name}<Icon name="chevron" />
+        </button>
+      </h2>
+      <p className="desc">{pr?.description ?? '상세 화면에서 프로젝트 정보를 확인하세요.'}</p>
+      <div className="chips" aria-label="사용 서비스">
+        {resources.map((type) => <span key={type} className="chip">{RESOURCE_LABEL[type] ?? type}</span>)}
+        {!resources.length && <span className="chip">리소스 정보 없음</span>}
       </div>
-      {pr?.description && <div className="desc">{pr.description}</div>}
-      <div className="chips">
-        {(pr?.resources ?? []).map((r, i) => {
-          const toggleable = TOGGLEABLE.has(r.type) && !r.always_on;
-          return (
-            <span key={i} className={`chip ${toggleable ? 'res-on' : 'res-always'}`}>
-              {LABEL[r.type] ?? r.type}
-            </span>
-          );
-        })}
-        {!pr?.resources?.length && <span className="chip">리소스 정보 없음</span>}
+      <div className="card-context">
+        <span>{row.account}</span>
+        <a className="repo" href={`https://github.com/${row.repo}`} target="_blank" rel="noreferrer">
+          {row.repo}<Icon name="arrow" width="14" height="14" />
+        </a>
       </div>
       <footer>
-        {st === 'on' && (
-          <button className="btn on" onClick={(e) => { e.stopPropagation(); onToggle(row.repo, 'turn_off'); }}>
-            Turn off
+        {row.status === 'on' && (
+          <button className="btn" onClick={() => onToggle(row.repo, 'turn_off')}>
+            <Icon name="power" />끄기
           </button>
         )}
-        {st === 'off' && (
-          <button className="btn off" onClick={(e) => { e.stopPropagation(); onToggle(row.repo, 'turn_on'); }}>
-            Turn on
+        {(row.status === 'off' || row.status === 'error') && (
+          <button className="btn primary" onClick={() => onToggle(row.repo, 'turn_on')}>
+            <Icon name="power" />{row.status === 'error' ? '다시 켜기' : '켜기'}
           </button>
         )}
-        {st === 'transitioning' && (
-          <button className="btn" disabled>
-            <span className="spinner" />
-            전환 중
-          </button>
+        {row.status === 'transitioning' && (
+          <button className="btn" disabled><span className="spinner" />전환 중</button>
         )}
-        {(st === 'unknown' || st === 'error') && (
-          <button className="btn" disabled>
-            {st}
-          </button>
-        )}
+        {row.status === 'unknown' && <span className="muted">새로고침으로 상태 확인</span>}
         {demo ? (
-          <a className="btn link" href={demo} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
-            데모 열기 ↗
+          <a className={`btn demo-link${row.status === 'on' ? ' primary' : ''}`}
+            href={demo} target="_blank" rel="noopener noreferrer">
+            데모 열기<Icon name="arrow" />
           </a>
-        ) : (
-          <span className="btn link" aria-disabled>
-            데모 URL 없음
-          </span>
-        )}
+        ) : <span className="demo-link muted">데모 URL 미등록</span>}
       </footer>
-    </div>
+    </article>
   );
 }

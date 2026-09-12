@@ -6,7 +6,7 @@ Master-detail discovery + lifecycle control over the projects the backend manage
 ## Status
 **MVP — dev only.** Renders the live project list, faceted discovery, on/off
 toggles, a detail drawer (resources, GitHub repo link, briefing, history), a
-bulk "turn on all" action, and per-resource demo-scale controls (ArgoCD/HPA
+confirmed bulk start scoped to visible eligible projects, and per-resource demo-scale controls (ArgoCD/HPA
 replicas, ECS `desiredCount` — see [ADR-017](../../docs/decisions/ADR-017-demo-scale-job-operation.md))
 against the backend API. ECS Fargate and same-origin CloudFront routing are already
 defined. Code on main and an image pushed to ECR do not prove that the running
@@ -38,20 +38,30 @@ To run it: from `dashboard/backend`, run `pnpm -r build`, then start it with
 `PORT=8087 node packages/api/dist/dev-server.js`.
 
 ## Structure
-`app/` holds `layout.tsx` (root layout + globals.css), `page.tsx` (the dashboard
-client component — search + filters + grid + toast + "turn on all"), and
-`globals.css` (dark theme). `components/` holds `StatStrip.tsx` (totals for
-projects / accounts / on / off), `FacetSidebar.tsx` (category / account /
-status facets with counts), `ProjectCard.tsx` (one project: status pill,
-resource chips, toggle, GitHub link, demo link), and `DetailDrawer.tsx`
-(resources with per-resource scale controls, GitHub link, briefing, URLs,
-history timeline). `hooks/useProjects.ts` loads the list and details and
-drives `toggle()` (always resolves `{ok: boolean}`, never rejects),
-`turnOnAll()` (fixed concurrency of 4), and `scale()` — all with job polling.
-`lib/api.ts` holds the fetch helpers (`/api/projects`, `/actions/:op`,
-`/actions/scale`, `/jobs/:id`), and `lib/types.ts` holds the `Project` /
-`ProjectRow` / `Job` / `Status` / `ScaleTarget` types, mirroring the backend
-shapes (`ResourceRef.stepKey` is echoed by the api, never computed here).
+`app/` owns the layout, dashboard page and responsive dark CSS. `StatStrip`,
+`FacetSidebar` and `ProjectCard` provide discovery; `DetailDrawer` contains
+briefing, resources, links and history. `ScaleControl` owns 1–20 inputs, a
+per-control lock and feedback. `Icon` and `lib/presentation.ts` share visuals/copy.
+`hooks/useProjects.ts` loads state and polls toggle/scale jobs; toggles resolve
+`{ok: boolean}` and bulk start uses concurrency 4. `lib/api.ts` and `lib/types.ts`
+mirror backend contracts; resource `stepKey` values come from the API.
+
+## Demo workflow
+
+Search covers displayed names, services, repo, account and description; reset clears
+search/facets. Refresh also recovers previously observed transitions. Both fetch
+paths use per-project request-start ordering; overlapping reloads keep the latest
+result/loading state. A toggle invalidates older reads. Status is not a health check.
+
+Bulk start confirms visible off/error projects by name/repo. Search, facet and
+refresh changes dismiss confirmation. Cards use native detail buttons; the drawer
+traps/restores focus and locks page scrolling. Notifications appear inside an open
+drawer. Errors do not auto-expire but later notifications can replace them;
+successes expire after 6.5s.
+
+Scale locks are per-control. HPA recovery needs a saved baseline; a first partial
+failure may prevent its persistence. Failure notifications prompt verification
+(ADR-017 limitation 6, clarified 2026-09-12).
 
 ## API contract consumed (must match `@demo-platform/api`)
 - `GET /api/projects` → `{repo,name,account}[]`
@@ -66,6 +76,7 @@ shapes (`ResourceRef.stepKey` is echoed by the api, never computed here).
 - `GET /api/jobs/:id` → `{status, progress, error, ...}` (terminal statuses include `succeeded`, `failed` and `partial_failure`)
 
 ## Conventions
+UI labels are Korean; repository documentation and code comments remain English.
 TypeScript strict throughout. `lib/types.ts` mirrors the backend Zod schemas, so
 it needs to stay in sync whenever the API shape changes. Toggleable resource
 types are `ecs`, `ec2`, `argocd-app`, `rds`; others render as
