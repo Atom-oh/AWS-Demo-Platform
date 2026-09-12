@@ -70,6 +70,8 @@ describe('DetailDrawer argocd-app scale control', () => {
     expect(onScale).toHaveBeenCalledTimes(1);
     expect(input).toBeDisabled();
     expect(screen.getByRole('form', { name: /수량 변경/ })).toHaveFocus();
+    await userEvent.keyboard('{Tab}');
+    expect(screen.getByRole('button', { name: '닫기' })).toHaveFocus();
     await act(async () => finish({ ok: true }));
     expect(screen.getByText('목표 수를 적용했습니다.')).toBeInTheDocument();
     expect(screen.getByText(/끈 뒤 다시 켜면 복원/)).toBeInTheDocument();

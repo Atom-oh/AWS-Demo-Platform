@@ -96,22 +96,21 @@ export function DetailDrawer({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onCloseRef.current();
       if (e.key === 'Tab' && panelRef.current) {
-        const f = panelRef.current.querySelectorAll<HTMLElement>(
+        const focusable = Array.from(panelRef.current.querySelectorAll<HTMLElement>(
           'a[href],button:not([disabled]),input:not([disabled]),[tabindex]:not([tabindex="-1"])',
-        );
-        if (f.length === 0) return;
-        const first = f[0];
-        const last = f[f.length - 1];
-        if (!panelRef.current.contains(document.activeElement)) {
-          e.preventDefault();
-          first.focus();
-        } else if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
+        ));
+        if (focusable.length === 0) return;
+        const active = document.activeElement;
+        const index = focusable.indexOf(active as HTMLElement);
+        // A pending scale form is programmatically focused but not in the Tab order.
+        // Resolve its next control in DOM order, wrapping before focus can leave.
+        const next = index >= 0
+          ? focusable[(index + (e.shiftKey ? -1 : 1) + focusable.length) % focusable.length]
+          : e.shiftKey
+            ? focusable.filter((el) => active && (active.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING)).pop() ?? focusable[focusable.length - 1]
+            : focusable.find((el) => active && (active.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING)) ?? focusable[0];
+        e.preventDefault();
+        next.focus();
       }
     };
     document.addEventListener('keydown', onKey);
