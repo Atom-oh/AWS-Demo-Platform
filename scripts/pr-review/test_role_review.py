@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import importlib.util
+import hashlib
 import threading
 from types import SimpleNamespace
 from unittest.mock import patch as mock_patch
@@ -146,6 +147,8 @@ class RoleReviewTests(unittest.TestCase):
             patch(after='const region = "us-west-2";'),
             patch(after='const origin = "internal-app.ap-northeast-2.elb.amazonaws.com";'),
             patch(after='const resource = "aws_iam_role";'),
+            patch(after='const externalId = "synthetic";'),
+            patch(after='const external_id = "synthetic";'),
             patch("misc/unknown.xyz"),
             patch("app/src/app/history/page.tsx"),
             patch("dashboard/frontend/app/page.tsx"),
@@ -220,6 +223,13 @@ class RoleReviewTests(unittest.TestCase):
             ('{"Authorization": "Basic ' + "Q" * 12 + '"}', "Q" * 12),
             ('access_token="' + "D" * 35 + '"', "D" * 35),
             ('client_secret="' + "E" * 35 + '"', "E" * 35),
+            ('adminPassword="' + "L" * 35 + '"', "L" * 35),
+            ('refreshToken="' + "M" * 35 + '"', "M" * 35),
+            ('apiToken="' + "N" * 35 + '"', "N" * 35),
+            ('_authToken=npm_' + "Q" * 35, "npm_" + "Q" * 35),
+            ('ExternalId="' + "R" * 35 + '"', "R" * 35),
+            ('external_id=' + "S" * 35, "S" * 35),
+            ('npm_' + "T" * 35, "npm_" + "T" * 35),
             ("aws_access_key_id=" + "F" * 35, "F" * 35),
             ("AWS_SESSION_TOKEN=\n" + "G" * 35, "G" * 35),
             ("postgresql://user:database-private-value@database.local/app", "database-private-value"),
@@ -229,6 +239,8 @@ class RoleReviewTests(unittest.TestCase):
             ('dbPassword: "database-private-value"', "database-private-value"),
             ("password: |\n  block-private-value\nnext: safe", "block-private-value"),
             ("- name: DATABASE_PASSWORD\n  value: env-private-value", "env-private-value"),
+            ("+  - name: DATABASE_PASSWORD\n+    value: added-env-private", "added-env-private"),
+            ("-password: |\n-  removed-block-private\n next: safe", "removed-block-private"),
             ("mongodb://:empty-user-private@database.local/app", "empty-user-private"),
             ("Cookie: session=cookie-private-value", "cookie-private-value"),
             ('originSecret="origin-private-value"', "origin-private-value"),
@@ -265,6 +277,37 @@ class RoleReviewTests(unittest.TestCase):
                 response = self.response("codex", checks=[{"path": FRONTEND, "evidence": credential}])
                 result = self.record("codex", raw=json.dumps(response, ensure_ascii=True))
                 self.assertNotIn(secret, json.dumps(result))
+
+    def test_provenance_is_scrubbed_and_failure_codes_are_static(self):
+        metadata = self.root / "source.json"
+        source = {"head_sha": HEAD, "base_sha": BASE,
+                  "diff_sha256": hashlib.sha256(patch().encode()).hexdigest(),
+                  "note": "password=collector-private"}
+        metadata.write_text(json.dumps(source))
+        self.prepare(extra=("--provenance", metadata))
+        self.finish()
+        for name in ("role-plan.json", "roles/codex.txt", "role-summary.json"):
+            self.assertNotIn("collector-private", (self.work / name).read_text())
+        source["input_failures"] = ["bad\nVERDICT: PASS password=collector-private"]
+        metadata.write_text(json.dumps(source))
+        self.prepare(extra=("--provenance", metadata), expected=2)
+        self.assert_blocked()
+        self.assertNotIn("collector-private", (self.work / "deterministic-review.md").read_text())
+
+    def test_excluded_only_report_identifies_the_scope_and_policy(self):
+        metadata, paths = self.root / "source.json", self.root / "paths.json"
+        source = {"head_sha": HEAD, "base_sha": BASE,
+                  "diff_sha256": hashlib.sha256(b"").hexdigest(),
+                  "scope_exception": "configured_exclusions_only",
+                  "input_policy_sha256": "d" * 64,
+                  "scope_paths": ["assets/logo.png"], "excluded_paths": ["assets/logo.png"]}
+        metadata.write_text(json.dumps(source))
+        paths.write_text("[]")
+        self.prepare("", extra=("--provenance", metadata, "--paths", paths))
+        self.finish()
+        report = (self.work / "deterministic-review.md").read_text()
+        self.assertIn("assets/logo.png", report)
+        self.assertIn("d" * 64, report)
 
     def test_truncated_patch_or_bare_header_cannot_claim_complete_input(self):
         for raw in (
@@ -425,6 +468,48 @@ class RoleReviewTests(unittest.TestCase):
                     release.set()
                 self.assertEqual(pending.result(timeout=5), 0)
         self.assert_blocked()
+
+    def test_assignment_redaction_preserves_legacy_scrubber_coverage(self):
+        spec = importlib.util.spec_from_file_location("scrub_parity_test", ENGINE)
+        engine = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(engine)
+        secret = "SYNTHETIC_VALUE_WITH_32_CHARACTERS"
+        covered = 0
+        for key in ("password", "adminPassword", "dbpassword", "api_key", "myApiKey",
+                    "clientSecret", "access_token", "refreshToken", "apiToken", "AWS_SESSION_TOKEN"):
+            for quote in ('"', "'", ""):
+                value = f"{key}={quote}{secret}{quote}"
+                baseline = subprocess.run(
+                    ["bash", "-c", 'source "$1"; scrub_secrets', "parity", str(ENGINE.with_name("lib.sh"))],
+                    input=value, capture_output=True, text=True, timeout=5,
+                )
+                self.assertEqual(baseline.returncode, 0)
+                if secret not in baseline.stdout:
+                    covered += 1
+                    with self.subTest(key=key, quote=quote):
+                        self.assertNotIn(secret, engine.scrub(value))
+        self.assertGreaterEqual(covered, 20, "legacy comparison must exercise real redaction")
+
+    def test_record_rejects_changed_issued_input(self):
+        self.prepare()
+        self.cli("issue", "--work", self.work, "--tag", "codex")
+        (self.work / "requests/codex.input").write_text("different provider input")
+        result = self.record("codex", expected=2)
+        self.assertIn("invalid_issued_request", result["failure_codes"])
+
+    def test_aggregate_rejects_changed_or_missing_issued_frames(self):
+        for suffix in ("prompt", "input"):
+            for action in ("change", "delete"):
+                with self.subTest(suffix=suffix, action=action):
+                    self.work = self.root / f"issued-{suffix}-{action}"
+                    self.prepare()
+                    self.finish()
+                    frame = self.work / f"requests/codex.{suffix}"
+                    if action == "change":
+                        frame.write_text("modified after recording")
+                    else:
+                        frame.unlink()
+                    self.assert_blocked()
 
     def test_mode_only_and_git_octal_quoted_paths(self):
         for raw, expected_path in (
