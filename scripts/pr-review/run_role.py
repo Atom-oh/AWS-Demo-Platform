@@ -194,6 +194,17 @@ def normalize_transport(text):
     return process.stdout
 
 
+def preserve_stdout_error(output, error):
+    lines = normalize_transport(output).lstrip().splitlines()
+    first = re.sub(r"^> ?", "", lines[0]) if lines else ""
+    # JSON review evidence and JSONL events are not text-mode CLI diagnostics.
+    if first.startswith(("{", "```")):
+        return error
+    if first.startswith("You have reached the limit for overages"):
+        first = "UsageLimitReachedError: stdout account limit"
+    return error + "\n" + first if diagnostic_failure(first) else error
+
+
 def run(work, tag):
     plan = json.loads((work / "role-plan.json").read_text())
     role = plan["roles"][tag]
@@ -248,6 +259,7 @@ def run(work, tag):
                         code, output, error = execute(
                             command, cwd, kiro_environment(cwd, environment), "", timeout
                         )
+                        error = preserve_stdout_error(output, error)
                         if FAILURE.search(error) or diagnostic_failure(error):
                             code = code or 1
                             break
@@ -284,6 +296,7 @@ def run(work, tag):
                     command[2] = framed_prompt
                     delivered = payload
                 code, output, error = execute(command, cwd, environment, delivered, timeout)
+                error = preserve_stdout_error(output, error)
                 if tag == "codex":
                     output, event_error, complete = codex_response(output, final_output)
                     if event_error:

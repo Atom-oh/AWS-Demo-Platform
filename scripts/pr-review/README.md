@@ -1,9 +1,8 @@
 # Specialist review protocol
 
-The protocol and provider executors are staged. The legacy workflow remains active.
-Activation and workflow/E2E verification follow separately. `prepare_roles.py`
-validates inputs, `run_role.py` executes one specialist, `synthesize_roles.py`
-adjudicates valid findings, and `restore_role_frames.py` restores private frames.
+Executors are staged; legacy review remains active until separate activation/E2E
+review. `prepare_roles.py` validates inputs, `run_role.py` runs a specialist,
+`synthesize_roles.py` adjudicates, and `restore_role_frames.py` restores frames.
 
 | Tag | Requested model | Scope |
 | --- | --- | --- |
@@ -73,12 +72,9 @@ Blocked input yields deterministic FAIL; the chair cannot waive coverage failure
 
 Publish scrubbed reports/receipts/metadata only; never raw `roles/*.diff` or
 `requests/*.input/.prompt`.
-The executor strips transport controls only, then gives `record` the JSON response
-through a mode-0600 temporary file outside the review workspace, removed after
-recording even on errors. Transport normalization does not scrub credentials or
-change valid JSON/path values.
-Diagnostics remain scrubbed; protocol validation preserves source paths before
-redacting response evidence.
+After transport-only normalization, `record` reads a mode-0600 response file
+outside the review workspace, removed even on errors. JSON/path values remain
+intact until protocol validation and decoded redaction. Diagnostics are scrubbed.
 
 ## Limits and checks
 
@@ -94,11 +90,9 @@ Offline CI: `.github/workflows/pr-review-roles-tests.yml`. Activation also needs
 executor/adapter, limit and exact-HEAD publication tests; offline success proves
 no live provider execution.
 
-ADP retains existing Sol (Terra is historical, ADR-013). Its `run-specialists.sh`
-wrapper defaults `REVIEW_CONTEXT_CAP` to 12,288 and accepts only 1–12,288; lower
-overrides are supported. The generic `prepare_roles.py` interface retains its
-24,000-byte default. Direct protocol calls for ADP must use `--context-cap 12288`
-or a lower limit.
+ADP uses Sol. Its wrapper accepts `REVIEW_CONTEXT_CAP` 1–12,288 (default 12,288).
+Generic `prepare_roles.py` retains a 24,000-byte default; direct ADP protocol calls
+must pass `--context-cap 12288` or less.
 Record/aggregate also validate private issued-frame files. Distributed consumers
 must restore them from trusted inputs/receipts before aggregation, never publish them.
 
@@ -130,21 +124,19 @@ fallback; account/monthly/credit limits each prohibit success and fallback.
 
 ## Executor inputs and limits
 
-- `run-specialists.sh`: project entrypoint; ADP defaults `REVIEW_CONTEXT_CAP` to
-  12,288 bytes and rejects zero, invalid or larger overrides before preparation.
-- `prepare_roles.py`: immutable Git scope, BASE instructions and candidate-size
-  checks. `role-input-scope.json` supplies the existing BASE exclusion patterns.
-- `prepare_context_roles.py`: optional BASE-byte-verified context hook. Absent in
-  ADP; repositories that install it may only lower the supplied context cap.
-- `role-project.json`: optional schema-1 execution policy naming
-  `prepare_project_roles.py`, `context_sources` and the bounded `chair` settings.
-  The adapter must match BASE bytes. ADP uses the generic collector, not this hook.
-- `run_role.py`: `PANEL_TIMEOUT` defaults to 300 seconds (maximum 900),
-  `PANEL_RETRIES` to 2 (maximum 3), and `KIRO_PREFLIGHT_TIMEOUT` to 60 seconds
-  (maximum 120). Workflow overrides remain within these bounds.
-- `synthesize_roles.py`: retains `CHAIR_*` settings from the legacy synthesis
-  script unless an explicit project policy supplies stricter limits. Hard
-  account/monthly/credit limits stop even if a lower-level classifier is silent.
-- `role-controls.sh`: forwards to the canonical `lib.sh` control stripper.
-  Transport normalization does not invoke credential scrubbing; responses stay
-  private until protocol validation and redaction.
+- `run-specialists.sh`: ADP entrypoint; uses the context cap above and requires
+  `HEAD_SHA`, `BASE_SHA` and `GH_REPO`.
+- `prepare_roles.py`: immutable Git scope; requires `AGENTS.md` at BASE and HEAD,
+  checks size and generated-source hashes, and retains only BASE instructions.
+  `role-input-scope.json` supplies BASE exclusions.
+- `prepare_context_roles.py`: optional BASE-verified hook; may not raise the cap.
+- `role-project.json`: optional schema-1 policy with `context_sources`, bounded
+  `chair` settings and a BASE-matching `prepare_project_roles.py` adapter.
+  ADP has neither hook nor project policy.
+- `run_role.py`: defaults/maxima are 300/900 seconds (`PANEL_TIMEOUT`), 2/3 total
+  attempts (`PANEL_RETRIES`) and 60/120 seconds (`KIRO_PREFLIGHT_TIMEOUT`).
+- `synthesize_roles.py`: reads legacy `CHAIR_*` defaults; positive environment
+  values apply even without a legacy default. Project policies declare maxima;
+  the absolute timeout ceiling is 1,500 seconds.
+- `role-controls.sh`: uses the canonical `lib.sh` control stripper. Private JSON
+  reaches protocol validation before credential redaction.
