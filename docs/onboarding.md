@@ -80,8 +80,10 @@ commit messages. Keep the source, documentation and generated context aligned.
 - Add optional `briefing` text to schema-valid project YAML; the detail drawer
   provides an expansion control for longer notes.
 - Cards and the drawer expose GitHub links and configured URLs.
-- Bulk turn-on confirms the visible off/error projects before processing them
-  with bounded concurrency; search and facets determine the scope.
+- Use the operating table to select projects and confirm bulk on/off. Start accepts
+  off/error; stop accepts on. Up to four run concurrently, with per-project results
+  and failed-item retry. Keep the page open for queued items to dispatch. Search
+  and filter changes clear selection; they do not change an already started batch.
 - Demo scale supports ECS desired counts and ArgoCD workload/HPA replicas without
   changing the project's on/off status. HPA min/max are pinned by scale; the first
   saved baseline lets a later off/on cycle restore them. A first partial failure

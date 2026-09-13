@@ -2,10 +2,11 @@ import type { ProjectRow } from '@/lib/types';
 import { RESOURCE_LABEL, STATUS_LABEL } from '@/lib/presentation';
 import { Icon } from './Icon';
 
-export function ProjectCard({ row, onToggle, onOpen }: {
+export function ProjectCard({ row, onToggle, onOpen, disabled = false }: {
   row: ProjectRow;
   onToggle: (repo: string, op: 'turn_on' | 'turn_off') => void;
   onOpen: (repo: string) => void;
+  disabled?: boolean;
 }) {
   const pr = row.project;
   const name = pr?.name ?? row.name;
@@ -35,12 +36,12 @@ export function ProjectCard({ row, onToggle, onOpen }: {
       </div>
       <footer>
         {row.status === 'on' && (
-          <button className="btn" onClick={() => onToggle(row.repo, 'turn_off')}>
+          <button className="btn" disabled={disabled} onClick={() => onToggle(row.repo, 'turn_off')}>
             <Icon name="power" />끄기
           </button>
         )}
         {(row.status === 'off' || row.status === 'error') && (
-          <button className="btn primary" onClick={() => onToggle(row.repo, 'turn_on')}>
+          <button className="btn primary" disabled={disabled} onClick={() => onToggle(row.repo, 'turn_on')}>
             <Icon name="power" />{row.status === 'error' ? '다시 켜기' : '켜기'}
           </button>
         )}

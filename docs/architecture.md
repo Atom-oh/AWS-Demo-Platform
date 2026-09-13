@@ -25,7 +25,7 @@ See [CLAUDE.md](../CLAUDE.md) for repository rules and the
 | Dashboard runtime | API, worker and frontend Fargate definitions in `infra/dashboard-ecs` |
 | Cognito | Dashboard user pool, public SPA client and hosted UI in `infra/cognito` |
 | API / worker | `dashboard/backend`: request validation, job orchestration and controllers |
-| Frontend | `dashboard/frontend`: discovery, detail drawer, briefing, bulk on and scale |
+| Frontend | `dashboard/frontend`: discovery, detail drawer, briefing, selected bulk on/off and scale |
 | Hub EKS | Owned by `infra/eks-mgmt`, not a duplicate module in the workload repository |
 | ArgoCD | `master-system-root` watches `argocd-apps/system/`; `master-tenants-root` watches tenant roots |
 | Atlantis | PR plan/apply through GitHub App auth, `AtlantisIRSARole` and scoped assume-role |

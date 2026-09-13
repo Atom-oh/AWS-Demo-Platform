@@ -6,7 +6,7 @@ Master-detail discovery + lifecycle control over the projects the backend manage
 ## Status
 **MVP — dev only.** Renders the live project list, faceted discovery, on/off
 toggles, a detail drawer (resources, GitHub repo link, briefing, history), a
-confirmed bulk start scoped to visible eligible projects, and per-resource demo-scale controls (ArgoCD/HPA
+selected bulk on/off operations with progress and failed-item retry, and per-resource demo-scale controls (ArgoCD/HPA
 replicas, ECS `desiredCount` — see [ADR-017](../../docs/decisions/ADR-017-demo-scale-job-operation.md))
 against the backend API. ECS Fargate and same-origin CloudFront routing are already
 defined. Code on main and an image pushed to ECR do not prove that the running
@@ -39,11 +39,12 @@ To run it: from `dashboard/backend`, run `pnpm -r build`, then start it with
 
 ## Structure
 `app/` owns the layout, dashboard page and responsive dark CSS. `StatStrip`,
-`FacetSidebar` and `ProjectCard` provide discovery; `DetailDrawer` contains
+`FacetSidebar`, `ProjectTable` and the optional `ProjectCard` view provide discovery; `DetailDrawer` contains
 briefing, resources, links and history. `ScaleControl` owns 1–20 inputs, a
 per-control lock and feedback. `Icon` and `lib/presentation.ts` share visuals/copy.
 `hooks/useProjects.ts` loads state and polls toggle/scale jobs; toggles resolve
-`{ok: boolean}` and bulk start uses concurrency 4. `lib/api.ts` and `lib/types.ts`
+`{ok: boolean}`. `hooks/useOperations.ts` coordinates per-project mutation locks
+and a four-worker batch queue; `OperationPanel` retains the latest batch results. `lib/api.ts` and `lib/types.ts`
 mirror backend contracts; resource `stepKey` values come from the API.
 
 ## Demo workflow
@@ -53,15 +54,33 @@ search/facets. Refresh also recovers previously observed transitions. Both fetch
 paths use per-project request-start ordering; overlapping reloads keep the latest
 result/loading state. A toggle invalidates older reads. Status is not a health check.
 
-Bulk start confirms visible off/error projects by name/repo. Search, facet and
-refresh changes dismiss confirmation. Cards use native detail buttons; the drawer
-traps/restores focus and locks page scrolling. Notifications appear inside an open
-drawer. Errors do not auto-expire but later notifications can replace them;
-successes expire after 6.5s.
+The default table sorts error/unknown states first, followed by transitioning,
+off and on; name/account ordering and the card view are available. Selection is
+scoped to visible rows and cleared by search, facet or view changes. Confirmation
+copies target names/repos and operation; later selection changes cannot widen a
+started batch. Start targets off/error; stop targets on. Each dispatch rechecks
+the latest loaded status, and the API remains the authoritative state guard.
 
-Scale locks are per-control. HPA recovery needs a saved baseline; a first partial
-failure may prevent its persistence. Failure notifications prompt verification
-(ADR-017 limitation 6, clarified 2026-09-12).
+The coordinator permits at most four active client attempts and one per project in this
+mounted dashboard, including scale. A batch waits for individual work to finish
+before it can start; while running, it blocks manual mutations. Completed workers
+immediately take the next queued item. The result panel distinguishes queued,
+running, succeeded, failed and skipped; retry confirms only failed targets.
+Retries retain earlier results and keep an original failure/diagnostic when its
+current state prevents another request (including a partially failed shutdown
+already recorded as off).
+
+Batch state belongs to this page session. Keep the page open for queued dispatch;
+unmounting prevents new queued requests but does not cancel accepted backend jobs.
+A failed client attempt can also mean polling could not confirm completion;
+accepted backend jobs may outlive that polling window.
+Results survive filtering until dismissed or replaced by a new batch. Other tabs,
+operators and direct API clients are outside these locks (ADR-017 limitation 7).
+
+The drawer traps/restores focus and locks page scrolling. Individual notifications
+appear inside an open drawer. Errors do not auto-expire but later notifications
+can replace them; successes expire after 6.5s. HPA recovery needs a saved baseline;
+a first partial failure may prevent persistence (ADR-017 limitation 6).
 
 ## API contract consumed (must match `@demo-platform/api`)
 - `GET /api/projects` → `{repo,name,account}[]`
@@ -79,8 +98,8 @@ failure may prevent its persistence. Failure notifications prompt verification
 UI labels are Korean; repository documentation and code comments remain English.
 TypeScript strict throughout. `lib/types.ts` mirrors the backend Zod schemas, so
 it needs to stay in sync whenever the API shape changes. Toggleable resource
-types are `ecs`, `ec2`, `argocd-app`, `rds`; others render as
-always-on/visibility-only chips. `package.json` pins Next at `14.2.35`; the existing
+types are `ecs`, `ec2`, `argocd-app`, `rds`; the drawer identifies
+resources excluded from lifecycle toggles. Tables/cards summarize service types. `package.json` pins Next at `14.2.35`; the existing
 repository downgrade floor is `14.2.33`. This records a dependency constraint, not
 a current security-support assessment. Review advisories separately when changing
 dependencies and keep the Next/ESLint configuration versions aligned.
