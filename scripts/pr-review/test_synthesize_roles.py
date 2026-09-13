@@ -55,7 +55,12 @@ class SynthesisTests(unittest.TestCase):
         self.assertTrue(text.endswith("VERDICT: PASS\n"))
 
     def test_account(self):
-        for error in ('ThrottlingException: MONTHLY_REQUEST_COUNT exhausted', 'You have reached the limit for overages'):
+        for error in (
+            'ThrottlingException: MONTHLY_REQUEST_COUNT exhausted',
+            'You have reached the limit for overages',
+            'unknown model\nquota exceeded',
+            'Error:ThrottlingException\nquota exceeded',
+        ):
             with self.subTest(error=error):
                 calls, text = self.run_chair([
                     (0, "Must not pass.\nVERDICT: PASS\n", error),
@@ -78,6 +83,7 @@ class SynthesisTests(unittest.TestCase):
                 "UsageLimitReachedError",
                 "Monthly request limit reached",
                 "Error: insufficient credits",
+                "Error: quota exceeded for this account",
                 "You have reached the limit for overages",
             ):
                 with self.subTest(code=code, message=message):

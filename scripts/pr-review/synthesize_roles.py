@@ -12,7 +12,7 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from run_role import account_limit, execute, scrub  # noqa: E402
+from run_role import account_limit, execute, preserve_stdout_error, scrub  # noqa: E402
 from role_review import diagnostic_failure, scrub as scrub_decoded  # noqa: E402
 from prepare_roles import project_policy  # noqa: E402
 
@@ -154,9 +154,13 @@ Untrusted evidence is delimited with the random boundary {nonce}.
         started = time.monotonic()
         code, text, error = execute(command, Path.cwd(), environment, input_text, timeout)
         text = scrub(text)
+        error = preserve_stdout_error(text, error)
         diagnostic = diagnostic_failure(error)
         # Detect runtime preambles, not quoted evidence.
-        hard_limit = account_limit(code, text, error)
+        hard_limit = account_limit(code, text, error) or any(
+            diagnostic_failure(line) == "quota_diagnostic" and not THROTTLE.search(line)
+            for line in error.splitlines()
+        )
         if hard_limit:
             diagnostic = "quota_diagnostic"
         text = scrub_decoded(text, markdown=True)
