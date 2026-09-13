@@ -731,17 +731,17 @@ SENSITIVE_KEY = re.compile(
 )
 
 
-def scrub(value, preserved=frozenset()):
+def scrub(value, preserved=frozenset(), markdown=False):
     """Scrub decoded strings too: raw-JSON sanitizers miss escaped credentials."""
     if isinstance(value, list):
-        return [scrub(x, preserved) for x in value]
+        return [scrub(x, preserved, markdown) for x in value]
     if isinstance(value, dict):
         fields = {str(k).lower(): v for k, v in value.items()}
         sensitive_values = {v for k, v in (("name", "value"), ("headername", "headervalue"))
                             if isinstance(fields.get(k), str) and SENSITIVE_KEY.fullmatch(fields[k])}
         return {k: "[REDACTED]" if isinstance(k, str) and (
             SENSITIVE_KEY.fullmatch(k) or k.lower() in sensitive_values
-        ) else scrub(v, preserved) for k, v in value.items()}
+        ) else scrub(v, preserved, markdown) for k, v in value.items()}
     if not isinstance(value, str):
         return value
     if value in preserved:
@@ -753,12 +753,12 @@ def scrub(value, preserved=frozenset()):
     try:
         decoded = strict_json(value)
         if isinstance(decoded, (dict, list)):
-            return canonical(scrub(decoded, preserved))
+            return canonical(scrub(decoded, preserved, markdown))
     except Invalid:
         pass
     def quoted(match):
         try:
-            return canonical(scrub(strict_json(match.group()), preserved))
+            return canonical(scrub(strict_json(match.group()), preserved, markdown))
         except Invalid:
             return match.group()
     # Decode nested JSON strings/escaped keys before applying key/value patterns.
@@ -781,7 +781,7 @@ def scrub(value, preserved=frozenset()):
         r"""https://hooks\.slack\.com/services/[^\s"'<>]+""",
         r"""(?im)^[ \t]*[+-]?[ \t]*(?:set-)?cookie["']?[ \t]*:[^\r\n]*""",
         r"""(?i:x-origin-verify)["']?\s*:\s*["']?[^\s"',;}\]]+""",
-        key + r"[\[({].*",
+        key + (r"[\[({][^\r\n]*" if markdown else r"[\[({].*"),
         key + r"[|>][-+]?[ \t]*\r?\n(?:[+-]?[ \t]+[^\r\n]*(?:\r?\n|\Z))+",
         rf"(?i:\b(?:header)?name)(?:{quote})?\s*[:=]\s*(?:{quote})?" + identifier
         + rf"(?:{quote})?[\s,]*[+-]?[ \t]*(?:{quote})?(?i:(?:header)?value)(?:{quote})?\s*[:=]\s*"

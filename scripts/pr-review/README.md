@@ -105,3 +105,7 @@ The model table targets CI's Bedrock Runtime provider. Local Mantle uses
 `openai.gpt-6-astra` for Astra; provider-specific identifiers are not interchangeable.
 
 React edits retain `kiro-sol`; altered or missing receipt-bound history blocks.
+
+Chair Markdown uses line-bounded container redaction so later findings and the
+final verdict remain intact. A transient model throttle may use the existing
+configured fallback; account/monthly/credit limits still stop further attempts.
