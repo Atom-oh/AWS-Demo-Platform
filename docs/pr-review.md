@@ -9,10 +9,10 @@ owns shared context and runner images; ADR-015 still explains per-model job isol
 ## Project-specific inputs
 
 Same-repository PRs targeting `main` run trusted event-base scripts. Every job
-uses immutable base/head SHAs and the merge-base change boundary. At both revisions,
-the preparer reads `AGENTS.md`, falling back to `CLAUDE.md` if absent. Context must
-be nonempty and at most 12,288 bytes; a generated digest must match its canonical
-source hash. Missing, oversized or stale context blocks preparation. Only the
+uses immutable base/head SHAs and the merge-base change boundary. Both revisions
+must contain `AGENTS.md`: nonempty, at most 12,288 bytes, and with a matching
+canonical-source hash when generated. `CLAUDE.md` cannot replace a missing digest.
+Missing, oversized or stale context blocks preparation. Only the
 base context instructs reviewers; candidate documents remain diff data. Local Kiro
 steering points to that digest, but CI explicitly embeds it because Kiro has no tools.
 
