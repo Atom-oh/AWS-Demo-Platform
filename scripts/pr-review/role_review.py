@@ -767,8 +767,8 @@ def _scrub_markdown_containers(value, key):
     opening = re.compile(key + r"[\[({]")
     line_end = re.compile(r"[ \t\r]*(?:\n|\Z)")
     continuation = re.compile(
-        r"\s*(?:[" + re.escape("()[]{}.+-*/%&|^?\\<>=!,\"'`")
-        + r"]|(?:if|else|and|or|in|is|not)\b)"
+        r"\s*(?:[" + re.escape("()[]{}.+-*/%&|^?\\<>=!,\"'`#@")
+        + r"]|(?:if|else|and|or|in|is|not|instanceof|as|satisfies|switch|match|when)\b)"
     )
     closing = {"[": "]", "(": ")", "{": "}"}
     pieces, cursor = [], 0
