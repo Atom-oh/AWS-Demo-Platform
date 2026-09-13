@@ -72,12 +72,19 @@ Blocked input yields deterministic FAIL; the chair cannot waive coverage failure
 
 Publish scrubbed reports/receipts/metadata only; never raw `roles/*.diff` or
 `requests/*.input/.prompt`.
+The executor gives `record` the original response through a mode-0600 temporary
+file outside the review workspace, removed after recording even on errors.
+Diagnostics remain scrubbed; protocol validation preserves source paths before
+redacting response evidence.
 
 ## Limits and checks
 
 Limits: 95,000 diff bytes (UTF-8), 3,000 lines, 24,000 context bytes, <128 KiB
 request; projects may lower them. Oversize blocks. No chunk coordinator or
 combining partial PASS results; preserve custody/budgets.
+`CHAIR_PANEL_TOTAL_CAP` retains the legacy default and override (200,000 UTF-8
+bytes by default), covering specialist-summary bytes only, not diff/context.
+Oversized summaries produce FAIL before any chair call, without truncation.
 
 Run `python3 -m unittest discover -s scripts/pr-review -p 'test_*role*.py'`.
 Offline CI: `.github/workflows/pr-review-roles-tests.yml`. Activation also needs
