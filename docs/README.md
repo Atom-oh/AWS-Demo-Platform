@@ -15,7 +15,8 @@ running the latest image.
 | [Review and release](runbooks/review-and-release.md) | Evidence required around review, deployment and removal |
 | [ai-trader review runner](runbooks/ai-trader-review-runner.md) | Dedicated CLI compatibility pin, retained image evidence and recovery |
 | [Grafana operations](runbooks/grafana-private-ingress.md) | Private ingress and managed administrator lifecycle |
-| [Dashboard deployment execution record](runbooks/dashboard-public-deploy-execution.md) | Historical June 2026 rollout; use current module/release guides for new deployments |
+| [Dashboard rollout](runbooks/dashboard-public-deploy-execution.md) | Current rollout and verification procedure, with a dated initial-deployment record |
+| [ARM64 migration and rollback](runbooks/arm64-graviton-migration.md) | Architecture-change and rollback procedure; historical observations are dated |
 | [Decision applicability](decisions/README.md) | Topic-level ADR ownership, supersession and accepted trade-offs |
 | [Specs and plans](superpowers/) | Historical design/implementation records; not deployment status |
 | [Changelog](../CHANGELOG.md) | Notable repository changes |
