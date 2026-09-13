@@ -28,11 +28,11 @@ IDs do not attest model weights.
 The executor sends issued bytes; hashes bind inputs, not transport. Keep tool data
 out of diagnostics.
 
-`--paths`: UTF-8 JSON array of unique repository-relative paths matching the patch,
+`--paths`: file containing a UTF-8 JSON array of unique repository-relative paths matching the patch,
 e.g. `["src/api.ts"]`. Renames use destinations; the collector checks both sides.
 Omit only for authoritative, unambiguous patch paths.
 
-`--provenance`: JSON object. Required `head_sha`/`base_sha` equal the lowercase
+`--provenance`: file containing a JSON object. Required `head_sha`/`base_sha` equal the lowercase
 40-character CLI revisions; `diff_sha256` hashes exact raw diff bytes. Example:
 
 ```json
@@ -86,3 +86,6 @@ no live provider execution.
 ADP retains existing Sol (Terra is historical, ADR-013); pass `--context-cap 12288`.
 Record/aggregate also validate private issued-frame files. Distributed consumers
 must restore them from trusted inputs/receipts before aggregation, never publish them.
+
+Valid historical Critical/Major findings and uncertainties remain in adjudication;
+a clean retry cannot discard them or establish current-role coverage.

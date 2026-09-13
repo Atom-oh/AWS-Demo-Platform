@@ -877,6 +877,24 @@ def aggregate(args):
                 if not isinstance(attempts, list) or len(attempts) > 32:
                     raise Invalid("invalid_attempt_history")
                 history[tag] = scrub(attempts)
+                for number, prior in enumerate(attempts, 1):
+                    if not isinstance(prior, dict):
+                        raise Invalid("invalid_attempt_history")
+                    if prior.get("valid") is not True:
+                        continue
+                    if (plan is None or prior.get("plan_digest") != plan["plan_digest"]
+                            or prior.get("tag") != tag):
+                        raise Invalid("invalid_attempt_history")
+                    response = prior.get("response")
+                    validate_response(response, plan, tag)
+                    if prior.get("response_digest") != digest(response):
+                        raise Invalid("invalid_attempt_history")
+                    # History retains candidates, never current-role coverage.
+                    findings.extend({"tag": tag, "source_attempt": number, **scrub(item)}
+                                    for item in response["findings"]
+                                    if item["severity"] in ("CRITICAL", "MAJOR"))
+                    uncertainties.extend({"tag": tag, "source_attempt": number, "text": scrub(text)}
+                                         for text in response["uncertainties"])
             except Invalid:
                 failures.append(f"invalid_attempt_history:{tag}")
     mode = "blocked" if failures else "review" if uncertainties or any(
