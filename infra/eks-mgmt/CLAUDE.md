@@ -1,40 +1,39 @@
-# infra/eks-mgmt
+# Hub EKS
 
-## Role
-**Authoritative** Terraform for the hub EKS cluster `mall-apne2-mgmt` and the IAM that
-hangs off it (ALB controller, OTel/Tempo IRSA, Karpenter, and the shared CI runner role
-used by the PR-review / AMI-build self-hosted runners via EKS Pod Identity).
+Authoritative Terraform for `mall-apne2-mgmt`, its controller/observability
+identities and shared CI runner Pod Identity role. Preserve the adopted `mall-*`
+names and state key; the new-resource prefix convention is not a rename mandate.
+The duplicate root in `multi-region-architecture` was removed; this repository's
+Atlantis owns applies.
 
-This used to be a duplicate of the same dir in `multi-region-architecture`; that copy was
-removed (2026-06-24) and this repo is now the single owner. This repo's Atlantis is the
-sole applier, which is what keeps the state single-owner and avoids a split-brain where
-the same state gets applied from two places.
+- Bucket: `multi-region-mall-terraform-state` in `us-east-1`.
+- Key: `production/ap-northeast-2/eks-mgmt/terraform.tfstate`.
+- Lock table: `multi-region-mall-terraform-locks`; Terraform 1.9.6.
+- Shared VPC/subnets/SGs come from the Korea `shared/` remote state. Spoke consumers
+  use this hub state's `cluster_security_group_id`; coordinate output changes.
 
-## State
-- **Bucket** `multi-region-mall-terraform-state` (shared, us-east-1)
-- **Key** `production/ap-northeast-2/eks-mgmt/terraform.tfstate`
-- **Lock table** `multi-region-mall-terraform-locks`
-- The key needs to stay stable: the spokes `eks-az-a` / `eks-az-c` in
-  `multi-region-architecture` read this state read-only via `terraform_remote_state`
-  (they consume `cluster_security_group_id`), and renaming the key would break their
-  plan/apply.
+## Source map
 
-## Composition (`main.tf`)
-- `module "eks"` (`../modules/compute/eks`) — cluster `mall-apne2-mgmt`, addons
-  (vpc-cni, coredns, kube-proxy, ebs-csi, **efs-csi v2.3.0-eksbuild.2**, pod-identity-agent),
-  Karpenter + node-group IAM, IRSA OIDC. VPC/subnets/SGs come from the `shared` remote state.
-- `module "alb"` — AWS Load Balancer Controller IRSA.
-- `module "otel_collector_irsa"`, `module "tempo_storage"` — observability IRSA + Tempo S3.
-- Inline IAM: `DemoPlatformTerraformer`-adjacent deployer perms + `ci_runner` role
-  (Bedrock, **bedrock-mantle**, AMI-build EC2/SSM scoped to `managed_by=cc-on-bedrock`).
+- `main.tf` calls `../modules/compute/eks` for the cluster, bootstrap node group,
+  IRSA/OIDC and Karpenter identity. Declared add-ons are VPC CNI, CoreDNS,
+  kube-proxy, EBS CSI and Pod Identity Agent; EFS CSI is not declared here.
+- `module.alb` owns AWS Load Balancer Controller IRSA, not the platform's internal
+  ALB. That ALB belongs to `../alb-internal`.
+- `otel_collector_irsa` and `tempo_storage` own observability IRSA and Tempo S3.
+- Inline `ci_runner` IAM is shared across the explicitly listed service accounts.
+  It includes ECR, Bedrock/bedrock-mantle, S3, ECS/CDK and AMI-build permissions.
+  Some AMI destructive/SSM actions are tag-scoped; this is not a claim that every
+  action in the shared role is narrowly scoped. Inspect the actual statements.
+- `outputs.tf` exports cluster/SG, OIDC, controller roles and Tempo storage.
+  `acm_certificate_arn` remains a declared input but is not consumed by `main.tf`;
+  its placeholder in `terraform.tfvars` is not the deployed ALB certificate.
 
-## Key outputs (consumed cross-repo — keep stable)
-`cluster_security_group_id` (← az-a/az-c), `oidc_provider_arn/url`, `cluster_endpoint`,
-`service_account_role_arns`, `karpenter_role_arn`, `tempo_role_arn`, `tempo_s3_bucket`.
+Bootstrap nodes use label `role=system` and taint
+`node-role=system-critical:NoSchedule`. Karpenter platform/runner pools have
+different selectors and taints; see the [Kubernetes guide](../../k8s/CLAUDE.md).
+The hub intentionally combines x86 bootstrap/runner capacity with ARM64 pools.
 
-## Inputs
-`environment`, `region`, `acm_certificate_arn`, `tags` (see `terraform.tfvars`).
-
-## Apply
-Trigger via PR comments: `atlantis plan -d infra/eks-mgmt` runs the plan, and
-`atlantis apply -d infra/eks-mgmt` applies it.
+Review `atlantis plan -d infra/eks-mgmt` before
+`atlantis apply -d infra/eks-mgmt`. Apply new shared-state outputs before planning
+this consumer. Verify the intended kube context/account before runtime checks;
+Terraform configuration alone does not prove cluster health.

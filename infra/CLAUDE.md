@@ -21,6 +21,11 @@ state; reusable code under `modules/` is not applied independently.
 
 ## Contracts
 
+Use `demo-platform-` for new platform-owned resource names. Preserve adopted
+`mall-*` names, existing role names and state keys; renaming them to satisfy a
+prefix rule can replace resources or break consumers. External-repository roles
+and AWS-required secret prefixes retain their documented namespaces.
+
 Atlantis pins Terraform 1.9.6. Use `dynamodb_table` locking, not TF 1.10+
 `use_lockfile`. The shared bucket is `multi-region-mall-terraform-state`; read each
 module's exact backend key rather than inventing a new one. Apply a dependency
@@ -39,6 +44,8 @@ updated through the protected operator procedure and synchronized through ESO.
 
 ## Apply and verify
 
+From the affected root module, run `terraform init -backend=false`,
+`terraform fmt -check` and `terraform validate` for local checks.
 Use Atlantis PR plan/apply with a review of the actual changes. Apply target groups
 before merging bindings and make producer readiness a gate before consumer changes.
 A broken deployment tool may require a narrowly scoped, reviewed recovery plan;

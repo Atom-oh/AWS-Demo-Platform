@@ -1,29 +1,29 @@
-# Friend Account Onboarding
+# Friend-account onboarding
 
-How to set up your AWS account so that **atomoh's AWS Demo Platform** can
-turn on/off demo resources, manage Terraform infrastructure, and read
-demo URLs from it.
+The worker reads account roles from [`accounts.yaml`](../../accounts.yaml),
+validated by [`account.ts`](../../dashboard/backend/packages/shared/src/schemas/account.ts).
+It assumes the configured operator role with an ExternalId; Terraform automation
+is configured separately. This checkout registers only `atomoh-main`; commented
+friend entries are examples, not onboarded accounts.
 
-Two IAM roles are required:
-- **DemoPlatformOperator** — runtime control (start/stop, scale).
-- **DemoPlatformTerraformer** — Terraform plan/apply (broader permissions).
+## Roles and trust
 
-These are trusted via cross-account `sts:AssumeRole` from atomoh's main
-account (`180294183052`), gated by an **ExternalId** that atomoh shares
-with you over a secure channel (Signal / encrypted message — **not** Slack
-or email plaintext).
+Use an authorized administrator in the target account. Verify
+`aws sts get-caller-identity` before changes. Agree two distinct ExternalIds with
+the platform operator over a protected channel; keep values out of Git and logs.
+The current account schema requires both role references:
 
-## Prerequisites
+| Target role | Trusted principal in account `180294183052` | Purpose |
+| --- | --- | --- |
+| `DemoPlatformOperator` | `DashboardEcsTaskRole-dev` | Worker ECS/EC2/RDS operations |
+| `DemoPlatformTerraformer` | `AtlantisIRSARole` | Explicitly configured Terraform plan/apply |
 
-- AWS account admin access
-- AWS CLI configured to your account
-- Two ExternalId values shared by atomoh:
-  - one for the operator role
-  - one for the terraformer role
+These existing role names match the caller policies in
+[`infra/iam/dashboard-ecs-task-role.tf`](../../infra/iam/dashboard-ecs-task-role.tf)
+and [`infra/atlantis-bootstrap/main.tf`](../../infra/atlantis-bootstrap/main.tf).
+Do not rename them solely to follow the new-resource naming prefix.
 
-## Step 1 — Create `DemoPlatformOperator` role
-
-Save the trust policy to `operator-trust.json`:
+Prepare `operator-trust.json` in a protected local directory:
 
 ```json
 {
@@ -36,154 +36,106 @@ Save the trust policy to `operator-trust.json`:
     "Action": "sts:AssumeRole",
     "Condition": {
       "StringEquals": {
-        "sts:ExternalId": "<OPERATOR_EXTERNAL_ID_FROM_ATOMOH>"
+        "sts:ExternalId": "<AGREED_OPERATOR_EXTERNAL_ID>"
       }
     }
   }]
 }
 ```
 
-Save permissions policy to `operator-perms.json`:
+Prepare `terraformer-trust.json` with the same structure, substituting
+`AtlantisIRSARole` as principal and the separate terraformer ExternalId. Trust
+the named role, not the whole source account.
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "ECSControl",
-      "Effect": "Allow",
-      "Action": [
-        "ecs:DescribeServices", "ecs:UpdateService",
-        "ecs:ListServices", "ecs:ListTasks", "ecs:DescribeTasks"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "EC2Control",
-      "Effect": "Allow",
-      "Action": [
-        "ec2:DescribeInstances", "ec2:StartInstances",
-        "ec2:StopInstances", "ec2:DescribeInstanceStatus"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "RDSControl",
-      "Effect": "Allow",
-      "Action": [
-        "rds:DescribeDBInstances", "rds:StartDBInstance", "rds:StopDBInstance"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "SecretsControl",
-      "Effect": "Allow",
-      "Action": [
-        "secretsmanager:CreateSecret", "secretsmanager:ListSecrets",
-        "secretsmanager:DescribeSecret"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "DescribeAlwaysOnResources",
-      "Effect": "Allow",
-      "Action": [
-        "dynamodb:DescribeTable", "dynamodb:ListTables",
-        "elasticache:DescribeCacheClusters",
-        "kafka:DescribeCluster", "kafka:ListClusters"
-      ],
-      "Resource": "*"
-    }
-  ]
-}
-```
+## Permissions and creation
 
-Apply:
+Prepare `operator-perms.json` for the intended resources, using
+[`demo-platform-operator.tf`](../../infra/iam/demo-platform-operator.tf) as the
+implemented action reference. Its current statements cover:
+
+- ECS service describe/list/update.
+- EC2 instance describe/start/stop.
+- RDS DB-instance describe/start/stop.
+- Secrets Manager list/create/describe; no secret-value read in this policy.
+- DynamoDB, ElastiCache and Kafka visibility actions.
+
+The main-account policy uses broad resource selectors. Review and scope the
+friend-account policy to its actual resources; do not label the copied policy
+least privilege. Visibility-only schema types do not acquire lifecycle controllers
+merely by adding IAM actions. Kubernetes resource control uses the configured
+ArgoCD REST endpoint and needs separate cluster registration.
 
 ```bash
-aws iam create-role \
-  --role-name DemoPlatformOperator \
-  --assume-role-policy-document file://operator-trust.json
-
-aws iam put-role-policy \
-  --role-name DemoPlatformOperator \
+aws iam create-role --role-name DemoPlatformOperator \
+  --assume-role-policy-document file://operator-trust.json \
+  --query 'Role.Arn' --output text
+aws iam put-role-policy --role-name DemoPlatformOperator \
   --policy-name DemoPlatformOperatorPerms \
   --policy-document file://operator-perms.json
+aws iam create-role --role-name DemoPlatformTerraformer \
+  --assume-role-policy-document file://terraformer-trust.json \
+  --query 'Role.Arn' --output text
 ```
 
-## Step 2 — Create `DemoPlatformTerraformer` role
-
-Save trust policy to `terraformer-trust.json`:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Principal": {
-      "AWS": "arn:aws:iam::180294183052:role/AtlantisIRSARole"
-    },
-    "Action": "sts:AssumeRole",
-    "Condition": {
-      "StringEquals": {
-        "sts:ExternalId": "<TERRAFORMER_EXTERNAL_ID_FROM_ATOMOH>"
-      }
-    }
-  }]
-}
-```
-
-Apply:
+For accounts explicitly delegating broad infrastructure administration, the
+historical setup attaches these two managed policies. They grant broad access;
+use an agreed custom policy when that scope is not intended.
 
 ```bash
-aws iam create-role \
-  --role-name DemoPlatformTerraformer \
-  --assume-role-policy-document file://terraformer-trust.json
-
-aws iam attach-role-policy \
-  --role-name DemoPlatformTerraformer \
+aws iam attach-role-policy --role-name DemoPlatformTerraformer \
   --policy-arn arn:aws:iam::aws:policy/PowerUserAccess
-
-aws iam attach-role-policy \
-  --role-name DemoPlatformTerraformer \
+aws iam attach-role-policy --role-name DemoPlatformTerraformer \
   --policy-arn arn:aws:iam::aws:policy/IAMFullAccess
 ```
 
-`PowerUserAccess` + `IAMFullAccess` together provide enough scope for
-Atlantis-driven Terraform on common infrastructure. If you want a tighter
-custom policy, contact atomoh.
+## Platform-side wiring and verification
 
-## Step 3 — Notify atomoh
+1. Receive the account ID and role-creation confirmation. Store each agreed
+   ExternalId in the platform account at
+   `/demo-platform/external-ids/<account-name>/{operator,terraformer}` in the
+   worker's configured Secrets Manager region. These values are provisioned
+   separately from `infra/secrets-manager`'s dashboard containers.
+2. Add a schema-valid entry with `name`, 12-digit `account_id`, `region`, and both
+   `roles.*.{arn,external_id_secret}` fields. Match project `account` fields to
+   that name; the schema does not verify cross-field account/ARN agreement.
+3. Test each assume-role path from its actual trusted principal. An unrelated
+   operator shell may correctly be denied. Prepare protected CLI input files with
+   `RoleArn`, `RoleSessionName` and `ExternalId`, then print only the resulting ARN:
 
-Send to atomoh (over the same secure channel):
-- Your **AWS account ID** (12 digits).
-- Confirmation that **both roles are created** with the agreed ExternalIds.
+   ```bash
+   aws sts assume-role --cli-input-json file://operator-assume.json \
+     --query 'AssumedRoleUser.Arn' --output text
+   aws sts assume-role --cli-input-json file://terraformer-assume.json \
+     --query 'AssumedRoleUser.Arn' --output text
+   ```
 
-## Verification (atomoh-side)
+4. Configure the target Terraform provider to assume the terraformer role with
+   its ExternalId, and register the repository/projects with Atlantis as needed.
+   The standard workflow in `k8s/system/atlantis/configmap.yaml` only runs
+   init/plan/apply; it does not read `accounts.yaml` or inject assume-role settings.
+5. Build and explicitly roll the backend configuration into ECS. Project/account
+   files are bundled into images, and metadata-only edits do not trigger current
+   backend CI. Verify accepted configuration and a scoped operation; successful
+   STS alone is not a complete lifecycle test. See the
+   [ECS guide](../../infra/dashboard-ecs/CLAUDE.md).
+
+## Revocation or rotation
+
+Coordinate removal from platform metadata/automation with the account owner.
+Revoke trust/access first when urgent; do not treat a metadata edit as IAM revocation.
+Before deleting roles, inventory attached/inline policies and any instance-profile
+membership, then remove those dependencies. For the exact policies created above:
 
 ```bash
-# Operator role
-aws sts assume-role \
-  --role-arn arn:aws:iam::<YOUR_ACCOUNT>:role/DemoPlatformOperator \
-  --role-session-name verify-op \
-  --external-id <OPERATOR_EXT_ID>
-
-# Terraformer role
-aws sts assume-role \
-  --role-arn arn:aws:iam::<YOUR_ACCOUNT>:role/DemoPlatformTerraformer \
-  --role-session-name verify-tf \
-  --external-id <TERRAFORMER_EXT_ID>
+aws iam delete-role-policy --role-name DemoPlatformOperator \
+  --policy-name DemoPlatformOperatorPerms
+aws iam detach-role-policy --role-name DemoPlatformTerraformer \
+  --policy-arn arn:aws:iam::aws:policy/PowerUserAccess
+aws iam detach-role-policy --role-name DemoPlatformTerraformer \
+  --policy-arn arn:aws:iam::aws:policy/IAMFullAccess
+aws iam delete-role --role-name DemoPlatformOperator
+aws iam delete-role --role-name DemoPlatformTerraformer
 ```
 
-Both must return temporary credentials. Then atomoh adds your entry to
-[`accounts.yaml`](../../accounts.yaml) and Atlantis can manage your
-account via PR.
-
-## Revoking
-
-If you ever need to withdraw access:
-1. Delete the two roles (`aws iam delete-role`).
-2. Notify atomoh so the entry is removed from `accounts.yaml`.
-
-ExternalIds are stored in atomoh's AWS Secrets Manager — they should be
-rotated if disclosed (delete role + recreate with new ExternalId).
+Rotate a disclosed ExternalId by coordinating the trust condition and stored value,
+then reverify the caller. Recreating the role is not the rotation mechanism.
