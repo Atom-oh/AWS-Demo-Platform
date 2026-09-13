@@ -85,6 +85,20 @@ def synthesize(work, output):
     if mode != "review":
         raise ValueError("Invalid chair mode")
     summary = (work / "role-summary.json").read_text()
+    # The legacy total cap covers specialist evidence, not the diff or context.
+    panel_cap = legacy_limit("CHAIR_PANEL_TOTAL_CAP", "200000")
+    if panel_cap <= 0:
+        raise ValueError("CHAIR_PANEL_TOTAL_CAP must be positive bytes")
+    summary_bytes = len(summary.encode("utf-8"))
+    if summary_bytes > panel_cap:
+        output.write_text(
+            f"Specialist evidence exceeds CHAIR_PANEL_TOTAL_CAP "
+            f"({summary_bytes} > {panel_cap} bytes). No chair provider was invoked; "
+            "required adjudication remains pending. Evidence was not truncated.\n\n"
+            "VERDICT: FAIL\n"
+        )
+        record_status("Specialist input budget exceeded", failed=True)
+        return
     context = (work / "project-context.md").read_text()
     diff = (work / "roles" / "codex.diff").read_bytes().decode("utf-8")
     nonce = secrets.token_hex(16)

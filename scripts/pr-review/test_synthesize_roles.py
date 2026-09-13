@@ -21,12 +21,16 @@ class SynthesisTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
 
-    def run_chair(self, replies):
+    def prepare_chair(self, summary='{"findings":[]}', context="Trusted base.",
+                      diff="A complete supplied diff."):
         (self.root / "chair-mode.txt").write_text("review\n")
-        (self.root / "role-summary.json").write_text('{"findings":[]}')
-        (self.root / "project-context.md").write_text("Trusted base.")
+        (self.root / "role-summary.json").write_text(summary, encoding="utf-8")
+        (self.root / "project-context.md").write_text(context)
         (self.root / "roles").mkdir(exist_ok=True)
-        (self.root / "roles/codex.diff").write_text("A complete supplied diff.")
+        (self.root / "roles/codex.diff").write_text(diff)
+
+    def run_chair(self, replies, summary='{"findings":[]}'):
+        self.prepare_chair(summary)
         with patch.dict(os.environ, {"CHAIR_TIMEOUT": "10",
                 "CHAIR_PRIMARY_MODEL": "global.anthropic.claude-fable-5-1",
                 "CHAIR_FALLBACK_MODEL": "global.anthropic.claude-opus-5"}), \
@@ -63,6 +67,66 @@ class SynthesisTests(unittest.TestCase):
         ])
         self.assertEqual(calls, 1)
         self.assertTrue(text.endswith("VERDICT: FAIL\n"))
+
+    def test_default_panel_byte_cap_blocks_before_any_provider_call(self):
+        summary = '{"findings":["' + "x" * 200000 + '"]}'
+        self.prepare_chair(summary)
+        (self.root / "review.md").write_text("Stale review.\nVERDICT: PASS\n")
+        with patch.dict(os.environ), \
+                patch.object(self.module, "record_status") as status, \
+                patch.object(self.module, "execute", return_value=(
+                    0, "Provider should not run.\nVERDICT: PASS\n", ""
+                )) as invoke:
+            os.environ.pop("CHAIR_PANEL_TOTAL_CAP", None)
+            self.module.synthesize(self.root, self.root / "review.md")
+        self.assertEqual(invoke.call_count, 0)
+        text = (self.root / "review.md").read_text()
+        self.assertTrue(text.endswith("VERDICT: FAIL\n"))
+        self.assertIn("CHAIR_PANEL_TOTAL_CAP", text)
+        self.assertNotIn("Stale review", text)
+        self.assertEqual((self.root / "role-summary.json").read_text(), summary)
+        self.assertTrue(status.call_args.kwargs["failed"])
+
+    def test_configured_panel_cap_counts_utf8_bytes_not_characters(self):
+        summary = '{"findings":["' + "한" * 20 + '"]}'
+        limit = len(summary)
+        self.assertGreater(len(summary.encode("utf-8")), limit)
+        with patch.dict(os.environ, {"CHAIR_PANEL_TOTAL_CAP": str(limit)}):
+            calls, text = self.run_chair([
+                (0, "Provider should not run.\nVERDICT: PASS\n", ""),
+            ], summary)
+        self.assertEqual(calls, 0)
+        self.assertTrue(text.endswith("VERDICT: FAIL\n"))
+
+    def test_panel_cap_allows_exact_limit_without_counting_diff_or_context(self):
+        summary = '{"findings":["한글"]}'
+        context = "Trusted base context.\n" * 20
+        diff = "Complete diff evidence.\n" * 20
+        self.prepare_chair(summary, context, diff)
+        limit = len(summary.encode("utf-8"))
+        with patch.dict(os.environ, {"CHAIR_PANEL_TOTAL_CAP": str(limit)}), \
+                patch.object(self.module, "execute", return_value=(
+                    0, "All evidence reviewed.\nVERDICT: PASS\n", ""
+                )) as invoke:
+            self.module.synthesize(self.root, self.root / "review.md")
+        self.assertEqual(invoke.call_count, 1)
+        command, _, _, supplied, _ = invoke.call_args.args
+        self.assertIn(context, command[2])
+        self.assertIn(diff, supplied)
+        self.assertIn(summary, supplied)
+        self.assertGreater(len(supplied.encode("utf-8")), limit)
+
+    def test_panel_cap_cannot_be_disabled_with_nonpositive_values(self):
+        self.prepare_chair()
+        for limit in ("0", "-1"):
+            with self.subTest(limit=limit), \
+                    patch.dict(os.environ, {"CHAIR_PANEL_TOTAL_CAP": limit}), \
+                    patch.object(self.module, "execute", return_value=(
+                        0, "Provider should not run.\nVERDICT: PASS\n", ""
+                    )) as invoke:
+                with self.assertRaises(ValueError):
+                    self.module.synthesize(self.root, self.root / "review.md")
+                self.assertEqual(invoke.call_count, 0)
 
     def test_complete_clean_review_does_not_call_chair(self):
         (self.root / "chair-mode.txt").write_text("deterministic\n")
