@@ -1,8 +1,8 @@
 # Demo readiness UI — historical design
 
 **Date:** 2026-08-18. **Original status:** design revised through cross-model review.
-**Reconciled:** 2026-09-13. The feature set is implemented and has evolved;
-full review rounds and draft contracts remain in Git history.
+**Reconciled:** 2026-09-13. UI history below runs through PR #103; full review
+rounds and draft contracts remain in Git history.
 
 ## Intent and choices
 
@@ -16,7 +16,7 @@ controller/assume-role wiring, and an ArgoCD Application can contain workloads
 with different counts. An empty input plus console guidance avoided a second
 credential path and an ambiguous application-wide "current count".
 
-Other decisions retained in implementation:
+Choices implemented before PR #107:
 
 - Bulk start calls the existing action in batches of four and collects each
   toggle's `{ok: boolean}` result, including timeout and partial failure.
@@ -29,7 +29,7 @@ Other decisions retained in implementation:
   aggregates by resource target, and appends history.
 - Frontend test infrastructure was added because none existed when planning began.
 
-## Evolution since this design
+## Evolution through PR #103
 
 The namespace-placeholder failure was fixed on 2026-08-20, so ArgoCD scale controls
 are no longer permanently disabled. Write-once HPA baselines followed on
@@ -40,14 +40,15 @@ first scale before another scale/off captures reduced bounds.
 
 PR #103 narrowed bulk start to confirmed **visible** off/error projects and added
 success/failure feedback, native detail buttons, responsive facets, request-order
-protection and mounted-control validation/locking. There is no project sort
-control. The old assumptions of whole-card click handling, no client validation,
-no frontend tests and unconditional ArgoCD disablement are obsolete.
+protection and mounted-control validation/locking. That revision had no project
+sort control. By then, whole-card click handling, no client validation,
+no frontend tests and unconditional ArgoCD disablement were obsolete assumptions.
 
 [ADR-017](../../decisions/ADR-017-demo-scale-job-operation.md) owns baseline,
-concurrent scale/off, replay and ArgoCD sync limits. The
-[frontend guide](../../../dashboard/frontend/CLAUDE.md) owns current UX, manually
-mirrored limits and polling; [scale route](../../../dashboard/backend/packages/api/src/routes/scale.ts),
+concurrent scale/off, replay and ArgoCD sync limits. PR #107 later introduced
+selected on/off batches, a sortable table and page-level operation guards; the
+[frontend guide](../../../dashboard/frontend/CLAUDE.md) owns current tracking,
+retry and page-lifetime limits. The [scale route](../../../dashboard/backend/packages/api/src/routes/scale.ts),
 [runner](../../../dashboard/backend/packages/worker/src/job-runner.ts) and
 [tests](../../../dashboard/frontend/hooks/__tests__/useProjects.test.ts) provide
 source evidence. Implementation does not establish which image is running.
