@@ -3,8 +3,8 @@
 
 CLI:
   prepare --diff RAW --context CONTEXT --head SHA --base SHA --work WORK
-          [--context-cap BYTES] [--paths JSON_LIST]
-  record --work WORK --tag TAG --output FILE --stderr FILE --exit-code RC
+          [--context-cap BYTES] [--paths FILE] [--provenance FILE]
+  record --work WORK --tag TAG --output FILE --stderr FILE --exit-code RC --nonce NONCE
   aggregate --work WORK
 
 Schema 1 plans list all four tags; only required roles get roles/TAG.txt and
@@ -562,10 +562,14 @@ def scrub(value):
         return value
     value = re.sub(r"(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]", "", value)
     value = re.sub(r"(?:\x1b[\]PX^_]|\x9d|\x90|\x98|\x9e|\x9f).*?(?:\x07|\x9c|\x1b\\|$)", "", value, flags=re.S)
+    # Charset designators (ESC ( B), ESC # 8 and other complete ESC forms must
+    # disappear as a unit, before their visible residue can split a credential.
+    value = re.sub(r"\x1b[ -/]*[0-~]", "", value)
     value = "".join(c for c in value if c in "\n\r\t" or unicodedata.category(c) not in ("Cc", "Cf", "Zl", "Zp"))
     key = (
         r"(?i:(?<![A-Za-z0-9])(?:[A-Za-z0-9]+_)*(?:password|passwd|api[_-]?key|"
-        r"secret|token|aws_secret_access_key|aws_access_key_id|access[_-]?token|client[_-]?secret))"
+        r"secret|token|aws_secret_access_key|aws_access_key_id|access[_-]?token|client[_-]?secret|"
+        r"SecretAccessKey|SessionToken|AccessKeyId))"
         r"""["']?\s*[:=]\s*"""
     )
     patterns = (
@@ -588,6 +592,22 @@ def scrub(value):
 
 def record(args):
     work = Path(args.work)
+    if args.tag not in ROLES:
+        return 2
+    slot = work / "slot"
+    slot.mkdir(parents=True, exist_ok=True)
+    result_path = slot / f"{args.tag}-result.json"
+    # The exclusive claim persists for this work directory. A duplicate attempt
+    # cannot race past an existence check or replace the first writer's evidence.
+    try:
+        with (slot / f"{args.tag}.record-claim").open("x"):
+            pass
+    except FileExistsError:
+        write(slot / f"{args.tag}-duplicate.flag", "duplicate_record\n")
+        return 2
+    if result_path.exists():
+        write(slot / f"{args.tag}-duplicate.flag", "duplicate_record\n")
+        return 2
     result = {"schema_version": 1, "tag": args.tag, "valid": False, "failure_codes": [], "response": None}
     try:
         plan = load_plan(work)
@@ -602,8 +622,6 @@ def record(args):
             raise Invalid("plan_input_incomplete")
         if not role["required"]:
             raise Invalid("inactive_role")
-        if (work / "slot" / f"{args.tag}-result.json").exists():
-            raise Invalid("duplicate_record")
         if args.exit_code != 0:
             result["failure_codes"].append("cli_nonzero_exit")
         stderr = text_file(args.stderr)
@@ -620,7 +638,7 @@ def record(args):
     except Invalid as exc:
         if str(exc) not in result["failure_codes"]:
             result["failure_codes"].append(str(exc))
-    write_json(work / "slot" / f"{args.tag}-result.json", result)
+    write_json(result_path, result)
     return 0 if result["valid"] else 2
 
 
@@ -630,6 +648,9 @@ def blocking_flags(work):
         if path.name == "coverage-severe.flag":  # This engine's output, not an upstream input.
             continue
         name = path.name.lower()
+        if name.endswith("-duplicate.flag"):
+            codes.add("duplicate_record")
+            continue
         kind = next((word for word in ("preflight", "fallback", "quota", "truncat", "omission")
                      if word in name), "failure")
         codes.add(f"upstream_{kind}_flag")
