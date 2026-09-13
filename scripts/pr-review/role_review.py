@@ -670,20 +670,21 @@ def diagnostic_failure(stderr):
 
 def scrub(value):
     """Scrub decoded strings too: raw-JSON sanitizers miss escaped credentials."""
+    identifier = (
+        r"(?i:(?<![A-Za-z0-9])[A-Za-z0-9_-]*(?:password|passwd|api[_-]?key|"
+        r"secret|token|credential|passphrase|private[_-]?key|cookie|AccessKeyId|access[_-]?key[_-]?id|external[_-]?id)[A-Za-z0-9_-]*)"
+    )
     if isinstance(value, list):
         return [scrub(x) for x in value]
     if isinstance(value, dict):
-        return {k: scrub(v) for k, v in value.items()}
+        return {k: "[REDACTED]" if isinstance(k, str) and re.fullmatch(identifier, k) else scrub(v)
+                for k, v in value.items()}
     if not isinstance(value, str):
         return value
     value = re.sub(r"(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]", "", value)
     value = re.sub(r"(?:\x1b[\]PX^_]|\x9d|\x90|\x98|\x9e|\x9f).*?(?:\x07|\x9c|\x1b\\|$)", "", value, flags=re.S)
     value = re.sub(r"\x1b[ -/]*[0-~]", "", value)
     value = "".join(c for c in value if c in "\n\r\t" or unicodedata.category(c) not in ("Cc", "Cf", "Zl", "Zp"))
-    identifier = (
-        r"(?i:(?<![A-Za-z0-9])[A-Za-z0-9_-]*(?:password|passwd|api[_-]?key|"
-        r"secret|token|credential|passphrase|private[_-]?key|cookie|AccessKeyId|access[_-]?key[_-]?id|external[_-]?id)[A-Za-z0-9_-]*)"
-    )
     key = identifier + r"""["']?\s*[:=]\s*"""
     patterns = (
         r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)",

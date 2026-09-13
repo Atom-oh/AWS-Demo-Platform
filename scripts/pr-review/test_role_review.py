@@ -282,6 +282,7 @@ class RoleReviewTests(unittest.TestCase):
         metadata = self.root / "source.json"
         source = {"head_sha": HEAD, "base_sha": BASE,
                   "diff_sha256": hashlib.sha256(patch().encode()).hexdigest(),
+                  "metadata": [{"aws_secret_access_key": "collector-" + "private"}],
                   "note": "password=collector-private"}
         metadata.write_text(json.dumps(source))
         self.prepare(extra=("--provenance", metadata))
