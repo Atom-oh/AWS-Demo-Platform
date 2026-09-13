@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ROLE_REVIEW=1 restores frames and aggregates required specialist roles.
+# The legacy coverage-floor implementation follows that branch.
 # Aggregates artifacts from the 4 panel jobs (downloaded by the chair job into
 # $WORK/slot) and applies the coverage-floor verdict. Args: <lenses_dir> <workdir>
 # Coverage floor requires the full 4-model set, so it can only run here (not in run-panel.sh).

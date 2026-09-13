@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# ROLE_REVIEW=1 publishes specialist results, invoking a chair only when required.
+# The legacy unconditional chair implementation follows that branch.
 # Chair synthesis. Args: <diff> <workdir> <pr_number> <pr_title> <out review.md>
 set -euo pipefail
 

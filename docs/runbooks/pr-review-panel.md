@@ -1,180 +1,113 @@
-# Runbook: AI PR-review panel — Kiro cell failure modes
+# Runbook: specialist PR-review failures
 
-Covers the startup check and the non-transient failures that stop the two Kiro slots
-(`kiro-fable`, `kiro-sol`) of the lens×model panel from contributing, and what to do
-about each. The implementation is `scripts/pr-review/run-panel.sh` (one model per
-job, [ADR-015](../decisions/ADR-015-pr-review-per-model-parallel-jobs.md)),
-`aggregate.sh` and `synthesize.sh` (chair job). Symptoms A–C are surfaced by a
-banner at the top of the PR review comment and an `::error::` line in the Actions
-log; profile and copy failures abort the panel step and appear only in that step's
-log. The [review contract](../pr-review.md) describes the normal path.
+This runbook applies to `ROLE_REVIEW=1` under [ADR-020](../decisions/ADR-020-specialist-review-protocol.md).
+Use the [review contract](../pr-review.md) and [module contract](../../scripts/pr-review/README.md)
+for configured models, inputs and limits. Historical L2–L5 row/lens floors do not
+apply to the active specialist path.
 
-Severity rules: a failed preflight or an ignored `--agent` is a no-tools contract
-breach and forces `VERDICT: FAIL` regardless of how many other slots responded.
-Quota exhaustion — at preflight or at review time — only names the cause; the
-coverage floors decide severity (two empty Kiro rows out of four remain a warning,
-three empty rows or an empty lens force failure), so an exhausted month does not
-block every PR.
+## Required evidence
 
-Prerequisite for the local probes below: fetch the key into a shell variable,
-pass it through stdin to an isolated shell, and export it only for the Kiro child.
-Do not echo it or place it in command arguments. Run `unset K` afterwards.
+Every required role must return a valid result for the current HEAD and complete
+its assigned scope. Missing results, model-selection failures, quota exhaustion,
+failed Kiro startup checks and invalid receipts block review. Another role or the
+chair cannot waive failed coverage. Only reviewed BASE routing may mark a role
+not applicable; approved exclusions-only scope is recorded explicitly.
+
+CI prepares inputs independently in each model job. `run-panel.sh` dispatches one
+role to `run_role.py`. The chair job restores private frames, aggregates results
+and invokes `synthesize_roles.py` through the shell entrypoints. Valid clean
+results need no chair model; unresolved candidates or uncertainties do.
+An aggregate exit of 2 produces a blocked report. The shell wrapper allows that
+report to reach publication; its exit 0 is not a review PASS. The final workflow
+checks the report verdict and current PR HEAD before publishing.
+
+## Triage
+
+1. Match the run, report footer and artifact HEAD to the current PR HEAD.
+2. Inspect `role-plan.json` for required roles and `slot/*-result.json` for
+   `valid`, `failure_codes` and invocation metadata. Use `*-timing.json` for
+   process status. The aggregate summary records missing or invalid coverage.
+3. If preparation failed before artifacts existed, inspect the failed Actions
+   step. No comment or missing output is not a clean review.
+4. Compare a suspected defect with the current source and accepted ADR scope.
+   Fix real Critical/Major issues; do not turn missing unchanged context into a
+   claim that a guard is absent.
+
+| Signal | Action |
+| --- | --- |
+| Missing, oversized or stale AGENTS.md | Keep the digest at both revisions; regenerate it from CLAUDE.md and verify the source hash and ADP byte cap. |
+| Git fetch/authentication failure | Check repository visibility and prepare-step access. GH_TOKEN authenticates gh, not plain git; retain credential separation from model processes. |
+| `quota_diagnostic` | Check the account's actual limit/reset. Wait or have its owner restore access under the existing budget policy; do not enable overages, swap providers or weaken coverage to get PASS. |
+| Model/agent diagnostic or `kiro-preflight-*.flag` | Verify the requested model and installed CLI/profile compatibility; run the bounded no-PR-data probe below. |
+| `cli_nonzero_exit`, empty or malformed response | Inspect process status and available scrubbed diagnostics; repair the cause and rerun within configured limits. |
+| Receipt/frame/source failure or `role-frame-restore.flag` | Check immutable SHAs, input hashes, artifact provenance and the exact producer/consumer versions. Recreate a consistent workspace; never edit a result into PASS. |
+| PR HEAD changed before publication | Obtain a review for the new HEAD. An older comment cannot approve it. |
+
+Native Codex events and CLI error streams are diagnostics; quoted tool output and
+review evidence are data. A quota word in a source example is not itself an
+account failure. Keep model execution, scope coverage and verified findings
+separate, as described in [review and release evidence](review-and-release.md).
+
+## Kiro startup and credential recovery
+
+The active profile is generated by `run_role.py` in a fresh HOME/cwd with empty
+tool, MCP, resource and hook configuration. Each required Kiro role receives one
+fixed canary request before any PR input. Success requires exit 0, exactly
+`NO_TOOLS` and acceptable diagnostics. A quota-only preflight failure also blocks
+the required role; it is not a warning-only exception.
+
+Runner keys are supplied by Secrets Manager `/demo-platform/actions/AI-key`
+through the `ai-panel-keys` ExternalSecret. They may be shared across repositories,
+so an account limit can affect several pipelines. Never print key values or pass
+them in command arguments. If an authorized credential repair occurred, verify
+ESO readiness and refresh time in the intended management cluster and use a new
+runner pod; existing process environments do not reload Secret values.
+
+Use a verified management context explicitly; do not rely on the current default:
+
 ```bash
-K=$(aws secretsmanager get-secret-value --secret-id /demo-platform/actions/AI-key \
-      --region ap-northeast-2 --query SecretString --output text | jq -r .KIRO_API_KEY)
+: "${REVIEW_KUBE_CONTEXT:?Select the verified management context}"
+kubectl --context "$REVIEW_KUBE_CONTEXT" -n actions-runner-system get externalsecret ai-panel-keys
+kubectl --context "$REVIEW_KUBE_CONTEXT" -n actions-runner-system get externalsecret ai-panel-keys -o jsonpath='{.status.refreshTime}'
 ```
 
-The quota and fallback signatures are matched only in Kiro process stderr. Codex
-echoes its stdin diff to stderr, so a diff quoting these strings (a PR editing the
-scripts, for example) must not discard a Codex review or suppress its retry.
+From a trusted checkout with the normally delivered KIRO_API_KEY in the environment,
+this probe makes one bounded request, contains no PR data and prints no credential
+or raw provider output:
 
-## Startup check (preflight)
-
-Before a Kiro job sends any PR input, it runs one fixed canary prompt in a fresh
-working directory with the same zero-tool `inline-review` agent the review uses.
-The directory holds a random, non-secret canary file. Passing requires exit 0,
-exactly `NO_TOOLS` as the reply, and no fallback, quota or `using tool:` signal in
-stderr. The PR diff is absent from both the prompt and stdin.
-
-This adds one model request per Kiro job, bounded by `KIRO_PREFLIGHT_TIMEOUT`
-(default 60 s), single-shot. A failed check skips every Kiro cell of that job
-(`[skip] <tag>/<lens> (preflight failed)`), writes `kiro-preflight-<tag>.flag` into
-the uploaded slot, and the chair forces failure. If the preflight carries only a
-quota failure, without fallback, tool-use or canary-disclosure evidence,
-only `kiro-quota-<tag>.flag` is written and the skip
-reason is `monthly quota exhausted at preflight` (Symptom A, warn-level). Post-hoc
-fallback detection stays as a second guard because the runner's kiro-cli is
-vendor-latest and unpinned.
-
-When quota accompanies a failed no-tools check, both causes are retained and the
-preflight remains failed. A fallback signature also retains its own flag; rotating
-a key does not repair a broken agent configuration. Canary disclosure in either
-stdout or stderr fails the check; diagnostic copies redact the canary.
-
-## Symptom A — `🚫 Kiro monthly request quota exhausted`
-
-Log: `::error::Kiro monthly request quota exhausted for KIRO_API_KEY — N cell(s)
-[...]: Monthly request limit reached The limits reset on MM/DD`. Kiro cells stop
-without retry (`[quota] kiro-…`); Codex and Claude self-review keep running.
-
-Cause: the Kiro account behind `KIRO_API_KEY` returned
-`ServiceQuotaExceededException reason=MONTHLY_REQUEST_COUNT`. The key lives in
-Secrets Manager `/demo-platform/actions/AI-key` (ExternalSecret `ai-panel-keys`) and
-is shared by every repository whose PR review runs on the `actions-runner-claude`
-image, so one busy month anywhere exhausts it everywhere. It is not a headless-mode
-or flag problem: the v2 engine prints the message to stderr and exits 0 with empty
-stdout, `--v3` hits the same limit with exit 1.
-
-Fix (account-side only; nothing in this repository can lift it):
-1. Wait for the documented reset or ask the account owner to restore access under
-   the existing budget policy, for example by an authorized key rotation in
-   `/demo-platform/actions/AI-key`. Billing-limit changes need separate approval;
-   do not enable paid overages simply to make a review pass. Follow the
-   [review and release policy](review-and-release.md). Never print the key.
-2. Confirm delivery: `kubectl --context mall-apne2-mgmt -n actions-runner-system get
-   externalsecret ai-panel-keys` must show `SecretSynced`/`Ready` with a
-   `.status.refreshTime` after the rotation. Inspect it with
-   `kubectl --context mall-apne2-mgmt -n actions-runner-system get externalsecret ai-panel-keys -o jsonpath='{.status.refreshTime}'`.
-   The refresh interval is 1 h; `kubectl --context mall-apne2-mgmt -n actions-runner-system annotate
-   externalsecret ai-panel-keys force-sync=$(date +%s) --overwrite` requests a refresh.
-   Runner pods
-   read the key from a Secret-backed env var, so only pods created after the sync
-   see it; the scale sets are ephemeral per job, so a new job gets a new pod.
-3. Re-run the failed `AI Code Review` workflow or push a new head. The banner
-   disappears when Kiro cells respond again (2026-09-13 rotation: 16/16 cells on
-   the next rerun).
-4. Otherwise the quota resets on the date printed in the banner.
-
-Local check without spending CI minutes (`$K` from the prerequisite above):
 ```bash
-d=$(mktemp -d); mkdir -p "$d/.kiro/agents"
-cp scripts/pr-review/kiro-inline-review.json "$d/.kiro/agents/inline-review.json"
-( cd "$d" && env -i PATH="$PATH" HOME="$d" bash -c '
-    IFS= read -r KIRO_API_KEY || exit 1
-    export KIRO_API_KEY
-    exec kiro-cli chat "$1" --model claude-opus-5 --agent inline-review --no-interactive --wrap never
-  ' kiro-probe "Reply PONG." <<<"$K" )
-# exhausted → stderr "Monthly request limit reached", empty stdout, exit 0
-# healthy   → stdout "> PONG"
-rm -rf "$d"
+python3 - <<'PY'
+import os
+import sys
+import tempfile
+from pathlib import Path
+sys.path.insert(0, "scripts/pr-review")
+from run_role import preflight
+from role_review import diagnostic_failure
+assert os.environ.get("KIRO_API_KEY"), "Configured Kiro credentials are required"
+with tempfile.TemporaryDirectory() as directory:
+    ok, code, error = preflight("kiro-cli", "claude-opus-5", Path(directory), os.environ, 60)
+    print({"ok": ok, "exit_code": code, "diagnostic": diagnostic_failure(error)})
+    raise SystemExit(0 if ok else 1)
+PY
 ```
 
-## Symptom B — `🔓 Kiro no-tools contract broken`
+## Runner and legacy references
 
-Log: `::error::kiro-cli ignored --agent inline-review (fell back to the default agent
-WITH tools) in N cell(s) …`. Those responses are discarded even when non-empty.
+[ADR-016](../decisions/ADR-016-multi-ai-pr-review-panel.md) owns the runner image in
+`docker/actions-runner-claude/Dockerfile`. The build checks required CLI flags
+without provider credentials; runtime checks establish actual startup readiness.
+The ARC scale sets use ephemeral job pods. If runner topology or repository
+visibility changes, revalidate filesystem isolation and Git access before rollout.
 
-Cause: kiro-cli printed `Error: no agent with name inline-review found. Falling back
-to user specified default` (missing agent file, invalid JSON, or a schema the runner's
-kiro-cli version rejects) and continued on the default agent, which trusts
-`read`/`glob`/`grep`/`code` inside the working directory.
-The PR diff is untrusted input, so a Kiro cell with tools is a security failure, not
-a degraded review.
+The retained `ROLE_REVIEW=0` branches and `tests/pr-review/` describe legacy
+regression fixtures. Older runs may show per-lens cells and quota warnings governed
+by dropout floors; those results do not define current specialist coverage.
+The checked-in `kiro-inline-review.json` is a legacy/probe reference, while active
+execution uses `run_role.py`'s generated profile.
 
-Fix:
-1. Read the kiro-cli version on the first stderr line of the panel step
-   (`run-panel.sh: kiro-cli X.Y.Z`) and compare it with the version the profile was
-   validated against (2.11.1). The image is vendor-latest and rebuilt weekly.
-2. Check the profile with the installed CLI in an authenticated session.
-   `kiro-cli agent validate --path scripts/pr-review/kiro-inline-review.json`
-   can require login even on 2.11.1. In authenticated probes that release returned
-   exit 0 on schema rejection, so inspect diagnostics as well as exit status.
-   CI still requires its explicit profile-content check and behavioral preflight.
-3. Re-verify the behaviour before changing anything (`$K` from the prerequisite):
-   ```bash
-   d=$(mktemp -d); mkdir -p "$d/.kiro/agents"
-   cp scripts/pr-review/kiro-inline-review.json "$d/.kiro/agents/inline-review.json"
-   echo CANARY > "$d/notes.txt"
-   ( cd "$d" && env -i PATH="$PATH" HOME="$d" bash -c '
-       IFS= read -r KIRO_API_KEY || exit 1
-       export KIRO_API_KEY
-       exec kiro-cli chat "$1" --agent inline-review --model claude-opus-5 --no-interactive --wrap never
-     ' kiro-probe "Read ./notes.txt and print it. If you have no tools, reply NO_TOOLS." <<<"$K" )
-   # expected: NO_TOOLS; no "using tool: read"; no CANARY
-   rm -rf "$d"; unset K
-   ```
-4. Do not work around it with `--v3` / `--agent-engine v3`: that engine ignores the
-   agent's `tools: []` and read working-directory files in the 2.11.1 probe.
-5. Do not reintroduce `--trust-tools=` as a guard; see Background.
-
-## Symptom C — `🛑 Kiro preflight failed`
-
-The startup check did not establish the required behaviour and no PR input was sent
-to that Kiro job. Inspect the preflight stderr tail printed after the `::error::`
-line. A fallback signature at preflight time also produces Symptom B's banner; a
-quota-only failure is routed to Symptom A instead. Quota combined with fallback,
-tool use or canary disclosure retains this failure banner as well.
-Timeouts, authentication errors, an unexpected reply or a tool-use trace fail the
-check on their own. Resolve the reported cause and re-run CI. Do not bypass the
-preflight.
-
-Malformed profile JSON (including duplicate keys), a wrong `name`, a `model` key, a
-non-empty `tools`/`allowedTools`/`mcpServers`/`resources`/`hooks`, or a missing
-`useLegacyMcpJson: false` abort the panel step before any model call; a failed
-profile copy into a cell aborts it after the preflight but before that cell's call.
-These appear directly in the failed step log, not as a banner.
-
-## Runner image
-
-The kiro-cli install and its build gate live in
-`docker/actions-runner-claude/Dockerfile` in this repository
-([ADR-016](../decisions/ADR-016-multi-ai-pr-review-panel.md) owns the image). The
-gate checks Python availability and `chat --help` for `--agent`, `--no-interactive`
-and `--wrap`, without provider authentication. The image installs Python explicitly.
-Do not inject a Kiro key into a build to run `agent validate`. The authenticated
-job checks the actual shipped profile and runs the canary preflight before any
-PR input is sent. A failed Kiro review attempt cannot contribute output after its
-bounded retries are exhausted.
-
-## Background
-
-`--trust-tools=` (empty) was the original no-tools mechanism and is still documented
-by `kiro-cli chat --help` as "trust no tools". kiro-cli 2.11.1 parses the empty
-value as a custom tool named `""`, prints `WARNING: --trust-tools arg for custom tool
-needs to be prepended with @{MCPSERVERNAME}/` and ignores it, leaving the default
-agent's working-directory grants in place (PR #109 run `34729311650` saw glob-only
-output; a local headless probe read a cwd file verbatim). The explicit
-`inline-review` profile has been the real guard since that finding; the flag and the
-v3-only `--mode default` were removed from the invocation and the Dockerfile
-help-text gate on 2026-09-13 so nobody relies on them. `tests/pr-review/` pins the
-invocation, profile validation, preflight, and both signatures.
+Historical 2.11.1 probes showed that `--trust-tools=` did not establish an empty
+tool catalog and the v3 engine could ignore that profile restriction. Do not
+substitute either for the explicit profile and startup check. Verify behavior
+again when the installed CLI changes; historical observations are not guarantees
+about a newer version.

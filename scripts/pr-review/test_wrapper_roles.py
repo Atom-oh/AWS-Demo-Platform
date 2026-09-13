@@ -67,6 +67,59 @@ class WrapperContextTests(unittest.TestCase):
                 self.assertTrue(preserved)
                 self.assertIn("REVIEW_CONTEXT_CAP", result.stderr)
 
+    def test_panel_stops_before_executor_on_unsafe_slot(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "work").mkdir()
+            (root / "target").mkdir()
+            (root / "work/slot").symlink_to(root / "target", target_is_directory=True)
+            (root / "bin").mkdir()
+            marker = root / "executor-started"
+            fake = root / "bin/python3"
+            fake.write_text(f"#!{sys.executable}\nfrom pathlib import Path\nPath({str(marker)!r}).touch()\n")
+            fake.chmod(0o755)
+            result = subprocess.run(
+                ["bash", str(WRAPPER.with_name("run-panel.sh")), "unused", "unused",
+                 str(root / "work"), "codex"],
+                env={"PATH": str(root / "bin") + os.pathsep + os.environ["PATH"],
+                     "ROLE_REVIEW": "1"}, capture_output=True, text=True, timeout=10,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(marker.exists())
+            self.assertTrue((root / "work/slot").is_symlink())
+
+    def test_prepare_exports_positional_shas(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            binary = root / "bin"
+            binary.mkdir()
+            log = root / "environment.json"
+            gh = binary / "gh"
+            gh.write_text(
+                f"#!{sys.executable}\nimport base64,sys\n"
+                "if '/contents/' in sys.argv[2]:\n"
+                " print(base64.b64encode(b'Trusted context.').decode())\n"
+                "else:\n print('diff --git a/x.py b/x.py\\n--- a/x.py\\n+++ b/x.py\\n@@ -1 +1 @@\\n-old\\n+new')\n"
+            )
+            python = binary / "python3"
+            python.write_text(
+                f"#!{sys.executable}\nimport json,os,pathlib\n"
+                f"pathlib.Path({str(log)!r}).write_text(json.dumps("
+                "{k:os.environ.get(k) for k in ['HEAD_SHA','BASE_SHA']}))\n"
+            )
+            gh.chmod(0o755)
+            python.chmod(0o755)
+            result = subprocess.run(
+                ["bash", str(WRAPPER.with_name("prepare-inputs.sh")),
+                 "a" * 40, "b" * 40, str(root / "work")],
+                env={"PATH": str(binary) + os.pathsep + os.environ["PATH"],
+                     "ROLE_REVIEW": "1", "GH_REPO": "owner/repo"},
+                capture_output=True, text=True, timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(log.read_text()),
+                             {"HEAD_SHA": "a" * 40, "BASE_SHA": "b" * 40})
+
 
 if __name__ == "__main__":
     unittest.main()

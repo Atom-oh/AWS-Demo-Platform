@@ -22,15 +22,17 @@ or every described check are already enforced by automation.
 
 ## Interpret the current AI workflow
 
-`.github/workflows/pr-review.yml` runs four configured panel slots over L2–L5 and
-publishes the chair's synthesized verdict. Actual model IDs and invocation settings
-live in `scripts/pr-review/`, the workflow and runner configuration. See the
+`.github/workflows/pr-review.yml` runs the applicable specialist roles under
+ADR-020. Complete clean results use a deterministic summary; blocking candidates
+and uncertainty require chair adjudication. Failed required coverage produces
+FAIL and cannot be waived by the chair. Model IDs and invocation settings live in
+`scripts/pr-review/`, the workflow and runner configuration. See the
 [current PR review contract](../pr-review.md) for input provenance, slot names and
 implemented coverage limits. Local steering does not load CI Kiro context; the
 preparation script explicitly supplies base-SHA `AGENTS.md`.
 
 Check three separate outcomes: did the model execute successfully, did it actually
-review the required input/lenses, and did its findings survive verification?
+review the required scope, and did its findings survive verification?
 A successful job or non-empty output does not prove useful review coverage. Read
 warnings and match the verdict to the current head SHA. Inspect human review
 requests and required status checks as well.
@@ -47,10 +49,10 @@ These are dated observations, not permanent settings. Verify current protection
 and ruleset settings through GitHub before relying on enforcement.
 
 The [gate-hardening proposal](../superpowers/specs/2026-08-09-pr-review-gate-hardening-design.md)
-records remaining work such as exit/coverage validation, complete diff handling,
-stale-head/fork behavior and publisher credential separation. A merged proposal
-is not an implemented safeguard. Keep AI review supplemental until the intended
-gate is implemented, tested and enforced alongside deterministic checks.
+is historical design context. The current contract documents implemented scope,
+exit/coverage validation, current-HEAD publication checks and credential separation;
+do not infer additional controls or branch protection from the proposal. AI review
+remains supplemental to deterministic checks and deployment evidence.
 
 ## Complete a PR
 

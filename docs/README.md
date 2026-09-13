@@ -39,7 +39,7 @@ The marker is the first 12 hexadecimal characters of SHA-256 over the UTF-8
 
 Local Kiro steering points at `AGENTS.md`; CI Kiro runs in an isolated directory
 without read tools. `prepare-inputs.sh` explicitly fetches the digest at the event's
-base SHA and embeds it for every lens and the chair. PR-head instructions remain
+base SHA and supplies it to applicable specialists and conditional adjudication. PR-head instructions remain
 untrusted diff data. The local bridge alone cannot supply CI context.
 
 Keep generated guidance concise and point to module guides rather than duplicating

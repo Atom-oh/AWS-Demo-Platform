@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Runs only one model's lens×model cells. Args: <diff> <lenses_dir> <workdir> <model_tag>
+# ROLE_REVIEW=1 runs one specialist; the legacy lens path remains below.
+# Args: <diff> <lenses_dir> <workdir> <model_tag>
 # model_tag: codex | kiro-fable | kiro-sol | claude-self (see lib.sh PANEL_TAGS)
 # Each *.txt in lenses_dir is one lens (filename stem = lens tag, e.g. L2/L3/L4/L5). The
 # workflow calls this script once per per-model parallel job (ADR-015); the chair job's
@@ -17,7 +18,7 @@ set -uo pipefail
 if [ "${ROLE_REVIEW:-0}" = 1 ]; then
   ROLE_DIR="$(cd "$(dirname "$0")" && pwd)"
   . "$ROLE_DIR/lib.sh"
-  ensure_slots "$3"
+  ensure_slots "$3" || exit 1
   exec python3 "$ROLE_DIR/run_role.py" --work "$3" --tag "$4"
 fi
 DIFF="$(realpath "$1" 2>/dev/null)" \
