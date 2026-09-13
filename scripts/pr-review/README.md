@@ -120,13 +120,13 @@ The model table targets CI's Bedrock Runtime provider. Local Mantle uses
 React edits retain `kiro-sol`; altered or missing receipt-bound history blocks.
 
 Chair Markdown redacts nested/multiline containers and handles quoted/escaped
-delimiters. Parse-only validation rejects malformed or unsupported syntax.
+delimiters. Parse-only validation rejects malformed, unclosed or unsupported syntax.
 Uncertain boundaries consume the remaining reply, including its verdict.
 Conditional, call, index, concatenation and continuation tails are rejected.
-Unambiguous prose preserves outside verdicts. Markdown bullets, links or closing
-fences can look like expression continuations and fail closed. Avoid sensitive
+Plain paragraph text can preserve outside verdicts. Markdown bullets, headings,
+links or closing fences can look like continuations and fail closed. Avoid sensitive
 assignment examples in summaries. Transient throttles may use the configured
-fallback; account/monthly/credit limits prohibit success and fallback.
+fallback; account/monthly/credit limits each prohibit success and fallback.
 
 ## Executor inputs and limits
 
