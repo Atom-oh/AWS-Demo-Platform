@@ -152,6 +152,8 @@ Untrusted evidence is delimited with the random boundary {nonce}.
         started = time.monotonic()
         code, text, error = execute(command, Path.cwd(), environment, input_text, timeout)
         diagnostic = diagnostic_failure(error)
+        if ACCOUNT_LIMIT.search(error):
+            diagnostic = "quota_diagnostic"
         text = scrub_decoded(scrub(text), markdown=True)
         if valid(text, code) and diagnostic is None:
             output.write_text(text.rstrip() + "\n")

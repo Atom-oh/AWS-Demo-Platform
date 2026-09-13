@@ -61,12 +61,15 @@ class SynthesisTests(unittest.TestCase):
         self.assertTrue(text.endswith("VERDICT: PASS\n"))
 
     def test_account_quota_still_prevents_fallback(self):
-        calls, text = self.run_chair([
-            (1, "", "ThrottlingException: MONTHLY_REQUEST_COUNT exhausted"),
-            (0, "Must not be used.\nVERDICT: PASS\n", ""),
-        ])
-        self.assertEqual(calls, 1)
-        self.assertTrue(text.endswith("VERDICT: FAIL\n"))
+        for error in ("ThrottlingException: MONTHLY_REQUEST_COUNT exhausted",
+                      "You have reached the limit for overages"):
+            with self.subTest(error=error):
+                calls, text = self.run_chair([
+                    (0, "Must not pass.\nVERDICT: PASS\n", error),
+                    (0, "Must not be used.\nVERDICT: PASS\n", ""),
+                ])
+                self.assertEqual(calls, 1)
+                self.assertTrue(text.endswith("VERDICT: FAIL\n"))
 
     def test_default_panel_byte_cap_blocks_before_any_provider_call(self):
         summary = '{"findings":["' + "x" * 200000 + '"]}'

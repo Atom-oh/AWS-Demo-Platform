@@ -115,3 +115,23 @@ React edits retain `kiro-sol`; altered or missing receipt-bound history blocks.
 Chair Markdown uses line-bounded container redaction so later findings and the
 final verdict remain intact. A transient model throttle may use the existing
 configured fallback; account/monthly/credit limits still stop further attempts.
+
+## Executor inputs and limits
+
+- `run-specialists.sh`: project entrypoint; ADP defaults `REVIEW_CONTEXT_CAP` to
+  12,288 bytes and rejects zero, invalid or larger overrides before preparation.
+- `prepare_roles.py`: immutable Git scope, BASE instructions and candidate-size
+  checks. `role-input-scope.json` supplies the existing BASE exclusion patterns.
+- `prepare_context_roles.py`: optional BASE-byte-verified context hook. Absent in
+  ADP; repositories that install it may only lower the supplied context cap.
+- `role-project.json`: optional schema-1 execution policy naming
+  `prepare_project_roles.py`, `context_sources` and the bounded `chair` settings.
+  The adapter must match BASE bytes. ADP uses the generic collector, not this hook.
+- `run_role.py`: `PANEL_TIMEOUT` defaults to 300 seconds (maximum 900),
+  `PANEL_RETRIES` to 2 (maximum 3), and `KIRO_PREFLIGHT_TIMEOUT` to 60 seconds
+  (maximum 120). Workflow overrides remain within these bounds.
+- `synthesize_roles.py`: retains `CHAIR_*` settings from the legacy synthesis
+  script unless an explicit project policy supplies stricter limits. Hard
+  account/monthly/credit limits stop even if a lower-level classifier is silent.
+- `role-controls.sh`: transport control-character normalization used with the
+  repository credential scrubber; raw responses stay private until validation.
