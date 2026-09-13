@@ -123,27 +123,35 @@ and escaped delimiters. Syntax is parsed without evaluation; malformed, unclosed
 or unsupported container syntax consumes the remaining reply and cannot leave a
 valid verdict. Conditional, concatenated, called, indexed or continued expression
 tails are also rejected rather than treating the first container as the complete
-value. Supported standalone containers preserve the outside verdict. A transient
-model throttle may use the configured fallback; account/monthly/credit limits
+value. Containers followed by unambiguous prose preserve the outside verdict.
+Markdown bullets, links and closing fences can resemble expression continuations
+and cause a fail-closed result; summarize findings without sensitive assignment
+examples. A transient model throttle may use the configured fallback; account/monthly/credit limits
 independently prevent publishing success or invoking a fallback.
 
 ## Executor inputs and limits
 
 - `run-specialists.sh`: project entrypoint; ADP defaults `REVIEW_CONTEXT_CAP` to
   12,288 bytes and rejects zero, invalid or larger overrides before preparation.
-- `prepare_roles.py`: immutable Git scope, BASE instructions and candidate-size
-  checks. `role-input-scope.json` supplies the existing BASE exclusion patterns.
+- `prepare_roles.py`: immutable Git scope and BASE instructions. Both BASE and
+  candidate context must be nonempty, within the byte cap and, when marked as
+  generated, match the canonical-source hash. Missing `AGENTS.md` falls back to
+  `CLAUDE.md` under the same checks. Candidate context is discarded after validation.
+  `role-input-scope.json` supplies the existing BASE exclusion patterns.
 - `prepare_context_roles.py`: optional BASE-byte-verified context hook. Absent in
-  ADP; repositories that install it may only lower the supplied context cap.
+  ADP; repositories that install it may not raise the supplied context cap.
 - `role-project.json`: optional schema-1 execution policy naming
   `prepare_project_roles.py`, `context_sources` and the bounded `chair` settings.
   The adapter must match BASE bytes. ADP uses the generic collector, not this hook.
 - `run_role.py`: `PANEL_TIMEOUT` defaults to 300 seconds (maximum 900),
   `PANEL_RETRIES` to 2 (maximum 3), and `KIRO_PREFLIGHT_TIMEOUT` to 60 seconds
   (maximum 120). Workflow overrides remain within these bounds.
-- `synthesize_roles.py`: retains `CHAIR_*` settings from the legacy synthesis
-  script unless an explicit project policy supplies stricter limits. Hard
-  account/monthly/credit limits stop even if a lower-level classifier is silent.
+- `synthesize_roles.py`: ADP retains the legacy 600-second timeout and 200,000-byte
+  summary cap, with their existing environment overrides. ADP has no legacy turn
+  or fast-fail default, so those environment settings are not used here. An
+  optional project policy declares its own maxima; the absolute timeout ceiling
+  is 1,500 seconds. The chair uses Read/Grep/Glob and denies Bash. Hard account
+  limits stop even if a lower-level classifier is silent.
 - `role-controls.sh`: forwards to the canonical `lib.sh` control stripper.
   Transport normalization does not invoke credential scrubbing; responses stay
   private until protocol validation and redaction.
