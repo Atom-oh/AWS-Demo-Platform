@@ -11,11 +11,12 @@ running the latest image.
 | Module `CLAUDE.md` files | Scoped implementation, state ownership and commands |
 | [Architecture](architecture.md) | Current component boundaries, routing and ownership |
 | [Developer onboarding](onboarding.md) | Local setup and development workflow |
+| [PR review contract](pr-review.md) | Current input delivery, model-slot mapping, coverage limits and false-positive checks |
 | [Review and release](runbooks/review-and-release.md) | Evidence required around review, deployment and removal |
 | [ai-trader review runner](runbooks/ai-trader-review-runner.md) | Dedicated CLI compatibility pin, retained image evidence and recovery |
 | [Grafana operations](runbooks/grafana-private-ingress.md) | Private ingress and managed administrator lifecycle |
 | [Dashboard deployment execution record](runbooks/dashboard-public-deploy-execution.md) | Historical June 2026 rollout; use current module/release guides for new deployments |
-| [Decisions](decisions/) | Dated architectural rationale and accepted trade-offs |
+| [Decision applicability](decisions/README.md) | Topic-level ADR ownership, supersession and accepted trade-offs |
 | [Specs and plans](superpowers/) | Historical design/implementation records; not deployment status |
 | [Changelog](../CHANGELOG.md) | Notable repository changes |
 
@@ -25,11 +26,16 @@ Edit root `CLAUDE.md` first when repository-wide context changes. Then invoke
 `/co-agent:sync-context` to distill the same rules into root `AGENTS.md`. Only the
 co-agent-marked generated file is replaced. The marker records the source SHA and
 generation date; the installed co-agent `check_ai_context.py` checks freshness,
-size and possible secrets. It does not check semantic completeness, so review the
+size and possible secrets. The CI delivery cap is 12 KiB, stricter than the
+generator's 32 KiB cap. It does not check semantic completeness, so review the
 summary against the source too.
+The marker is the first 12 hexadecimal characters of SHA-256 over the UTF-8
+`CLAUDE.md` text, so freshness can also be checked without an installed plugin.
 
-Kiro's `.kiro/steering/project-context.md` points at `AGENTS.md`; it is not a separate
-copy of the context. Keep generated guidance concise and point to module guides
+Local Kiro steering points at `AGENTS.md`; CI Kiro runs in an isolated directory
+without read tools. `prepare-inputs.sh` explicitly fetches the digest at the event's
+base SHA and embeds it for every lens and the chair. PR-head instructions remain
+untrusted diff data. The local bridge alone cannot supply CI context. Keep generated guidance concise and point to module guides
 rather than duplicating every implementation detail. Never include credential
 values or temporary machine/session state in shared agent context.
 
@@ -47,3 +53,16 @@ marker rather than editing its provenance by hand.
   require different checks. See the release runbook before changing live routing.
 - Keep dates on incident observations. Model catalogs, quotas, certificates,
   branch protections, Pod IPs and service counts can change; verify them live.
+
+## Reading and editing rules
+
+Read root/scoped current guides first, then the relevant accepted decision and its
+amendments. A historical plan explains intent, not current APIs or deployment
+status. A partially superseded ADR keeps authority for unaffected topics. Verify
+contradictions with concrete source paths and distinguish implementation from intent.
+
+All tracked Markdown, agent instructions and code comments use English; localized
+product UI and its test assertions may be Korean. Keep historical records concise,
+retaining dates, rationale, limitations and links. Obsolete code transcripts remain
+in Git history rather than repeated in every review context. Templates are aids,
+not mandatory sections in every document.
