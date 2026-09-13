@@ -11,11 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added a documentation map and review/release runbook separating code review, plans, producer readiness and public runtime verification.
 
 ### Changed
-- Made the operating table the default, with selected bulk on/off, fixed confirmation scope, per-project mutation locks, four concurrent workers and retained results with failed-item retry.
-- Refined the demo dashboard with responsive discovery, visible-project bulk-start confirmation, accessible detail/scale controls, refresh-race protection and qualified HPA restoration guidance.
+- Made the project table the default with attention/name/account ordering, optional cards, selected bulk on/off and fixed confirmation scope (PR #107).
+- Added a queue with up to four concurrent client attempts, per-project lifecycle/scale locks and batch results with failed-item retry. Results and locks survive dashboard refresh and drawer/view changes while the page remains mounted; they are not restored after a browser reload.
+- Refined responsive search/facets, accessible detail/scale controls, request-order protection and qualified HPA restoration guidance in PR #103; PR #107 extends that interface with multi-project operations.
 - Aligned root/module context, onboarding and architecture with implemented dashboard features and deployment boundaries; regenerated `AGENTS.md` from canonical `CLAUDE.md` with a fresh source marker.
-- Retired the bilingual English/Korean documentation convention — ADRs, README, CHANGELOG, runbooks, and code comments are now English-only. `AskUserQuestion` prompts to the user remain the one exception.
-- Rewrote all `CLAUDE.md` files (root + module-level) and `AGENTS.md` from imperative rule lists into goal-oriented prose, with no fenced code blocks.
+- Retired the bilingual documentation convention: repository docs/comments are English, while dashboard UI copy and operator conversation may remain Korean.
+- Consolidated reviewer context around owning guides and source links, retaining dated ADR rationale and distinguishing proposals from implemented behavior.
+
+### Fixed
+- Corrected auth documentation: the access-token `username` claim maps to the plugin's internal `cognito:username` field before the admin allowlist check.
+- Qualified lifecycle replay, partial-off outcomes, detached readiness polling and HPA persistence limits. A failed first scale needs inspection before the next off/scale can preserve already-pinned bounds.
+- Corrected frontend documentation for manually mirrored 1–20 limits, resource exclusion text, missing local simulated history and Vitest's absence from frontend CI.
 
 ## [0.1.1] - 2026-05-26
 

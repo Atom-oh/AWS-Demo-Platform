@@ -1,46 +1,42 @@
 # AWS Demo Platform
 
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-0.1.1-green.svg)]()
-
 Admin platform for GitHub-linked AWS demo projects across multiple accounts.
+The EKS hub hosts GitOps, Terraform automation, observability and CI runners;
+the Fastify API, SQS worker and Next.js dashboard have separate ECS Fargate
+runtime definitions. This is a non-production platform.
 
-## Overview
+## Implemented capabilities
 
-The EKS hub runs Atlantis, ArgoCD, ESO, observability and CI runners. The dashboard
-API, asynchronous worker and Next.js frontend run separately on ECS Fargate.
-Repository code includes project discovery, lifecycle control, briefing/history,
-selected bulk on/off and per-resource demo scaling. Terraform defines the dev runtime.
+- Browse configured projects in the default table or optional cards, with search,
+  facets and attention/name/account ordering. Inspect resources, URLs, briefing and
+  history; confirm bulk on/off for selected eligible rows.
+- Track queued and active batch attempts, retain results and retry failed items.
+  Up to four client attempts run at once under per-project lifecycle/scale locks.
+  This state survives dashboard refresh while mounted, but not a browser reload.
+- Run asynchronous lifecycle jobs and ECS/ArgoCD demo scaling. Restoration and
+  restart replay have [documented limits](docs/decisions/ADR-001-sqs-worker-for-async-jobs.md);
+  [HPA recovery](docs/decisions/ADR-017-demo-scale-job-operation.md) requires saved bounds.
+- Use Cognito access-token authorization, scoped cross-account roles/ExternalIds,
+  Atlantis-managed Terraform and hub/spoke ArgoCD Applications.
+- Route public traffic through CloudFront, a private VPC Origin and internal ALB.
+  [Architecture](docs/architecture.md) defines ownership, including Grafana's
+  cross-repository CloudFront/DNS boundary.
 
-Implementation, image publication and live deployment are different states. CI
-builds/pushes images; ECS service rollout is explicit. Verify current revisions,
-TLS and health before a demo rather than using this README as a live inventory.
+The dashboard reads project YAML loaded at API startup and stored lifecycle
+state, not live resource health. Worker GitHub discovery is a separate snapshot;
+it does not automatically add projects to the UI. See the
+[dashboard guide](dashboard/CLAUDE.md) and [frontend guide](dashboard/frontend/CLAUDE.md).
 
-Start with [CLAUDE.md](CLAUDE.md), the [documentation map](docs/README.md) and
-[current architecture](docs/architecture.md). [AGENTS.md](AGENTS.md) is the generated
-reviewer summary, not a separate source of policy.
+Code, image publication and live deployment are different states. CI pushes
+images but ECS rollout is explicit. Project/account metadata is bundled into
+images, and metadata-only edits do not trigger backend CI. Verify the running
+revision and actual demo behavior after rollout.
 
-## Features
+## Setup and checks
 
-- Hub-spoke GitOps with system and tenant App-of-Apps roots.
-- PR-driven Terraform through Atlantis and scoped cross-account roles/ExternalIds.
-- CloudFront-only public ingress using a private VPC Origin and internal ALB.
-- Dashboard discovery, resource detail, URLs, briefing, history, selected bulk on/off and scale.
-- Asynchronous lifecycle jobs with restoration data and restart recovery.
-- Grafana private ingress and an ESO-synchronized administrator credential.
-
-Kubernetes Pod IP registration uses TargetGroupBinding; the binding is not a traffic
-hop. The internal observability NLB exception is limited to private fan-in.
-Grafana's CloudFront distribution/DNS remain owned by `multi-region-architecture`;
-this repository owns its private backend and Kubernetes resources.
-
-## Prerequisites and setup
-
-- AWS CLI v2 with an authorized identity for the intended account and operations.
-- Terraform 1.9.6, matching Atlantis; DynamoDB backend locking, not `use_lockfile`.
-- kubectl with the intended hub/spoke contexts; ArgoCD access for GitOps operations.
-- Node 20 and pnpm 9 for dashboard development.
-- Docker/LocalStack for backend integration tests; Python PyYAML for Grafana harness checks.
+Use Node 20 and pnpm 9 for dashboard development; Docker/LocalStack supplies
+backend integration dependencies. Infrastructure work needs an authorized AWS
+identity, Terraform 1.9.6 and explicitly selected Kubernetes contexts.
 
 ```bash
 git clone git@github.com:Atom-oh/AWS-Demo-Platform.git
@@ -48,62 +44,38 @@ cd AWS-Demo-Platform
 bash scripts/setup.sh
 ```
 
-Use [developer onboarding](docs/onboarding.md) for local development and
-[friend-account onboarding](docs/onboarding/friend-account-setup.md) for cross-account
-setup. Existing instance credentials may already be available; verify identity and
-network access before replacing them.
+Follow [developer onboarding](docs/onboarding.md) for local servers and
+[friend-account onboarding](docs/onboarding/friend-account-setup.md) for account access.
 
-## Project structure
-
-| Path | Purpose |
+| Scope | Local verification |
 | --- | --- |
-| `accounts.yaml`, `projects/` | Schema-validated account/project metadata |
-| `dashboard/backend/` | Node/TypeScript shared clients, Fastify API and SQS worker |
-| `dashboard/frontend/` | Next.js admin UI |
-| `infra/` | Stateful Terraform root modules and reusable submodules |
-| `k8s/system/` | Hub components, Grafana resources and explicitly targeted spoke overlays |
-| `argocd-apps/` | Bootstrap roots, system Applications/ApplicationSets, tenant roots |
-| `docs/` | Current guides, ADRs, runbooks and dated design history |
-| `scripts/`, `tests/` | Setup, review orchestration and local verification |
+| `dashboard/backend` | `pnpm -r build`, `pnpm -r lint`, `pnpm -r test` |
+| `dashboard/frontend` | `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build` |
+| Repository harness | `bash tests/run-all.sh` |
+| Terraform module | Init, format, validate and review the actual plan before apply |
+| Kubernetes | Render Kustomize and dry-run with the intended context and prerequisites |
 
-A project requiring hub-managed ArgoCD workloads needs corresponding tenant coverage;
-metadata-only or direct AWS projects do not automatically need a tenant Application.
-Backend project/account configuration is baked into images. Project-only edits do
-not trigger the current backend image workflow, so plan the build and rollout too.
+Backend integration tests need LocalStack on port 4566; Grafana harness checks
+need kubectl/PyYAML. Inspect skips. Frontend CI runs typecheck/lint/build but does
+not run Vitest. CI success does not establish live health or branch protection.
 
-## Verification and release
+## Repository and review context
 
-| Area | Commands |
+| Path | Responsibility |
 | --- | --- |
-| Backend, from `dashboard/backend` | `pnpm -r build`, `pnpm -r lint`, `pnpm -r test` |
-| Frontend, from `dashboard/frontend` | `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build` |
-| Harness | `bash tests/run-all.sh` |
-| Terraform module | `terraform init -backend=false`, `terraform fmt -check`, `terraform validate`; review the real plan |
-| Kubernetes | `kubectl kustomize <dir>` and appropriate dry-run with the explicit context |
+| `accounts.yaml`, `projects/` | Account roles and project metadata |
+| `dashboard/` | Shared clients/schemas, API, worker and frontend |
+| `infra/` | Terraform roots and reusable modules |
+| `k8s/system/`, `argocd-apps/` | Hub and targeted spoke components, GitOps roots/Applications |
+| `scripts/`, `tests/` | Setup, review automation and local checks |
+| `docs/` | Architecture, decisions, runbooks and dated design history |
 
-Backend integration tests require LocalStack on port 4566. Check skipped tests and
-prerequisite failures rather than reporting them as a pass.
+[CLAUDE.md](CLAUDE.md) is canonical; [AGENTS.md](AGENTS.md) is its generated reviewer
+summary. Use the [documentation map](docs/README.md) to find the owning guide and
+the [review/release runbook](docs/runbooks/review-and-release.md) for integration,
+deployment order and verification. Update affected guides when contracts change;
+regenerate root context through `/co-agent:sync-context`.
 
-Normal Terraform changes use Atlantis plan/apply comments. Kubernetes manifests
-follow ArgoCD. Apply resource producers before merging consumers, and verify actual
-public behavior after cutover. AI review is supplemental; it is not proof of runtime
-health or enforced branch protection. Use the [review/release runbook](docs/runbooks/review-and-release.md)
-and [Grafana runbook](docs/runbooks/grafana-private-ingress.md).
-
-This is non-production; brief outages and small deployments are intentional.
-`main` is the dev target and semver tags express the production release convention;
-the current image workflows do not implement automatic tag-to-prod rollout.
-
-## Contributing and context synchronization
-
-Create a focused branch, run the relevant checks and open a PR. Review actual
-Atlantis plans and current-head findings before applying/merging. Fork PRs may not
-run the same secrets-backed review path, so do not assume a skipped workflow is approval.
-
-Update root/module `CLAUDE.md`, architecture and runbooks when contracts change.
-Then run `/co-agent:sync-context` to regenerate marked `AGENTS.md`; preserve its
-source-hash marker and Kiro bridge. See the [documentation map](docs/README.md).
-
-## License
-
-MIT — see [LICENSE](LICENSE) when added.
+Repository docs/comments are English; the dashboard UI uses Korean copy.
+See [CHANGELOG.md](CHANGELOG.md) for release history. This checkout does not contain
+a license file.

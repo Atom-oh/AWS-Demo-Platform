@@ -43,14 +43,30 @@ frontend was aligned to arm64 to match the rest of the cluster.
 ## Consequences
 
 ### Positive
-- Graviton cost/performance; fast native builds (no QEMU); a consistent single-architecture cluster.
+- Graviton cost/performance; native image builds without QEMU; matching
+  architectures for the three dashboard ECS services.
 
 ### Negative
 - Image platform and task `cpu_architecture` are coupled — a partial change breaks task launch with `exec format error`.
 - CI depends on the self-hosted ARM runner being available (ARC scale-to-zero on the hub cluster).
 - A rollout must pin the new ARM64 task-def revision on `update-service` — a bare `--force-new-deployment` keeps the old revision. Migrating an in-flight branch (amd64 → an arm64 `main`) needs a merge plus an arch flip in the same change.
 
+## Current applicability (2026-09-13)
+
+All three application Dockerfiles still use `node:20.16-alpine`, and the API,
+worker and frontend ECS task definitions specify ARM64. Both image-publication
+jobs build `linux/arm64` on `aws-demo-platform-arm`. Backend checks also run
+there; frontend typecheck/lint/build run on `ubuntu-latest`. This decision does
+not require every CI job or EKS node to use ARM64.
+
+Image publication does not roll ECS. Services ignore Terraform changes to
+`task_definition` and `desired_count`; select a revision explicitly and verify
+the running architecture/revision/count. The worker's Terraform initial count
+of zero is not a statement of its live count.
+
 ## References
-- `.github/workflows/backend-ci.yml`, `.github/workflows/frontend-ci.yml` (`--platform=linux/arm64`, `runs-on: aws-demo-platform-arm`)
-- `infra/dashboard-ecs/main.tf` (`runtime_platform.cpu_architecture = "ARM64"`)
-- `docs/runbooks/arm64-graviton-migration.md`; PR #16
+
+- [Backend CI](../../.github/workflows/backend-ci.yml),
+  [frontend CI](../../.github/workflows/frontend-ci.yml),
+  [ECS task definitions/services](../../infra/dashboard-ecs/main.tf)
+- [Migration runbook](../runbooks/arm64-graviton-migration.md); PR #16
