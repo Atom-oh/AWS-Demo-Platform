@@ -91,7 +91,11 @@ Offline CI: `.github/workflows/pr-review-roles-tests.yml`. Activation also needs
 executor/adapter, limit and exact-HEAD publication tests; offline success proves
 no live provider execution.
 
-ADP retains existing Sol (Terra is historical, ADR-013); pass `--context-cap 12288`.
+ADP retains existing Sol (Terra is historical, ADR-013). Its `run-specialists.sh`
+wrapper defaults `REVIEW_CONTEXT_CAP` to 12,288 and accepts only 1–12,288; lower
+overrides are supported. The generic `prepare_roles.py` interface retains its
+24,000-byte default. Direct protocol calls for ADP must use `--context-cap 12288`
+or a lower limit.
 Record/aggregate also validate private issued-frame files. Distributed consumers
 must restore them from trusted inputs/receipts before aggregation, never publish them.
 
@@ -112,9 +116,12 @@ The model table targets CI's Bedrock Runtime provider. Local Mantle uses
 
 React edits retain `kiro-sol`; altered or missing receipt-bound history blocks.
 
-Chair Markdown uses line-bounded container redaction so later findings and the
-final verdict remain intact. A transient model throttle may use the existing
-configured fallback; account/monthly/credit limits still stop further attempts.
+Chair Markdown redacts complete nested/multiline containers, respecting quoted
+and escaped delimiters. Syntax is parsed without evaluation; malformed, unclosed
+or unsupported container syntax consumes the remaining reply and cannot leave a
+valid verdict. Complete containers preserve the outside verdict. A transient
+model throttle may use the configured fallback; account/monthly/credit limits
+independently prevent publishing success or invoking a fallback.
 
 ## Executor inputs and limits
 

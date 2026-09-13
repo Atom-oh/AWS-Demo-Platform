@@ -71,6 +71,14 @@ class SynthesisTests(unittest.TestCase):
                 self.assertEqual(calls, 1)
                 self.assertTrue(text.endswith("VERDICT: FAIL\n"))
 
+    def test_plain_overage_message_prevents_fallback(self):
+        calls, text = self.run_chair([
+            (1, "", "You have reached the limit for overages"),
+            (0, "Must not be used.\nVERDICT: PASS\n", ""),
+        ])
+        self.assertEqual(calls, 1)
+        self.assertTrue(text.endswith("VERDICT: FAIL\n"))
+
     def test_default_panel_byte_cap_blocks_before_any_provider_call(self):
         summary = '{"findings":["' + "x" * 200000 + '"]}'
         self.prepare_chair(summary)
