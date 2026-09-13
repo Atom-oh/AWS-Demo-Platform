@@ -31,7 +31,7 @@ and offers an optional card view. Both share search, facets and sorting:
 
 | Sort | Order |
 | --- | --- |
-| Attention (default) | `error`, `unknown`, `transitioning`, `off`, `on`, then displayed name |
+| Attention (default) | `error`, `unknown`, `transitioning`, `off`, `on`, `external`, then displayed name |
 | Name | Displayed project name |
 | Account | Account, then displayed name |
 
@@ -46,6 +46,12 @@ while action counts include only eligible selections. Search, facet or view chan
 clear selection and pending confirmation. Sort changes preserve them. Dashboard
 Refresh dismisses confirmation but keeps selection for repositories still loaded.
 Cards expose individual actions; the selection toolbar is table-only.
+
+Projects with `management: external` are displayed as externally managed rather
+than using platform bookkeeping status. Their API state is null; links and
+metadata remain visible, but lifecycle/scale controls and bulk eligibility are
+disabled. The API and worker enforce this boundary independently of the UI.
+See [ADR-019](../../docs/decisions/ADR-019-externally-managed-projects.md).
 
 ## Operations, results and locks
 

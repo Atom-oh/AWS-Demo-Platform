@@ -48,6 +48,29 @@ const baseProject: Project = {
 
 const logger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as never;
 
+describe('externally managed project guard', () => {
+  it.each(['turn_on', 'turn_off', 'scale'] as const)('refuses queued %s without controllers or project-state writes', async (operation) => {
+    const d = makeDdb('on');
+    const mutate = vi.fn();
+    const controller = { turnOn: mutate, turnOff: mutate, scale: mutate, setDesiredCount: mutate };
+    await runJob({
+      job: { id: 'external-job', operation, repo: 'foo/bar', actor: 'test',
+        targets: [{ stepKey: 'ecs:c/s', desiredCount: 2 }] },
+      project: { ...baseProject, management: 'external' },
+      account: 'atomoh-main',
+      controllers: { ecs: controller, ec2: controller, rds: controller, argocd: controller } as never,
+      ddb: { state: d.stateClient, jobs: d.jobsClient, history: d.historyClient } as never,
+      logger,
+    });
+    expect(mutate).not.toHaveBeenCalled();
+    expect(d.stateClient.read).not.toHaveBeenCalled();
+    expect(d.stateClient.markOff).not.toHaveBeenCalled();
+    expect(d.stateClient.markOn).not.toHaveBeenCalled();
+    expect(d.stateClient.markError).not.toHaveBeenCalled();
+    expect(d.jobsClient.markFailed).toHaveBeenCalledWith('external-job', expect.stringContaining('externally managed'));
+  });
+});
+
 describe('runJob — turn_off', () => {
   it('runs turn_off for ECS and updates state + jobs + history', async () => {
     const ecsCtl = { turnOff: vi.fn(async () => ({ cluster: 'c', service: 's', original_desired_count: 3 })), turnOn: vi.fn() };

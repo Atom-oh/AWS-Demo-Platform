@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+- Register `aws-fsi-demo` with an external-management mode that exposes metadata
+  and its demo URL while blocking platform lifecycle and scale operations.
 - Restored Grafana through the existing private VPC Origin/internal ALB, with explicit cross-repository ownership and a staged Secrets Manager/ESO administrator credential rollout (PRs #99–101, ADR-018).
 - Added a documentation map and review/release runbook separating code review, plans, producer readiness and public runtime verification.
 

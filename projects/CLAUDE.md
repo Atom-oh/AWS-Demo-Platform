@@ -21,6 +21,12 @@ The ArgoCD controller implements scale-to-one and restoration. Although the sche
 accepts other `hpa_handling` values, the controller does not branch on them; do not
 advertise `ignore` or `delete` as implemented lifecycle modes.
 
+Set `management: external` when another system owns resource operations. The API
+returns metadata with no platform lifecycle state and rejects on/off/scale;
+the worker enforces the same boundary. The UI shows external management and
+does not offer mutations. Omitted management and `platform` retain legacy
+behavior. See [ADR-019](../docs/decisions/ADR-019-externally-managed-projects.md).
+
 Hub-managed ArgoCD workloads need matching tenant Applications under
 `argocd-apps/tenants/`; one project can have multiple tenant roots. Direct AWS and
 visibility-only projects do not automatically need an ArgoCD root. An independent
@@ -39,5 +45,6 @@ should be treated as a safe automatic deletion of all project resources. Update
 onboarding/runbook details whenever the ownership pattern differs.
 
 Current registrations are `multi-region-mall` (two spoke workload Applications
-and always-on data resources) and `call-center-admin` (visibility-only resources).
+and always-on data resources), `call-center-admin` (visibility-only resources),
+and `aws-fsi-demo` (externally managed metadata and demo link).
 Old comments about their rollout phases are not deployment evidence.

@@ -85,13 +85,18 @@ commit messages. Keep the source, documentation and generated context aligned.
   Validate against the [project/account contracts](../projects/CLAUDE.md);
   account registration does not automatically configure Atlantis.
 
+For independently operated projects, use `management: external` instead of a
+dummy controller or hub ArgoCD target. The platform exposes metadata/links and
+blocks resource changes. Follow the [FSI registration runbook](runbooks/aws-fsi-demo-registration.md)
+for its account, ownership and image-rollout boundaries.
+
 ## Preparing a demo
 
 - Add optional `briefing` text to schema-valid project YAML; the detail drawer
   provides an expansion control for longer notes.
 - Cards and the drawer expose GitHub links and configured URLs.
 - The operating table is the default view; cards remain available. Sort by attention,
-  name or account. Attention order is error, unknown, transitioning, off, then on;
+  name or account. Attention order is error, unknown, transitioning, off, on, then external;
   attention/account ties use project name.
 - Use the operating table to select projects and confirm bulk on/off. Start accepts
   off/error; stop accepts on. Up to four run concurrently, with per-project results

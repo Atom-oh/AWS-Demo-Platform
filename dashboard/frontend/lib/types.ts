@@ -1,4 +1,4 @@
-export type Status = 'on' | 'off' | 'transitioning' | 'error' | 'unknown';
+export type Status = 'on' | 'off' | 'transitioning' | 'error' | 'unknown' | 'external';
 
 export interface ResourceRef {
   type: string;
@@ -19,6 +19,7 @@ export interface Project {
   description?: string;
   briefing?: string;
   account: string;
+  management?: 'platform' | 'external';
   display?: { category?: string };
   resources: ResourceRef[];
   urls?: {

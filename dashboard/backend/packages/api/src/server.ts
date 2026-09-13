@@ -10,7 +10,7 @@ import {
   createCognitoVerifier,
   type JwtVerifier,
 } from './plugins/jwt-cognito.js';
-import { loadProjects } from './plugins/projects-loader.js';
+import { loadProjects, seedPlatformStates } from './plugins/projects-loader.js';
 import { registerErrorHandler } from './middleware/error-handler.js';
 import { registerProjects } from './routes/projects.js';
 import { registerActions } from './routes/actions.js';
@@ -103,13 +103,18 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       const queueUrl = requireEnv('SQS_QUEUE_URL');
 
       const projects = await loadProjects(projectsDir);
-      log.info({ projects: Object.keys(projects).length }, 'projects loaded');
+      log.info({
+        projects: Object.keys(projects).length,
+        repos: Object.keys(projects),
+        externalProjects: Object.keys(projects).filter((repo) => projects[repo]?.management === 'external'),
+      }, 'projects loaded');
 
       // Newly discovered projects have no DDB state row yet, which the projects
       // route surfaces as state:null → frontend renders status 'unknown' with no
       // working toggle. upsertInitial is idempotent (attribute_not_exists guard),
       // so seeding on every boot is safe and self-healing.
-      await Promise.all(Object.keys(projects).map((repo) => stateClient.upsertInitial(repo)));
+      // External projects have no platform lifecycle state to initialize.
+      await seedPlatformStates(projects, stateClient);
 
       // Verifier MUST exist when auth is enforced — registerJwtCognito 500s
       // ('jwt verifier not configured') otherwise. Uses access-token verification.

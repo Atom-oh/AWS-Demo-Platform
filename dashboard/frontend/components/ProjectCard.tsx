@@ -49,6 +49,7 @@ export function ProjectCard({ row, onToggle, onOpen, disabled = false }: {
           <button className="btn" disabled><span className="spinner" />전환 중</button>
         )}
         {row.status === 'unknown' && <span className="muted">새로고침으로 상태 확인</span>}
+        {row.status === 'external' && <span className="muted">조회 전용</span>}
         {demo ? (
           <a className={`btn demo-link${row.status === 'on' ? ' primary' : ''}`}
             href={demo} target="_blank" rel="noopener noreferrer">

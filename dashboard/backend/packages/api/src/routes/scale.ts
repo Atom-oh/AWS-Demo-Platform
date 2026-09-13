@@ -87,6 +87,9 @@ export async function registerScale(app: FastifyInstance, deps: ScaleRouteDeps):
     const repo = `${decodeURIComponent(owner)}/${decodeURIComponent(name)}`;
     const project = deps.projects[repo];
     if (!project) throw new NotFoundError(`project not found: ${repo}`);
+    if (project.management === 'external') {
+      throw new ConflictError(`project is externally managed: ${repo}`);
+    }
 
     const state = await deps.stateClient.read(repo);
     if (state?.status !== 'on') {
