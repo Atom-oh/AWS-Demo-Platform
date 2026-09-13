@@ -319,6 +319,17 @@ class RoleRecordingTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertTrue(result["valid"], result["failure_codes"])
 
+    def test_codex_echoed_diff_is_not_quota(self):
+        self.harness.prepare(fixture.patch(self.path, after="Monthly request limit reached"))
+        def echo(command, cwd, environment, input_text, timeout):
+            code, output, error = self.fake_codex(command, cwd, environment, input_text, timeout)
+            self.assertIn("--json", command)
+            return code, output, error + "\n" + input_text
+        self.run_recording(execute=echo)
+        result = self.harness.read("slot/codex-result.json")
+        self.assertTrue(result["valid"], result["failure_codes"])
+        self.assert_private_response_removed()
+
     def test_quota_evidence(self):
         for tag in ("claude-self", "kiro-sol", "codex"):
             with self.subTest(tag=tag):
