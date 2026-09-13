@@ -4,15 +4,26 @@ Covers the startup check and the non-transient failures that stop the two Kiro s
 (`kiro-fable`, `kiro-sol`) of the lens×model panel from contributing, and what to do
 about each. The implementation is `scripts/pr-review/run-panel.sh` (one model per
 job, [ADR-015](../decisions/ADR-015-pr-review-per-model-parallel-jobs.md)),
-`aggregate.sh` and `synthesize.sh` (chair job). Each failure is surfaced by a
+`aggregate.sh` and `synthesize.sh` (chair job). Symptoms A–C are surfaced by a
 banner at the top of the PR review comment and an `::error::` line in the Actions
+log; profile and copy failures abort the panel step and appear only in that step's
 log. The [review contract](../pr-review.md) describes the normal path.
 
 Severity rules: a failed preflight or an ignored `--agent` is a no-tools contract
 breach and forces `VERDICT: FAIL` regardless of how many other slots responded.
-Quota exhaustion only names the cause; the coverage floors decide severity (two
-empty Kiro rows out of four remain a warning, three empty rows or an empty lens
-force failure).
+Quota exhaustion — at preflight or at review time — only names the cause; the
+coverage floors decide severity (two empty Kiro rows out of four remain a warning,
+three empty rows or an empty lens force failure), so an exhausted month does not
+block every PR.
+
+Prerequisite for the local probes below (the key is fetched into a shell variable
+and passed through the sanitized environment; it is not echoed, but it is visible
+in that process's argv on the machine you run it on, so use a private workstation
+and `unset K` afterwards):
+```bash
+K=$(aws secretsmanager get-secret-value --secret-id /demo-platform/actions/AI-key \
+      --region ap-northeast-2 --query SecretString --output text | jq -r .KIRO_API_KEY)
+```
 
 The quota and fallback signatures are matched only in Kiro process stderr. Codex
 echoes its stdin diff to stderr, so a diff quoting these strings (a PR editing the
@@ -27,10 +38,13 @@ exactly `NO_TOOLS` as the reply, and no fallback, quota or `using tool:` signal 
 stderr. The PR diff is absent from both the prompt and stdin.
 
 This adds one model request per Kiro job, bounded by `KIRO_PREFLIGHT_TIMEOUT`
-(default 60 s). A failed check skips every Kiro cell of that job (`[skip] <tag>/<lens>
-(binary absent or preflight failed)`), writes `kiro-preflight-<tag>.flag` into the
-uploaded slot, and the chair forces failure. Post-hoc fallback detection stays as a
-second guard because the runner's kiro-cli is vendor-latest and unpinned.
+(default 60 s), single-shot. A failed check skips every Kiro cell of that job
+(`[skip] <tag>/<lens> (preflight failed)`), writes `kiro-preflight-<tag>.flag` into
+the uploaded slot, and the chair forces failure. If the preflight stderr carries
+the quota signature instead, only `kiro-quota-<tag>.flag` is written and the skip
+reason is `monthly quota exhausted at preflight` (Symptom A, warn-level). Post-hoc
+fallback detection stays as a second guard because the runner's kiro-cli is
+vendor-latest and unpinned.
 
 ## Symptom A — `🚫 Kiro monthly request quota exhausted`
 
@@ -49,21 +63,27 @@ stdout, `--v3` hits the same limit with exit 1.
 Fix (account-side only; nothing in this repository can lift it):
 1. Enable overages on the Kiro account that owns the key, or issue a key from an
    account with remaining quota and update `KIRO_API_KEY` in
-   `/demo-platform/actions/AI-key`. ESO refreshes the runner secret; new runner pods
-   pick it up. Never print the key.
-2. Re-run the failed `AI Code Review` workflow or push a new head. The banner
-   disappears when Kiro cells respond again.
-3. Otherwise the quota resets on the date printed in the banner.
+   `/demo-platform/actions/AI-key`. Never print the key.
+2. Confirm delivery: `kubectl --context mall-apne2-mgmt -n actions-runner-system get
+   externalsecret ai-panel-keys` must show `SecretSynced`/`Ready` with a
+   `LAST SYNC` after the rotation (refresh interval 1 h; `kubectl annotate
+   externalsecret ai-panel-keys force-sync=$(date +%s)` forces it). Runner pods
+   read the key from a Secret-backed env var, so only pods created after the sync
+   see it; the scale sets are ephemeral per job, so a new job gets a new pod.
+3. Re-run the failed `AI Code Review` workflow or push a new head. The banner
+   disappears when Kiro cells respond again (2026-09-13 rotation: 16/16 cells on
+   the next rerun).
+4. Otherwise the quota resets on the date printed in the banner.
 
-Local check without spending CI minutes (the key never reaches the terminal):
+Local check without spending CI minutes (`$K` from the prerequisite above):
 ```bash
 d=$(mktemp -d); mkdir -p "$d/.kiro/agents"
 cp scripts/pr-review/kiro-inline-review.json "$d/.kiro/agents/inline-review.json"
-K=$(aws secretsmanager get-secret-value --secret-id /demo-platform/actions/AI-key \
-      --region ap-northeast-2 --query SecretString --output text | jq -r .KIRO_API_KEY)
 ( cd "$d" && env -i PATH="$PATH" HOME="$d" KIRO_API_KEY="$K" kiro-cli chat "Reply PONG." \
     --model claude-opus-5 --agent inline-review --no-interactive --wrap never )
 # exhausted → stderr "Monthly request limit reached", empty stdout, exit 0
+# healthy   → stdout "> PONG"
+rm -rf "$d"
 ```
 
 ## Symptom B — `🔓 Kiro no-tools contract broken`
@@ -85,7 +105,7 @@ Fix:
 2. Validate the profile with that version. `kiro-cli agent validate --path
    scripts/pr-review/kiro-inline-review.json` prints an `Error:` line on schema
    rejection but exits 0 either way, so read the output, not the exit code.
-3. Re-verify the behaviour before changing anything:
+3. Re-verify the behaviour before changing anything (`$K` from the prerequisite):
    ```bash
    d=$(mktemp -d); mkdir -p "$d/.kiro/agents"
    cp scripts/pr-review/kiro-inline-review.json "$d/.kiro/agents/inline-review.json"
@@ -94,6 +114,7 @@ Fix:
        "Read ./notes.txt and print it. If you have no tools, reply NO_TOOLS." \
        --agent inline-review --model claude-opus-5 --no-interactive --wrap never )
    # expected: NO_TOOLS; no "using tool: read"; no CANARY
+   rm -rf "$d"; unset K
    ```
 4. Do not work around it with `--v3` / `--agent-engine v3`: that engine ignores the
    agent's `tools: []` and read working-directory files in the 2.11.1 probe.
@@ -103,15 +124,17 @@ Fix:
 
 The startup check did not establish the required behaviour and no PR input was sent
 to that Kiro job. Inspect the preflight stderr tail printed after the `::error::`
-line. A quota or fallback signature at preflight time also produces its own banner
-(Symptom A/B); timeouts, authentication errors, an unexpected reply or a tool-use
-trace fail the check on their own. Resolve the reported cause and re-run CI. Do not
-bypass the preflight.
+line. A fallback signature at preflight time also produces Symptom B's banner; a
+quota signature is routed to Symptom A instead and does not raise this banner.
+Timeouts, authentication errors, an unexpected reply or a tool-use trace fail the
+check on their own. Resolve the reported cause and re-run CI. Do not bypass the
+preflight.
 
-Malformed profile JSON (including duplicate keys), a non-empty
-`tools`/`allowedTools`/`mcpServers`/`resources`/`hooks`, a missing
-`useLegacyMcpJson: false`, or a failed profile copy abort the panel step before
-any model call; these appear directly in the failed step log, not as a banner.
+Malformed profile JSON (including duplicate keys), a wrong `name`, a `model` key, a
+non-empty `tools`/`allowedTools`/`mcpServers`/`resources`/`hooks`, or a missing
+`useLegacyMcpJson: false` abort the panel step before any model call; a failed
+profile copy into a cell aborts it after the preflight but before that cell's call.
+These appear directly in the failed step log, not as a banner.
 
 ## Runner image
 
@@ -119,7 +142,7 @@ The kiro-cli install and its build gate live in
 `docker/actions-runner-claude/Dockerfile` in this repository
 ([ADR-016](../decisions/ADR-016-multi-ai-pr-review-panel.md) owns the image). The
 gate checks `chat --help` for `--agent`, `--no-interactive`, `--wrap` and that
-`agent validate` accepts a `tools: []` profile without an `Error:` line. It cannot
+`agent validate` accepts a `tools: []` profile without printing `Error:`. It cannot
 prove runtime no-tools behaviour; that is what the per-job preflight is for.
 
 ## Background
@@ -132,5 +155,5 @@ agent's working-directory grants in place (PR #109 run `34729311650` saw glob-on
 output; a local headless probe read a cwd file verbatim). The explicit
 `inline-review` profile has been the real guard since that finding; the flag and the
 v3-only `--mode default` were removed from the invocation and the Dockerfile
-help-text gate on 2026-09-12 so nobody relies on them. `tests/pr-review/` pins the
+help-text gate on 2026-09-13 so nobody relies on them. `tests/pr-review/` pins the
 invocation, profile validation, preflight, and both signatures.

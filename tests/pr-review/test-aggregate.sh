@@ -135,6 +135,24 @@ else
     "quota=$(cat "$WORK/kiro-quota.flag" 2>/dev/null | tr '\n' '|') stale=$([ -f "$WORK/kiro-agent-fallback.flag" ] && echo present) severe=$([ -f "$WORK/coverage-severe.flag" ] && echo yes)"
 fi
 
+# (j) Quota at preflight for both Kiro jobs (no preflight flag written by run-panel.sh in
+# that case): both Kiro rows empty -> warn-only degraded, quota named, NOT severe. The
+# other two vendors still cross-check every lens.
+setup "L2 L3"
+for m in codex claude-self; do for l in L2 L3; do fill "$m" "$l" "finding"; done; done
+for m in kiro-fable kiro-sol; do for l in L2 L3; do fill "$m" "$l" ""; done; done
+echo "[preflight kiro-fable] Monthly request limit reached The limits reset on 10/01." > "$WORK/slot/kiro-quota-kiro-fable.flag"
+echo "[preflight kiro-sol] Monthly request limit reached The limits reset on 10/01." > "$WORK/slot/kiro-quota-kiro-sol.flag"
+"$SCRIPT" "$LENSES" "$WORK" >/dev/null 2>"$WORK/agg.err"
+if [ ! -f "$WORK/coverage-severe.flag" ] && [ -s "$WORK/kiro-quota.flag" ] \
+  && [ "$(grep -c '' "$WORK/degraded-models.txt")" -eq 2 ] && [ ! -s "$WORK/degraded-lenses.txt" ] \
+  && grep -q '::error::Kiro monthly request quota exhausted' "$WORK/agg.err"; then
+  pass "aggregate (j) month-long quota outage on both Kiro jobs stays warn-only, never forced FAIL"
+else
+  fail "aggregate (j) month-long quota outage on both Kiro jobs stays warn-only, never forced FAIL" \
+    "severe=$([ -f "$WORK/coverage-severe.flag" ] && echo yes || echo no) degraded=$(tr '\n' ',' < "$WORK/degraded-models.txt")"
+fi
+
 if [ "${_t_fail+set}" = set ]; then
   [ "$_t_fail" = 0 ] && echo "PASS: test-aggregate" || exit 1
 fi

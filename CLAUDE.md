@@ -166,7 +166,8 @@ Kiro catalog aliases and Bedrock profile IDs are distinct. CI Kiro has isolated
 HOME/cwd and no read tools, so its local steering bridge cannot load CI context.
 ADR-015 changes topology and roster structure; ADR-011/013/014 amend CLI/models.
 Current aggregation counts non-empty output, warns for one/two empty model rows,
-and fails for three empty rows or any empty lens. Truncation and error-shaped
+and fails for three empty rows, any empty lens, or a Kiro no-tools contract breach
+(preflight failure or ignored `--agent`). Truncation and error-shaped
 output remain coverage limitations; slot count does not establish independent vendors.
 Preparation validates both base and candidate digest size (1..12,288 bytes) but
 supplies only base content to reviewers. Candidate bytes are checked as data and

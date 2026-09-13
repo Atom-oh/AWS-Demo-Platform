@@ -7,8 +7,9 @@
 # Diff delivery differs per CLI: Codex/Claude self-review read stdin; Kiro ignores stdin
 # and gets no tools, so the diff is embedded as size-capped argv text (see Kiro-cell
 # comment below). A timeout backstop + non-interactive flags prevent hangs; an empty slot
-# is retried up to PANEL_RETRIES times, except for the two non-transient Kiro failures
-# (monthly quota exhaustion, `--agent` fallback) which stop immediately and leave a flag.
+# (for Kiro: empty or rc≠0) is retried up to PANEL_RETRIES times, except for the two
+# non-transient Kiro failures (monthly quota exhaustion, `--agent` fallback) which stop
+# immediately and leave a flag.
 # One model's 4 lenses run in parallel (&+wait) — wall clock ~= the slowest lens.
 set -uo pipefail
 DIFF="$(realpath "$1" 2>/dev/null)" \
@@ -70,21 +71,26 @@ KIRO_AGENT_FALLBACK_RE='no agent with name|Falling back to user specified defaul
 # fallback response is discarded even when non-empty) and leave a `$slot.quota` /
 # `$slot.agentfail` marker for the aggregation below. The Kiro signatures apply only to
 # provider=kiro — Codex echoes its stdin diff to stderr, so a diff quoting these strings
-# would otherwise false-positive.
+# would otherwise false-positive. Only Kiro also needs rc=0 for success: the `--v3` quota
+# shape puts a human-readable message on stdout with rc=1, which must not count as a
+# response. Codex/Claude keep the original "non-empty slot" rule so a partial review cut
+# by `timeout` is not re-run and possibly overwritten by an emptier attempt.
+# Markers are scrubbed at write time: they sit in $SLOT, which is uploaded as-is if the
+# job dies before the aggregation block below.
 try_panel() {
   local provider="$1" slot="$2" err="$3"; shift 3
   local a rc=1
   for a in $(seq 1 "$RETRIES"); do
     "$@" > "$slot" 2>"$err" < "$DIFF"; rc=$?
     if [ "$provider" = kiro ] && grep -qE "$KIRO_AGENT_FALLBACK_RE" "$err" 2>/dev/null; then
-      grep -E "$KIRO_AGENT_FALLBACK_RE" "$err" | strip_ansi | head -2 > "$slot.agentfail"
+      grep -E "$KIRO_AGENT_FALLBACK_RE" "$err" | strip_ansi | scrub_secrets | head -2 > "$slot.agentfail"
       : > "$slot"
       echo "[agent-fallback] $(basename "$slot" .md) — kiro-cli ignored --agent, no-tools contract broken; discarding response" >&2
       break
     fi
-    [ -s "$slot" ] && [ "$rc" -eq 0 ] && break
+    if [ -s "$slot" ] && { [ "$provider" != kiro ] || [ "$rc" -eq 0 ]; }; then break; fi
     if [ "$provider" = kiro ] && grep -qE "$KIRO_QUOTA_RE" "$err" 2>/dev/null; then
-      grep -E "$KIRO_QUOTA_RE|limits reset on" "$err" | strip_ansi | head -3 > "$slot.quota"
+      grep -E "$KIRO_QUOTA_RE|limits reset on" "$err" | strip_ansi | scrub_secrets | head -3 > "$slot.quota"
       : > "$slot"
       echo "[quota] $(basename "$slot" .md) — monthly request limit reached, not retrying" >&2
       break
@@ -101,7 +107,7 @@ try_panel() {
 # leaving the default agent's "trust working directory" grants (read/glob/grep/code) intact
 # (PR #109 run 34729311650 saw glob-only output; a local 2.11.1 headless probe read a cwd
 # file verbatim under `--trust-tools=`). The flag was dropped from the invocation on
-# 2026-09-12 so nobody mistakes it for a guard. `--mode default` (a v3-only flag) went with
+# 2026-09-13 so nobody mistakes it for a guard. `--mode default` (a v3-only flag) went with
 # it: the `--v3` engine ignores `tools: []` and read cwd files in the same probe, so this
 # script must stay on the default v2 engine (consistent with ADR-011's `--v3` drop).
 # An isolated cwd/HOME alone cannot prevent absolute-path reads; HOME=$CELL_CWD makes the
@@ -132,6 +138,7 @@ done
 
 # Set by the preflight below; Kiro cells run only when it is 1.
 KIRO_PREFLIGHT_OK=0
+KIRO_SKIP_REASON="preflight not run"
 if [ -n "$KIRO_TAG" ]; then
   KIRO_AGENT_NAME="inline-review"
   KIRO_AGENT_PROFILE="$DIR/kiro-inline-review.json"
@@ -177,8 +184,11 @@ PY
   # Preflight — post-hoc fallback detection cannot recall a diff already handed to a
   # tool-enabled agent, so first prove the no-tools contract with a fixed, harmless prompt
   # and a random canary file in the cwd: the only acceptable reply is NO_TOOLS. Any other
-  # reply (the canary contents, a tool-use trace, a quota or fallback signature, rc≠0)
-  # withholds the PR diff from every Kiro cell of this job and leaves a flag in $SLOT.
+  # outcome withholds the PR diff from every Kiro cell of this job. A quota signature at
+  # this point is an account outage, not a contract breach: it leaves only the quota flag
+  # (warn-level, coverage floors decide) so an exhausted month does not force FAIL on every
+  # PR. Everything else (canary contents, a tool-use trace, a fallback signature, rc≠0)
+  # also writes the preflight flag, which aggregate.sh escalates to coverage-severe.
   # Costs one extra request per Kiro job. stdin is /dev/null, not $DIFF.
   if command -v kiro-cli >/dev/null 2>&1; then
     KIRO_PREFLIGHT_TIMEOUT="${KIRO_PREFLIGHT_TIMEOUT:-60}"
@@ -205,13 +215,15 @@ PY
     then
       KIRO_PREFLIGHT_OK=1
       echo "Kiro preflight passed: $MODEL_TAG (no PR input sent)" >&2
+    elif grep -qE "$KIRO_QUOTA_RE" "$PREFLIGHT_ERR"; then
+      KIRO_SKIP_REASON="monthly quota exhausted at preflight"
+      { echo "[preflight $MODEL_TAG]"; grep -E "$KIRO_QUOTA_RE|limits reset on" "$PREFLIGHT_ERR" | strip_ansi | scrub_secrets | head -3; } \
+        | tr '\n' ' ' | sed 's/ *$//' > "$SLOT/kiro-quota-$MODEL_TAG.flag"; echo >> "$SLOT/kiro-quota-$MODEL_TAG.flag"
+      echo "::error::Kiro monthly request quota exhausted for KIRO_API_KEY at $MODEL_TAG preflight: $(cat "$SLOT/kiro-quota-$MODEL_TAG.flag") — enable overages or rotate the key (/demo-platform/actions/AI-key); Kiro cells skipped, not a headless-flag or no-tools failure" >&2
     else
+      KIRO_SKIP_REASON="preflight failed"
       printf '%s\n' "$MODEL_TAG startup check failed (exit $PREFLIGHT_RC); PR input withheld from all $MODEL_TAG cells." \
         > "$SLOT/kiro-preflight-$MODEL_TAG.flag"
-      if grep -qE "$KIRO_QUOTA_RE" "$PREFLIGHT_ERR"; then
-        grep -E "$KIRO_QUOTA_RE|limits reset on" "$PREFLIGHT_ERR" | strip_ansi | scrub_secrets | head -3 \
-          > "$SLOT/kiro-quota-$MODEL_TAG.flag"
-      fi
       if grep -qE "$KIRO_AGENT_FALLBACK_RE" "$PREFLIGHT_ERR"; then
         grep -E "$KIRO_AGENT_FALLBACK_RE" "$PREFLIGHT_ERR" | strip_ansi | scrub_secrets | head -2 \
           > "$SLOT/kiro-agent-fallback-$MODEL_TAG.flag"
@@ -219,6 +231,8 @@ PY
       echo "::error::Kiro preflight failed for $MODEL_TAG (exit $PREFLIGHT_RC) — no PR input sent to Kiro; see docs/runbooks/pr-review-panel.md" >&2
       strip_ansi < "$PREFLIGHT_ERR" | scrub_secrets | tail -25 >&2
     fi
+  else
+    KIRO_SKIP_REASON="binary absent"
   fi
   KIRO_DIFF_CAP="${KIRO_DIFF_CAP:-100000}"
   KIRO_DIFF_TEXT="$(head -c "$KIRO_DIFF_CAP" "$DIFF")"
@@ -262,7 +276,7 @@ for lens_file in "${LENS_FILES[@]}"; do
       ( cd "$CELL_CWD" && try_panel kiro "$SLOT/$MODEL_TAG-$lens.md" "$SLOT/$MODEL_TAG-$lens.err" \
           kiro_env "$CELL_CWD" timeout "$T" kiro-cli chat "$KIRO_INSTRUCTION" --model "$KIRO_MODEL_ID" \
           --agent "$KIRO_AGENT_NAME" --no-interactive --wrap never ) &
-    else echo "[skip] $MODEL_TAG/$lens (binary absent or preflight failed)" >&2; : > "$SLOT/$MODEL_TAG-$lens.md"; fi
+    else echo "[skip] $MODEL_TAG/$lens ($KIRO_SKIP_REASON)" >&2; : > "$SLOT/$MODEL_TAG-$lens.md"; fi
   elif [ "$MODEL_TAG" = claude-self ]; then
     # Independent Claude review (separate voice from the chair). --allowedTools is pinned
     # to bounded local and gh read-only context tools; GitHub MCP auth failures can hang startup.

@@ -40,12 +40,13 @@ from the invocation so nobody mistakes them for one. The `--v3` engine ignores
 `tools: []` and is not used.
 
 Each Kiro job first runs a preflight: a fixed canary prompt with the same profile
-in an empty directory must return exactly `NO_TOOLS`; otherwise the PR diff is
-withheld from that job's cells and the chair forces failure. After the review,
-stderr signatures for an ignored `--agent` (response discarded, forced failure)
-and for monthly quota exhaustion (`Monthly request limit reached`, not retried,
-cause named in the comment) are folded into per-model flags inside the uploaded
-slot. Offline profile validation and mocked preflight/signature tests check
+in a fresh directory holding only the profile and a random canary file must
+return exactly `NO_TOOLS`; otherwise the PR diff is withheld from that job's
+cells and the chair forces failure. After the review, stderr signatures for an
+ignored `--agent` (response discarded, forced failure) and for monthly quota
+exhaustion (`Monthly request limit reached`, at preflight or review time, not
+retried, cause named in the comment, severity left to the coverage floors) are
+folded into per-model flags inside the uploaded slot. Offline profile validation and mocked preflight/signature tests check
 configuration and control flow, not successful model execution or meaningful
 review coverage. Failure handling is in the
 [panel runbook](runbooks/pr-review-panel.md).
@@ -110,8 +111,10 @@ sections. Optional hardening belongs in suggestions with its trade-off and scope
 The current implementation counts non-empty output, not validated semantic success.
 Preparation filters selected generated/lockfile hunks and truncates at 3,000 lines;
 Kiro further caps diff text at 100,000 bytes. Warnings/flags expose truncation.
-Aggregation forces failure when at least three of four model rows are empty or a
-lens has no responses. One or two empty model rows are warnings, not forced failure.
+Aggregation forces failure when at least three of four model rows are empty, a
+lens has no responses, or a Kiro job reports a preflight failure or ignored
+`--agent`. One or two empty model rows — including a Kiro quota outage — are
+warnings, not forced failure.
 A non-empty error response can still be counted. These are actual limitations, not
 assurance that the review is complete.
 

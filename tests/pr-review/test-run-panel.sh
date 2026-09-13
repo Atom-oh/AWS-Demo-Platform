@@ -393,6 +393,8 @@ fi
 # (q) Preflight fails when the canary is readable (tool-enabled agent): the PR diff must
 # never be handed to Kiro, every Kiro cell is skipped (empty), and a preflight flag lands
 # in $SLOT. Also covers the preflight-time fallback signature landing in its own flag.
+# A quota signature at preflight is an outage, not a breach: only the quota flag is
+# written (no preflight flag), so the chair's coverage floors — not severe — decide.
 for preflight_mode in canary-read fallback-signature quota-signature rc-nonzero; do
   setup "L2 L3"
   case "$preflight_mode" in
@@ -415,15 +417,23 @@ EOF
   rc=$?
   extra_ok=1
   case "$preflight_mode" in
-    fallback-signature) [ -s "$WORK/slot/kiro-agent-fallback-kiro-sol.flag" ] || extra_ok=0 ;;
-    quota-signature) grep -q 'reset on 10/01' "$WORK/slot/kiro-quota-kiro-sol.flag" 2>/dev/null || extra_ok=0 ;;
-    canary-read) ! grep -q "$(cat "$WORK/kiro-cwd/preflight-kiro-sol/preflight-canary.txt")" "$WORK/panel.err" || extra_ok=0 ;;
+    fallback-signature) [ -s "$WORK/slot/kiro-agent-fallback-kiro-sol.flag" ] \
+      && [ -s "$WORK/slot/kiro-preflight-kiro-sol.flag" ] \
+      && grep -q '::error::Kiro preflight failed for kiro-sol' "$WORK/panel.err" \
+      && [ "$(grep -c '^\[skip\] kiro-sol/L.*(preflight failed)' "$WORK/panel.err")" -eq 2 ] || extra_ok=0 ;;
+    quota-signature) grep -q '\[preflight kiro-sol\].*reset on 10/01' "$WORK/slot/kiro-quota-kiro-sol.flag" 2>/dev/null \
+      && [ ! -e "$WORK/slot/kiro-preflight-kiro-sol.flag" ] \
+      && grep -q '::error::Kiro monthly request quota exhausted for KIRO_API_KEY at kiro-sol preflight.*reset on 10/01' "$WORK/panel.err" \
+      && ! grep -q 'preflight failed' "$WORK/panel.err" \
+      && [ "$(grep -c '^\[skip\] kiro-sol/L.*(monthly quota exhausted at preflight)' "$WORK/panel.err")" -eq 2 ] || extra_ok=0 ;;
+    canary-read|rc-nonzero) ! grep -q "$(cat "$WORK/kiro-cwd/preflight-kiro-sol/preflight-canary.txt")" "$WORK/panel.err" \
+      && [ -s "$WORK/slot/kiro-preflight-kiro-sol.flag" ] \
+      && grep -q '::error::Kiro preflight failed for kiro-sol' "$WORK/panel.err" \
+      && [ "$(grep -c '^\[skip\] kiro-sol/L.*(preflight failed)' "$WORK/panel.err")" -eq 2 ] || extra_ok=0 ;;
   esac
   if [ "$rc" -eq 0 ] && [ -z "$(find "$WORK" -name diff-reached-kiro -print -quit)" ] \
-    && [ -s "$WORK/slot/kiro-preflight-kiro-sol.flag" ] \
-    && grep -q '::error::Kiro preflight failed for kiro-sol' "$WORK/panel.err" \
-    && [ "$(grep -c '^\[skip\] kiro-sol/L.*preflight failed' "$WORK/panel.err")" -eq 2 ] \
     && [ -f "$WORK/slot/kiro-sol-L2.md" ] && [ ! -s "$WORK/slot/kiro-sol-L2.md" ] \
+    && [ -f "$WORK/slot/kiro-sol-L3.md" ] && [ ! -s "$WORK/slot/kiro-sol-L3.md" ] \
     && [ "$extra_ok" = 1 ]; then
     pass "run-panel (q) preflight $preflight_mode withholds the diff and flags the job"
   else
@@ -464,6 +474,29 @@ if [ -s "$WORK/slot/codex-L2.md" ] && [ -z "$(find "$WORK/slot" -name '*.flag' -
 else
   fail "run-panel (s) Codex quoting Kiro error strings is not misclassified" \
     "slot=$(wc -c < "$WORK/slot/codex-L2.md"); $(grep -E 'quota|fallback' "$WORK/panel.err" | head -2 | tr '\n' '|')"
+fi
+
+# (t) rc≠0 with partial output: a Codex cell cut by timeout keeps its output (old rule,
+# no retry); a Kiro cell with rc≠0 is retried, since the v3 quota shape puts a message on
+# stdout with rc=1.
+setup
+cat > "$BIN/codex" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null; echo "partial finding"; exit 124
+EOF
+chmod +x "$BIN/codex"
+PANEL_RETRIES=3 "$SCRIPT" "$WORK/diff.txt" "$LENSES" "$WORK" codex >"$WORK/panel.log" 2>"$WORK/panel.err"
+codex_ok=0
+grep -q 'partial finding' "$WORK/slot/codex-L2.md" && ! grep -q '\[retry ' "$WORK/panel.err" && codex_ok=1
+setup
+mkfake_kiro 'echo "partial"; exit 1'
+PANEL_RETRIES=2 "$SCRIPT" "$WORK/diff.txt" "$LENSES" "$WORK" kiro-sol >"$WORK/panel.log" 2>"$WORK/panel.err"
+kiro_ok=0
+grep -q '\[retry 1/2\] kiro-sol-L2' "$WORK/panel.err" && kiro_ok=1
+if [ "$codex_ok" = 1 ] && [ "$kiro_ok" = 1 ]; then
+  pass "run-panel (t) rc≠0 retry applies to Kiro only; Codex partial output is kept"
+else
+  fail "run-panel (t) rc≠0 retry applies to Kiro only; Codex partial output is kept" "codex_ok=$codex_ok kiro_ok=$kiro_ok"
 fi
 
 cleanup

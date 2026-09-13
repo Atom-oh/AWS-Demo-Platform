@@ -1,4 +1,4 @@
-<!-- generated-by: co-agent · source: CLAUDE.md · claude-md-sha: eb4f579afb5a · generated-at: 2026-09-13 · DO NOT EDIT — edit CLAUDE.md then run /co-agent sync-context -->
+<!-- generated-by: co-agent · source: CLAUDE.md · claude-md-sha: 5aad67bbb78d · generated-at: 2026-09-13 · DO NOT EDIT — edit CLAUDE.md then run /co-agent sync-context -->
 > You are an external reviewer for this repo — project context below, distilled from CLAUDE.md. This file is shared verbatim by Kiro, Codex, and Agy (not a per-AI copy).
 
 # AWS Demo Platform review context
@@ -40,7 +40,8 @@ compatibility tags to catalog IDs; `kiro-fable` is the legacy Opus slot and
 workflow/runner config for other models. Shared services/model families can correlate
 findings. Model errors, non-empty output and green jobs do not prove useful review.
 Current aggregation counts non-empty output, warns for one/two empty model rows,
-and fails for three empty rows or an empty lens. Diff truncation remains a limitation.
+and fails for three empty rows, an empty lens, or a Kiro no-tools contract breach
+(preflight failure or ignored `--agent`). Diff truncation remains a limitation.
 Verify required coverage and current-head findings independently.
 
 ## Stack and verification
