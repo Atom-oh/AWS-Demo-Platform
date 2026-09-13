@@ -84,7 +84,7 @@ identity; sandbox restrictions can hide instance credentials. Never print secret
 
 Configured cross-account application roles require ExternalId from
 `/demo-platform/external-ids/<account>/<role>`; no ambient cross-account fallback.
-`DashboardEcsTaskRole` performs backend assume-role; frontend holds no AWS credentials.
+`DashboardEcsTaskRole` performs backend assume-role; the browser holds no AWS credentials.
 OIDC/IRSA have claim conditions, not this ExternalId rule. Browser sends Cognito
 access token; its verified `username` maps to internal `cognito:username` for
 `ADMIN_USERNAMES`. JWT
