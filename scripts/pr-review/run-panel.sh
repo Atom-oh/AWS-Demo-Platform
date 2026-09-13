@@ -97,6 +97,10 @@ try_panel() {
     fi
     [ "$a" -lt "$RETRIES" ] && echo "[retry $a/$RETRIES] $(basename "$slot" .md)" >&2
   done
+  if [ "$provider" = kiro ] && [ "$rc" -ne 0 ]; then
+    : > "$slot"
+    echo "[failed] $(basename "$slot" .md) — Kiro exited $rc; unsuccessful output excluded" >&2
+  fi
 }
 
 # Kiro cells get no tools at all. The ONLY mechanism that achieves this is the named custom
@@ -196,14 +200,28 @@ PY
     PREFLIGHT_CWD="$KIRO_CWD_BASE/preflight-$MODEL_TAG"
     prepare_kiro_agent "$PREFLIGHT_CWD" \
       || { echo "run-panel.sh: failed to install required Kiro agent in $PREFLIGHT_CWD" >&2; exit 1; }
-    python3 -c 'import secrets; print(secrets.token_hex(24))' > "$PREFLIGHT_CWD/preflight-canary.txt" \
+    PREFLIGHT_CANARY="$(python3 -c 'import secrets; print(secrets.token_hex(24))')" \
       || { echo "run-panel.sh: failed to create Kiro preflight canary" >&2; exit 1; }
+    printf '%s\n' "$PREFLIGHT_CANARY" > "$PREFLIGHT_CWD/preflight-canary.txt" \
+      || { echo "run-panel.sh: failed to write Kiro preflight canary" >&2; exit 1; }
     PREFLIGHT_OUT="$PREFLIGHT_CWD/response.txt"; PREFLIGHT_ERR="$PREFLIGHT_CWD/stderr.txt"
     ( cd "$PREFLIGHT_CWD" && kiro_env "$PREFLIGHT_CWD" timeout "$KIRO_PREFLIGHT_TIMEOUT" \
         kiro-cli chat "$KIRO_PREFLIGHT_PROMPT" --model "$KIRO_MODEL_ID" --agent "$KIRO_AGENT_NAME" \
         --no-interactive --wrap never ) > "$PREFLIGHT_OUT" 2> "$PREFLIGHT_ERR" < /dev/null
     PREFLIGHT_RC=$?
-    if [ "$PREFLIGHT_RC" -eq 0 ] && python3 - "$PREFLIGHT_OUT" "$PREFLIGHT_ERR" \
+    # Check both streams against the original canary, then redact diagnostics
+    # before any flag or log writer can expose it.
+    PREFLIGHT_CANARY_SEEN="$(python3 - "$PREFLIGHT_OUT" "$PREFLIGHT_ERR" "$PREFLIGHT_CANARY" <<'PY'
+import pathlib, sys
+out_path, err_path = map(pathlib.Path, sys.argv[1:3])
+out, err = out_path.read_text(errors="replace"), err_path.read_text(errors="replace")
+canary = sys.argv[3]
+err_path.write_text(err.replace(canary, "[REDACTED-CANARY]"))
+print(int(canary in out or canary in err))
+PY
+    )" || { echo "run-panel.sh: failed to sanitize preflight diagnostics" >&2; exit 1; }
+    if [ "$PREFLIGHT_RC" -eq 0 ] && [ "$PREFLIGHT_CANARY_SEEN" -eq 0 ] \
+        && python3 - "$PREFLIGHT_OUT" "$PREFLIGHT_ERR" \
         "$KIRO_AGENT_FALLBACK_RE" "$KIRO_QUOTA_RE" <<'PY'
 import pathlib, re, sys
 ansi = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -217,7 +235,7 @@ PY
       echo "Kiro preflight passed: $MODEL_TAG (no PR input sent)" >&2
     elif grep -qE "$KIRO_QUOTA_RE" "$PREFLIGHT_ERR" \
         && ! grep -qiE "$KIRO_AGENT_FALLBACK_RE|using tool:" "$PREFLIGHT_ERR" \
-        && ! grep -Fqf "$PREFLIGHT_CWD/preflight-canary.txt" "$PREFLIGHT_OUT"; then
+        && [ "$PREFLIGHT_CANARY_SEEN" -eq 0 ]; then
       KIRO_SKIP_REASON="monthly quota exhausted at preflight"
       { echo "[preflight $MODEL_TAG]"; grep -E "$KIRO_QUOTA_RE|limits reset on" "$PREFLIGHT_ERR" | strip_ansi | scrub_secrets | head -3; } \
         | tr '\n' ' ' | sed 's/ *$//' > "$SLOT/kiro-quota-$MODEL_TAG.flag"; echo >> "$SLOT/kiro-quota-$MODEL_TAG.flag"

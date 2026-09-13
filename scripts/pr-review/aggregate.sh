@@ -116,4 +116,4 @@ merge_kiro_flags() { # $1 flag stem, $2 severe(1|0), $3 log prefix
 }
 merge_kiro_flags preflight 1 "Kiro preflight failed (no PR input sent to Kiro)"
 merge_kiro_flags agent-fallback 1 "kiro-cli ignored --agent inline-review (no-tools contract broken, responses discarded)"
-merge_kiro_flags quota 0 "Kiro monthly request quota exhausted for KIRO_API_KEY (enable overages or rotate /demo-platform/actions/AI-key)"
+merge_kiro_flags quota 0 "Kiro monthly request quota exhausted for KIRO_API_KEY (restore access under the account budget policy; /demo-platform/actions/AI-key)"

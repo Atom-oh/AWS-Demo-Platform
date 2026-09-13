@@ -48,7 +48,8 @@ vendor-latest and unpinned.
 
 When quota accompanies a failed no-tools check, both causes are retained and the
 preflight remains failed. A fallback signature also retains its own flag; rotating
-a key does not repair a broken agent configuration.
+a key does not repair a broken agent configuration. Canary disclosure in either
+stdout or stderr fails the check; diagnostic copies redact the canary.
 
 ## Symptom A — `🚫 Kiro monthly request quota exhausted`
 
@@ -114,9 +115,11 @@ Fix:
 1. Read the kiro-cli version on the first stderr line of the panel step
    (`run-panel.sh: kiro-cli X.Y.Z`) and compare it with the version the profile was
    validated against (2.11.1). The image is vendor-latest and rebuilt weekly.
-2. Validate the profile with that version. `kiro-cli agent validate --path
-   scripts/pr-review/kiro-inline-review.json` prints an `Error:` line on schema
-   rejection but exits 0 either way, so read the output, not the exit code.
+2. Check the profile with the installed CLI in an authenticated session.
+   `kiro-cli agent validate --path scripts/pr-review/kiro-inline-review.json`
+   can require login even on 2.11.1. In authenticated probes that release returned
+   exit 0 on schema rejection, so inspect diagnostics as well as exit status.
+   CI still requires its explicit profile-content check and behavioral preflight.
 3. Re-verify the behaviour before changing anything (`$K` from the prerequisite):
    ```bash
    d=$(mktemp -d); mkdir -p "$d/.kiro/agents"
@@ -156,9 +159,12 @@ These appear directly in the failed step log, not as a banner.
 The kiro-cli install and its build gate live in
 `docker/actions-runner-claude/Dockerfile` in this repository
 ([ADR-016](../decisions/ADR-016-multi-ai-pr-review-panel.md) owns the image). The
-gate checks `chat --help` for `--agent`, `--no-interactive`, `--wrap` and that
-`agent validate` accepts a `tools: []` profile without printing `Error:`. It cannot
-prove runtime no-tools behaviour; that is what the per-job preflight is for.
+gate checks Python availability and `chat --help` for `--agent`, `--no-interactive`
+and `--wrap`, without provider authentication. The image installs Python explicitly.
+Do not inject a Kiro key into a build to run `agent validate`. The authenticated
+job checks the actual shipped profile and runs the canary preflight before any
+PR input is sent. A failed Kiro review attempt cannot contribute output after its
+bounded retries are exhausted.
 
 ## Background
 

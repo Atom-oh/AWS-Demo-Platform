@@ -14,7 +14,7 @@ USER root
 
 # bubblewrap — required for the codex sandbox.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends bubblewrap \
+ && apt-get install -y --no-install-recommends bubblewrap python3 \
  && rm -rf /var/lib/apt/lists/* \
  && bwrap --version
 
@@ -66,26 +66,17 @@ RUN test "$TARGETARCH" = "arm64" \
  && unzip -q /tmp/kirocli.zip -d /tmp/kirocli \
  && KIRO_CLI_SKIP_SETUP=1 /tmp/kirocli/kirocli/install.sh \
  && rm -rf /tmp/kirocli /tmp/kirocli.zip \
- && kiro-cli --version \
+ && kiro-cli --version
+
+# Offline build compatibility checks. Some CLI versions require authentication for
+# `agent validate`; never add a provider key to the image build. The authenticated
+# job validates the shipped profile and probes its behavior before sending PR data.
+RUN python3 --version \
  && kiro-cli chat --help > /tmp/kiro-chat-help \
  && grep -F -- "--agent" /tmp/kiro-chat-help \
  && grep -F -- "--no-interactive" /tmp/kiro-chat-help \
  && grep -F -- "--wrap" /tmp/kiro-chat-help \
- && rm /tmp/kiro-chat-help \
- # kiro-cli is an unpinned vendor-latest install (no version/SHA pin possible) that
- # auto-rebuilds weekly. The old gate grepped the help text for
- # "trust no tools: '--trust-tools='", but 2.11.1 still prints that sentence while
- # ignoring the flag, so wording proves nothing. run-panel.sh's no-tools contract rests on
- # a `tools: []` agent selected with `--agent`; check that the installed agent schema
- # still accepts that shape. `agent validate` exits 0 even for invalid JSON, so the gate
- # is "no `Error:` token in the output" (it is ANSI-coloured, so not line-anchored), not
- # the exit code. Behavioural proof (NO_TOOLS reply) needs a key
- # and runs per job as run-panel.sh's preflight.
- && printf '%s\n' '{"name":"gate-notools","description":"build gate","tools":[],"allowedTools":[],"mcpServers":{},"useLegacyMcpJson":false,"resources":[],"hooks":{}}' > /tmp/gate-notools.json \
- && kiro-cli agent validate --path /tmp/gate-notools.json > /tmp/gate-validate 2>&1 \
- && cat /tmp/gate-validate \
- && ! grep -qF "Error:" /tmp/gate-validate \
- && rm -f /tmp/gate-notools.json /tmp/gate-validate
+ && rm /tmp/kiro-chat-help
 
 # Codex Bedrock config (global, global.openai.gpt-6-astra via amazon-bedrock-runtime)
 # via the runner node's IAM credentials.

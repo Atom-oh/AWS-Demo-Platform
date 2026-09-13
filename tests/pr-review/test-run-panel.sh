@@ -395,7 +395,7 @@ fi
 # in $SLOT. Also covers the preflight-time fallback signature landing in its own flag.
 # A quota signature at preflight is an outage, not a breach: only the quota flag is
 # written (no preflight flag), so the chair's coverage floors — not severe — decide.
-for preflight_mode in canary-read fallback-signature quota-signature fallback-quota tool-quota canary-quota rc-nonzero; do
+for preflight_mode in canary-read fallback-signature quota-signature fallback-quota tool-quota canary-quota canary-stderr-quota canary-stderr rc-nonzero; do
   setup "L2 L3"
   case "$preflight_mode" in
     canary-read) body='if [[ "${2:-}" == "Kiro startup safety check."* ]]; then cat ./preflight-canary.txt; exit 0; fi' ;;
@@ -404,6 +404,8 @@ for preflight_mode in canary-read fallback-signature quota-signature fallback-qu
     fallback-quota) body='if [[ "${2:-}" == "Kiro startup safety check."* ]]; then printf "Error: no agent with name inline-review found. Falling back to user specified default\nMonthly request limit reached\nThe limits reset on 10/01.\n" >&2; exit 0; fi' ;;
     tool-quota) body='if [[ "${2:-}" == "Kiro startup safety check."* ]]; then printf "using tool: fs_read\nMonthly request limit reached\n" >&2; exit 0; fi' ;;
     canary-quota) body='if [[ "${2:-}" == "Kiro startup safety check."* ]]; then cat ./preflight-canary.txt; echo "Monthly request limit reached" >&2; exit 0; fi' ;;
+    canary-stderr-quota) body='if [[ "${2:-}" == "Kiro startup safety check."* ]]; then cat ./preflight-canary.txt >&2; echo "Monthly request limit reached" >&2; exit 0; fi' ;;
+    canary-stderr) body='if [[ "${2:-}" == "Kiro startup safety check."* ]]; then echo "NO_TOOLS"; cat ./preflight-canary.txt >&2; exit 0; fi' ;;
     rc-nonzero) body='if [[ "${2:-}" == "Kiro startup safety check."* ]]; then echo "NO_TOOLS"; exit 7; fi' ;;
   esac
   # Preflight branch first (overrides mkfake_kiro's default NO_TOOLS), then the review body
@@ -429,7 +431,7 @@ EOF
       && grep -q '::error::Kiro monthly request quota exhausted for KIRO_API_KEY at kiro-sol preflight.*reset on 10/01' "$WORK/panel.err" \
       && ! grep -q 'preflight failed' "$WORK/panel.err" \
       && [ "$(grep -c '^\[skip\] kiro-sol/L.*(monthly quota exhausted at preflight)' "$WORK/panel.err")" -eq 2 ] || extra_ok=0 ;;
-    fallback-quota|tool-quota|canary-quota)
+    fallback-quota|tool-quota|canary-quota|canary-stderr-quota)
       [ -s "$WORK/slot/kiro-preflight-kiro-sol.flag" ] \
       && [ -s "$WORK/slot/kiro-quota-kiro-sol.flag" ] \
       && grep -q '::error::Kiro preflight failed for kiro-sol' "$WORK/panel.err" \
@@ -438,7 +440,7 @@ EOF
       if [ "$preflight_mode" = fallback-quota ]; then
         [ -s "$WORK/slot/kiro-agent-fallback-kiro-sol.flag" ] || extra_ok=0
       fi ;;
-    canary-read|rc-nonzero) ! grep -q "$(cat "$WORK/kiro-cwd/preflight-kiro-sol/preflight-canary.txt")" "$WORK/panel.err" \
+    canary-read|canary-stderr|rc-nonzero) ! grep -q "$(cat "$WORK/kiro-cwd/preflight-kiro-sol/preflight-canary.txt")" "$WORK/panel.err" \
       && [ -s "$WORK/slot/kiro-preflight-kiro-sol.flag" ] \
       && grep -q '::error::Kiro preflight failed for kiro-sol' "$WORK/panel.err" \
       && [ "$(grep -c '^\[skip\] kiro-sol/L.*(preflight failed)' "$WORK/panel.err")" -eq 2 ] || extra_ok=0 ;;
@@ -504,11 +506,12 @@ setup
 mkfake_kiro 'echo "partial"; exit 1'
 PANEL_RETRIES=2 "$SCRIPT" "$WORK/diff.txt" "$LENSES" "$WORK" kiro-sol >"$WORK/panel.log" 2>"$WORK/panel.err"
 kiro_ok=0
-grep -q '\[retry 1/2\] kiro-sol-L2' "$WORK/panel.err" && kiro_ok=1
+grep -q '\[retry 1/2\] kiro-sol-L2' "$WORK/panel.err" \
+  && [ ! -s "$WORK/slot/kiro-sol-L2.md" ] && kiro_ok=1
 if [ "$codex_ok" = 1 ] && [ "$kiro_ok" = 1 ]; then
-  pass "run-panel (t) rc≠0 retry applies to Kiro only; Codex partial output is kept"
+  pass "run-panel (t) failed Kiro output is excluded after retries; Codex partial output is kept"
 else
-  fail "run-panel (t) rc≠0 retry applies to Kiro only; Codex partial output is kept" "codex_ok=$codex_ok kiro_ok=$kiro_ok"
+  fail "run-panel (t) failed Kiro output is excluded after retries; Codex partial output is kept" "codex_ok=$codex_ok kiro_ok=$kiro_ok"
 fi
 
 cleanup
