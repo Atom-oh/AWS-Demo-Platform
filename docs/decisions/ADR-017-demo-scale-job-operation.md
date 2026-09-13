@@ -187,6 +187,11 @@ audit trail.
    **UI mitigation (2026-09-12):** the open scale control prevents duplicate
    submissions locally. No backend or cross-client guard prevents overlap
    across reopened controls, tabs, operators or direct API clients.
+
+   **UI update (2026-09-13):** the dashboard now coordinates lifecycle and scale
+   mutations with per-project locks that survive drawer close/reopen in the same
+   mounted page. Page reloads, other tabs/operators and direct API calls still do
+   not share that lock; the backend/cross-client limitation remains.
 8. **A restart-recovered `scale` job replays every target** in its `targets`
    array rather than consulting its own `progress` map to skip ones already
    recorded `done` before the restart — usually idempotent (re-applying the

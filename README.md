@@ -10,7 +10,7 @@ Admin platform for GitHub-linked AWS demo projects across multiple accounts.
 The EKS hub runs Atlantis, ArgoCD, ESO, observability and CI runners. The dashboard
 API, asynchronous worker and Next.js frontend run separately on ECS Fargate.
 Repository code includes project discovery, lifecycle control, briefing/history,
-bulk turn-on and per-resource demo scaling. Terraform defines the dev runtime.
+selected bulk on/off and per-resource demo scaling. Terraform defines the dev runtime.
 
 Implementation, image publication and live deployment are different states. CI
 builds/pushes images; ECS service rollout is explicit. Verify current revisions,
@@ -25,7 +25,7 @@ reviewer summary, not a separate source of policy.
 - Hub-spoke GitOps with system and tenant App-of-Apps roots.
 - PR-driven Terraform through Atlantis and scoped cross-account roles/ExternalIds.
 - CloudFront-only public ingress using a private VPC Origin and internal ALB.
-- Dashboard discovery, resource detail, URLs, briefing, history, bulk on and scale.
+- Dashboard discovery, resource detail, URLs, briefing, history, selected bulk on/off and scale.
 - Asynchronous lifecycle jobs with restoration data and restart recovery.
 - Grafana private ingress and an ESO-synchronized administrator credential.
 

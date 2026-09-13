@@ -39,12 +39,14 @@ export function DetailDrawer({
   onToggle,
   onScale,
   notification,
+  actionsDisabled = false,
 }: {
   row: ProjectRow;
   onClose: () => void;
   onToggle: (repo: string, op: 'turn_on' | 'turn_off') => Promise<{ ok: boolean }> | void;
   onScale?: (repo: string, targets: ScaleTarget[]) => Promise<{ ok: boolean }> | void;
   notification?: ReactNode;
+  actionsDisabled?: boolean;
 }) {
   const [history, setHistory] = useState<HistoryRecord[] | null>(null);
   const [histErr, setHistErr] = useState<string | null>(null);
@@ -122,6 +124,7 @@ export function DetailDrawer({
   }, []);
 
   const handleToggle = async (op: 'turn_on' | 'turn_off') => {
+    if (actionsDisabled) return;
     await onToggle(row.repo, op);
     await loadHistory(); // refresh once so the just-performed action appears
   };
@@ -157,10 +160,10 @@ export function DetailDrawer({
           {pr?.description && <p className="desc">{pr.description}</p>}
           <footer>
             {row.status === 'on' && (
-              <button className="btn" onClick={() => void handleToggle('turn_off')}>끄기</button>
+              <button className="btn" disabled={actionsDisabled} onClick={() => void handleToggle('turn_off')}>끄기</button>
             )}
             {(row.status === 'off' || row.status === 'error') && (
-              <button className="btn primary" onClick={() => void handleToggle('turn_on')}>{row.status === 'error' ? '다시 켜기' : '켜기'}</button>
+              <button className="btn primary" disabled={actionsDisabled} onClick={() => void handleToggle('turn_on')}>{row.status === 'error' ? '다시 켜기' : '켜기'}</button>
             )}
             {row.status === 'transitioning' && (
               <button className="btn" disabled><span className="spinner" />전환 중</button>
@@ -207,7 +210,7 @@ export function DetailDrawer({
                       <span className="resid">{resourceId(r)}</span>
                       {!on && <span className="muted">일괄 끄기 제외</span>}
                       {(isEcs || isArgocdApp) && (
-                        <ScaleControl resource={r} status={row.status}
+                        <ScaleControl resource={r} status={row.status} blocked={actionsDisabled}
                           onScale={onScale ? (targets) => onScale(row.repo, targets) : undefined} />
                       )}
                     </div>
