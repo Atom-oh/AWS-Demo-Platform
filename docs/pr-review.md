@@ -9,9 +9,12 @@ owns shared context and runner images; ADR-015 still explains per-model job isol
 ## Project-specific inputs
 
 Same-repository PRs targeting `main` run trusted event-base scripts. Every job
-uses immutable base/head SHAs and the merge-base change boundary. Base and candidate
-`AGENTS.md` must be 1..12,288 bytes with a fresh canonical-source marker. Only the
-base digest instructs reviewers; candidate documents remain diff data. Local Kiro
+uses immutable base/head SHAs and the merge-base change boundary. The CI
+`prepare-inputs.sh` entrypoint requires `AGENTS.md` at both revisions, each within
+1–12,288 bytes. The specialist preparer additionally checks generated-source
+freshness. Its standalone `CLAUDE.md` fallback does not bypass that earlier CI
+`AGENTS.md` requirement. Missing, oversized or stale context blocks preparation. Only the
+base context instructs reviewers; candidate documents remain diff data. Local Kiro
 steering points to that digest, but CI explicitly embeds it because Kiro has no tools.
 
 The specialist path reviews complete approved Git source under the trusted BASE
