@@ -106,6 +106,29 @@ Grafana keeps AllViewer and disabled caching; both viewer hosts match its ALB
 rule. Its public availability depends on the external repository's CloudFront
 configuration, not just this repository's ArgoCD status.
 
+## Dashboard operations
+
+PR #107 adds a default operating table, an alternate card view and sorting by
+attention, name or account. Selected projects form a confirmed on/off batch;
+its names and membership are frozen. Before dispatch, each target is checked
+against the latest loaded project state, not live resource health.
+
+[`useOperations`](../dashboard/frontend/hooks/useOperations.ts) coordinates bulk
+and single lifecycle actions and scale, with a per-project guard and at most four
+active operations per mounted page. A bulk run blocks individual mutations;
+closing its drawer does not release a project's active guard. These are local
+controls, not backend or cross-client locks.
+
+[`OperationPanel`](../dashboard/frontend/components/OperationPanel.tsx) tracks
+queued/running/succeeded/failed/skipped batch results and offers failed-item retry.
+It dispatches existing per-project API jobs; there is no durable server-side batch.
+In-page Refresh retains the batch/results while reloading project state. A full
+reload or navigation that unmounts the page loses local results and undispatched
+work, with no automatic queue or job-polling resume. Submitted backend jobs continue.
+A polling timeout can release the local guard while a job continues, so a failed
+UI result does not prove that no resource changed. See the
+[frontend guide](../dashboard/frontend/CLAUDE.md) for the current interaction contract.
+
 ## Lifecycle and scale jobs
 
 `shared` owns schemas/clients; API routes validate and persist jobs, then enqueue
