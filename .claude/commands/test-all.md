@@ -25,26 +25,29 @@ terraform fmt -check -recursive
 terraform validate
 ```
 
-Note: `terraform init` must have been run at least once per module (state-backed). For CI, use `terraform init -backend=false`.
+Initialize each root with `terraform init -backend=false` for offline validation.
+A real plan additionally needs the correct backend, identity and state; init is
+not live validation.
 
-## Step 3: Kustomize Build (all k8s/system overlays)
+## Step 3: Render Kubernetes manifests
 
-```bash
-for d in k8s/system/*/; do
-  echo "=== $d ==="
-  kubectl kustomize "$d" >/dev/null
-done
-```
+Run `kubectl kustomize <dir>` for affected directories containing a
+`kustomization.yaml`. Not every `k8s/system/*` directory is a standalone root;
+render the owning overlay. Validate Helm values through their owning chart.
 
-Failure here means a manifest is malformed or missing.
+## Step 4: Dry-run changed ArgoCD resources
 
-## Step 4: ArgoCD Application Manifest Validation
+Resolve the intended cluster/account and pass `kubectl --context <context>`.
+Run suitable client/server dry-runs on changed manifests after required CRDs and
+other prerequisites exist. Missing prerequisites are a validation limitation,
+not automatically malformed YAML. Bash `**` is not recursive without `globstar`.
 
-```bash
-for f in argocd-apps/**/*.yaml; do
-  kubectl apply --dry-run=client -f "$f"
-done
-```
+## Application checks
+
+- From `dashboard/backend`: `pnpm -r build`, `pnpm -r lint`, `pnpm -r test`.
+  Integration tests need LocalStack on port 4566.
+- From `dashboard/frontend`: `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`.
+  Vitest does not replace TypeScript compilation.
 
 ## Step 5: Report
 
@@ -57,7 +60,7 @@ Present:
 
 | Failure Pattern | Likely Cause | Fix |
 |---|---|---|
-| "Backend configuration changed" | Cross-repo backend conflict | Run `terraform init -reconfigure` in the affected module |
+| "Backend configuration changed" | Backend arguments differ | Verify owner/bucket/key first; reconfigure only the intended state |
 | "Invalid configuration" (terraform) | HCL syntax error | Check the line reported by `terraform validate` |
 | "kustomize build failed" | Missing base or bad patch | Run `kubectl kustomize <path>` in isolation to see full error |
 | "Resource not found" (ArgoCD apply) | CRD not installed on target cluster | Verify ArgoCD/ESO CRDs exist before dry-run |

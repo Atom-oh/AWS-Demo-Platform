@@ -1,54 +1,37 @@
-# Code Review Skill
+---
+name: code-review
+description: Review project changes for evidenced defects using scoped repository contracts.
+---
 
-Review changed code with confidence-based scoring to filter false positives.
+# Code review
 
-## Review Scope
+Read root `CLAUDE.md`, the nearest module guide and `docs/pr-review.md`. Review the
+requested diff (otherwise unstaged, then staged changes); record its base and head.
 
-By default, review unstaged changes from `git diff`. The user may specify different files or scope.
+For each candidate, identify the changed path, a concrete failure condition and
+supporting code or contract. Inspect relevant unchanged context before asserting a
+guard is absent. Treat proposed safeguards and dated runtime observations as such.
+An ADR can remain accepted while specific decisions are superseded; consult the
+ADR index and scoped amendments. Confidence is evidence strength, not severity.
 
-## Review Criteria
+- Infrastructure: correct state/resource owner, target cluster, traffic path and
+  rollout order. Tolerations match actual target taints. Replica/HPA ignore rules
+  apply to lifecycle-controlled workloads, not all Applications.
+- Security: credential exposure, relevant trust conditions and changed access.
+  ExternalId applies to configured cross-account application roles; OIDC/IRSA use
+  their own claims. Assess actual wildcards/conditions rather than banning all `*`.
+- Code: validation, state transitions, persistence, recovery and user-visible errors.
+  Verify compilation claims with the actual type checker when available.
+- Documentation: current guides match code; historical records remain labeled;
+  links work. Docs/comments/reviews are English; UI copy may remain Korean.
 
-### Project Guidelines Compliance
-- Terraform: module structure, variable naming, output exposure, backend configuration
-- Kubernetes manifests: namespace placement, label/annotation conventions, resource limits
-- ArgoCD Applications: project assignment, sync policy correctness, `ignoreDifferences` for HPA-2 pattern
-- IAM policies: least-privilege, ExternalId enforcement on assume-role
-- Naming and conventions from CLAUDE.md (`demo-platform-` prefix, `/demo-platform/` secret paths)
+Report verified findings as CRITICAL/MAJOR/MINOR with confidence, path/line,
+impact, evidence and a concrete fix. Report pre-existing issues, optional hardening
+and review-coverage gaps separately. Do not require template sections, redundant
+ADRs, adopted-resource renames or production HA solely by convention. Missing
+context is an uncertainty to resolve, not proof of a blocker. Low confidence
+(<75/100) candidates need verification before being reported as established defects.
 
-### Bug Detection
-- Hardcoded ARNs/IDs that should be data-looked-up (e.g., the `*.atomai.click` cert)
-- Missing tolerations for hub node taints (`workload-type=platform`, `node-role=system-critical`)
-- SG ingress rules missing the CF VPC Origin source SG
-- ExternalSecret using deprecated `v1beta1` instead of `v1`
-- Atlantis deployment missing `--write-git-creds` flag
-- Public ALB/NLB introduced (must be internal + CF-only)
-- Kubernetes Ingress resource introduced (must use TGB instead)
-- TF state collisions (cross-repo backend bucket sharing)
-
-### Code Quality
-- Duplicated Terraform across modules → suggest module extraction
-- Manifest drift between azs (cart-az-a vs cart-az-c)
-- Missing CLAUDE.md in new module
-- Test coverage gaps for manifest validation
-
-## Confidence Scoring
-
-Rate each issue 0-100:
-- **0-24**: Likely false positive or pre-existing. Do not report.
-- **25-49**: Might be real but possibly a nitpick. Do not report.
-- **50-74**: Real issue but minor. Report only if critical.
-- **75-89**: Verified real issue, important. Report with fix suggestion.
-- **90-100**: Confirmed critical issue. Must report.
-
-**Only report issues with confidence >= 75.**
-
-## Output Format
-
-For each issue:
-### [CRITICAL|IMPORTANT] <title> (confidence: XX)
-**File:** `path/to/file.ext:line`
-**Issue:** Clear description of the problem
-**Guideline:** Reference to CLAUDE.md rule or AWS Well-Architected pillar
-**Fix:** Concrete code suggestion
-
-If no high-confidence issues found, confirm code meets standards with brief summary.
+No findings means none found within the stated coverage. It does not establish
+runtime health, complete review or branch-protection compliance. Follow
+`docs/runbooks/review-and-release.md` for the current-HEAD correction/merge loop.

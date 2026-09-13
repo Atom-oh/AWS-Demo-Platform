@@ -1,59 +1,30 @@
-# ADR-013: PR-Review GPT Model Bump — `gpt-5.5` → `gpt-5.6-sol`/`gpt-5.6-terra`
+# ADR-013: Independent GPT model selection for Codex and Kiro
 
 ## Status
 
-Accepted (2026-07-15) — amends ADR-011's roster (`claude-opus-4.8`/`gpt-5.5`/`glm-5` for
-Kiro, `openai.gpt-5.5` for Codex's own Bedrock model). ADR-011's Context/Decision are left
-as historical record; this ADR is the live source of truth for the GPT model ids.
+Accepted (2026-07-15); original model selections subsequently superseded by
+[ADR-015](ADR-015-pr-review-per-model-parallel-jobs.md) and the 2026-09-09 amendment
+in [ADR-014](ADR-014-pr-review-opus5-model-bump.md). The distinction between access
+paths remains applicable. See [current configuration](../pr-review.md).
 
-## Context
+## Context and decision
 
-Bedrock/OpenAI shipped `gpt-5.6` variants, replacing the `gpt-5.5` id this panel pinned in
-two independent places:
+The July change replaced Codex's `openai.gpt-5.5` with `openai.gpt-5.6-sol` on its
+then-current Bedrock provider, and Kiro's `gpt-5.5` slot with `gpt-5.6-terra` through
+Kiro's own catalog. Both had successful local probes recorded at the time.
+Different aliases across these catalogs were intentional, not spelling mistakes;
+a listing from one API did not establish availability through the other.
 
-- Codex's own model (`docker/actions-runner-claude/config.toml`, `model = "openai.gpt-5.5"`)
-  → `openai.gpt-5.6-sol`.
-- Kiro's third roster slot (`scripts/pr-review/run-panel.sh`'s `KIRO_MODELS`, tagged
-  `gpt-5.5:kiro-gpt`) → `gpt-5.6-terra`.
+Codex's provider/model lived in the runner image's `config.toml`; Kiro's mapping
+lived in repository scripts. The former required an image rebuild, while the
+latter applied on later trusted-base workflow runs. Preserve that distinction
+when diagnosing why configured and running models differ.
 
-These are **not the same model id** — Codex calls its own Bedrock-mantle model directly by
-the `openai.*` Bedrock model id, while Kiro resolves `--model gpt-5.6-terra` through its own
-internal catalog (which is why the two slots drifted to different `gpt-5.6-*` variants
-rather than a single shared name). Neither id currently resolves via
-`aws bedrock list-foundation-models`/`list-inference-profiles` in `us-east-1` — both are
-bedrock-mantle marketplace routes, consistent with how `gpt-5.5` also didn't show up in
-those list APIs (ADR-011 predates this ADR and never surfaced that gap either).
+## Current applicability
 
-## Decision
-
-- `docker/actions-runner-claude/config.toml`: `model = "openai.gpt-5.5"` →
-  `model = "openai.gpt-5.6-sol"`.
-- `scripts/pr-review/run-panel.sh`: `KIRO_MODELS=("claude-opus-4.8:kiro-opus"
-  "gpt-5.5:kiro-gpt" "glm-5:kiro-glm")` → `"gpt-5.6-terra:kiro-gpt"`.
-- Comments referencing the old id in `run-panel.sh`, `pr-review.yml`, and the Dockerfile
-  updated to match (`gpt-5.6-sol` where the comment is about Codex's own model,
-  `gpt-5.6-terra` where it's about Kiro's slot).
-- `CLAUDE.md` / `docs/architecture.md` PR-review summary lines updated to match.
-
-## Consequences
-
-- **Both ids were smoke-tested live before merge** (locally, ahead of the PR-review panel
-  flagging this as unverified): `kiro-cli chat --model gpt-5.6-terra --mode default
-  --no-interactive --trust-tools= --wrap never "Reply with exactly: OK"` returned `OK`;
-  `codex exec -s read-only --skip-git-repo-check -c model=openai.gpt-5.6-sol "Reply with
-  exactly: OK"` (Bedrock, `amazon-bedrock` provider) also returned `OK`. Local `~/.codex/config.toml`
-  additionally already lists `"openai.gpt-5.6-sol" = 4` under `[tui.model_availability_nux]`,
-  consistent with the id being live.
-- The two slots take effect at different times: `KIRO_MODELS` is read from the repo checkout,
-  so it takes effect **immediately on merge**; `config.toml` is baked into the runner image at
-  build time, so the Codex slot only takes effect **after the next image rebuild** (weekly
-  cron or on-demand `runner-image.yml` `workflow_dispatch`) — editing it here alone doesn't
-  change an already-built image's Codex model.
-- Unrelated to this ADR: `codex`/`claude-code`/`kiro-cli` themselves install via vendor
-  `latest` scripts with no version pin (Dockerfile comment: "the point of a weekly build is
-  staying current, so pinning would be a design contradiction") — they already pick up upstream CLI updates on every
-  rebuild with no code change needed. Only the *model ids* pinned in this repo's own files
-  needed an explicit bump.
-- If `gpt-5.6-sol`/`gpt-5.6-terra` turn out to be short-lived aliases (as `gpt-5.5` was
-  before it), the next bump should again touch both slots independently rather than
-  assuming they stay in lockstep.
+Use `docker/actions-runner-claude/config.toml` for Codex and
+`scripts/pr-review/lib.sh` for Kiro. Do not restore the July values from this ADR.
+Verify each selected model with its actual client/endpoint. Historical probes,
+CLI versions and catalog observations do not prove current availability or pricing.
+Shared weekly images follow vendor releases; scoped consumer compatibility pins
+are documented in ADR-016 and their runbook.

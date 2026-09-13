@@ -30,11 +30,13 @@ PR-head documentation stays diff data. See [PR review](docs/pr-review.md).
 - Terraform 1.9.6 is pinned in `atlantis.yaml`. State uses the shared S3 bucket
   `multi-region-mall-terraform-state`, unique module keys and DynamoDB locking
   via `multi-region-mall-terraform-locks`; do not use TF 1.10+ `use_lockfile`.
-  The pin is a repository compatibility constraint, not proof of an upstream
-  GPG-key defect.
+  The pin is a repository compatibility constraint. The `atlantis.yaml` header
+  records an older image's GPG download failure; the deployment manifest records
+  renewal in v0.44.1. That history is not a current upgrade blocker.
 - Kubernetes: ArgoCD Applications/ApplicationSets, Kustomize and Helm. Versions
   come from manifests; ESO resources use `external-secrets.io/v1` and
   `ClusterSecretStore aws-secrets-manager`.
+- Atlantis uses the `atomoh-atlantis` GitHub App.
 
 ## Project Structure
 
@@ -148,7 +150,10 @@ reported separately. `scripts/setup.sh` installs local hooks.
 ## Review and Release
 
 Four panel slots (Codex, two Kiro slots, Claude self-review) cover L2-L5, followed
-by a chair. `KIRO_MODELS` in `scripts/pr-review/lib.sh` maps compatibility tags to
+by a chair. [ADR-016](docs/decisions/ADR-016-multi-ai-pr-review-panel.md) owns
+panel/chair design, shared context and runner images; the
+[decision index](docs/decisions/README.md) maps partial supersession.
+`KIRO_MODELS` in `scripts/pr-review/lib.sh` maps compatibility tags to
 catalog IDs: `kiro-fable` is the legacy Opus slot; `kiro-opus` is its historical tag.
 The configured IDs live in that script and the [review map](docs/pr-review.md).
 Kiro catalog aliases and Bedrock profile IDs are distinct. CI Kiro has isolated
