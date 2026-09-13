@@ -1,58 +1,44 @@
-# Design Spec: Public Cognito-Protected Dashboard with Real Toggles
+# Public dashboard deployment — historical design
 
-**Date:** 2026-06-03
-**Goal:** Deploy the Stage 3 Next.js dashboard to a public URL **`admin-dev.atomai.click`**, protected by **Cognito login**, with **real working on/off toggles** end-to-end.
-**Source of analysis:** parallel deep-analysis workflow `wf_950ff459-489` (5 phase analysts + risk critic), all claims re-verified against the live tree.
+**Date:** 2026-06-03; architecture decision updated 2026-06-04 after PR #16.
+**Reconciled:** 2026-09-13. The implementation exists; this record does not establish
+live rollout. The original analysis and phase commands remain in Git history.
 
----
+## Goal and decisions
 
-## Locked decisions (from the risk critic, verified)
+Expose the dev dashboard at `admin-dev.atomai.click`, with Cognito login and
+working resource restoration through the API/worker.
 
-1. **Architecture = `arm64` / `ARM64` (UPDATED 2026-06-04).** At analysis time PR #16 (Graviton) was not yet on `main`, so the original decision was amd64. **PR #16 has since merged** — `main` now builds `--platform=linux/arm64` on the `aws-demo-platform-arm` runner and `dashboard-ecs` api/worker are `ARM64`. So the **frontend was flipped to arm64 too** (frontend-ci `linux/arm64` + arm runner, frontend task `cpu_architecture=ARM64`) for a consistent Graviton cluster. ⚠️ The api task-def **rev:2** that was applied is stale `X86_64`; a fresh `dashboard-ecs` apply on arm64 `main` must register an `ARM64` rev before the api is redeployed (else exec-format error against the arm64 image).
-2. **Same-origin CloudFront.** One distribution for `admin-dev.atomai.click`: `default` behavior → frontend TG; ordered `/api/*` behavior → an origin whose `domain_name = admin-api-dev.atomai.click` (so it hits the **existing** ALB priority-120 api rule). `/api/*` uses **CachingDisabled + AllViewer** so the `Authorization` header reaches the api. **No `API_ORIGIN`** on the frontend task; no CORS.
-3. **Access token, not id token.** `jwt-cognito.ts` `createCognitoVerifier` uses `tokenUse:'access'` and matches `cognito:username` against `ADMIN_USERNAMES` (default `atomoh`). The SPA sends the Cognito **access token** as `Authorization: Bearer`.
-4. **Partial `turn_on` → `markError`, and the API treats `error` as retryable.** `markOn` does `REMOVE restoration_data` (verified `state.ts:118`); on a partial turn_on failure we call `markError` (unconditional, preserves `restoration_data`). The api's `turn_on` handler accepts current status `off` **or** `error` (transitioning from the actual status), so an `error` project recovers via the API — not a dead-end requiring a manual DDB edit. (Fixes the PR #18 AI-review MAJOR.)
-5. **Unique restoration key.** `stepKey(res)=res.type` (verified `job-runner.ts:100`) collides for the **2× `argocd-app`** in `multi-region-mall`. Make the key unique per resource for **both** the turn_off write and the turn_on read.
-6. **OIDC role is repo/branch-scoped, not workflow-pinned** (`infra/iam/gha-ecr-push-role.tf:25` → `repo:Atom-oh/AWS-Demo-Platform:ref:refs/heads/main`), so `frontend-ci.yml` can push with **no IAM change**.
+1. **ARM64:** the first draft assumed amd64 while PR #16 was pending. After the
+   backend Graviton migration, frontend images/tasks aligned to ARM64. Old task
+   revision numbers are dated observations, not rollout inputs.
+2. **Same origin:** route dashboard `/api/*` directly to the API origin through
+   CloudFront. The original `AllViewer` recommendation was wrong for the shared
+   viewer hostname: both dashboard behaviors now use `AllViewerExceptHostHeader`
+   with `CachingDisabled`. See [ADR-004](../../decisions/ADR-004-same-origin-cloudfront-dashboard.md).
+3. **Access tokens:** PKCE uses a public SPA client; the API verifies access-token
+   `username` and the admin allowlist. The internal adapter field is
+   `cognito:username`, not the access-token claim. Frontend bypass does not bypass
+   server auth. See [ADR-005](../../decisions/ADR-005-cognito-spa-auth-code-pkce.md).
+4. **Retryable restoration:** partial on preserves saved data through `markError`;
+   the API accepts retry from `error`.
+5. **Resource identity:** restoration and progress use unique `stepKey` values so
+   multiple resources of the same type do not collide.
+6. **OIDC:** main-ref trust lets another workflow assume the publication role,
+   but trust alone does not grant push to a new repository. The current policy
+   explicitly includes frontend; see [ADR-003](../../decisions/ADR-003-gha-oidc-ecr-push.md).
 
----
+## Delivery dependencies retained
 
-## Phases (recommended order)
+The design separated worker restoration, real API dependencies, frontend image,
+routing/runtime and browser login. ECR must exist before first push; required
+secrets and images must exist before consumers roll. A changed task definition
+needs an explicitly selected revision: a bare force-deploy retains the existing
+revision. The original worker count of zero and target-resource inventory were
+snapshots, not current operational facts.
 
-### PRE-0 / PRE-1 — human, blocking
-- Reconcile PR #16 (decide amd64-now — recommended — or cleanly re-merge arm64 to main first).
-- `atlantis apply -d infra/cognito` if not applied; verify `/demo-platform/dev/cognito/{user-pool-id,app-client-id}` hold non-empty values; create the Cognito user `atomoh` with a permanent password (pool is `allow_admin_create_user_only`).
-
-### Phase B — worker real `turn_on` restoration  *(this PR)*
-- `job-runner.ts`: (1) unique `stepKey` per resource; (2) on `turn_on`, read the off-state record's `restoration_data` and dispatch per-type into the existing controller `turnOn(rd)` methods; (3) RDS `waitForAvailable` fire-and-forget (don't hold the SQS message); (4) partial `turn_on` → `markError` (preserve restoration_data); full success → `markOn`.
-- Controllers already implement `turnOn(rd)` + unit-tested — Phase B only wires them in.
-- Tests: idempotent-skip (empty restoration), multi-resource dispatch (incl. 2× argocd-app via unique keys), partial-failure → markError, RDS fire-and-forget.
-
-### Phase A — api serves real data  *(this PR)*
-- `api/src/server.ts` prod entry: construct `DynamoDBDocumentClient` → `StateClient`/`JobsClient`, `SQSClient`, `loadProjects`/`loadAccounts`, and (when `!skipJwt`) `createCognitoVerifier`; inject all into `buildServer`.
-- `api/Dockerfile`: bake `_config/projects` + `_config/accounts.yaml` (CI already bundles them; same build context as worker).
-- `infra/dashboard-ecs/main.tf`: api task env (`DDB_TABLE_*`, `SQS_QUEUE_URL`, `PROJECTS_DIR`, `ACCOUNTS_FILE`, `ADMIN_USERNAMES`) + `secrets` (`COGNITO_USER_POOL_ID`, `COGNITO_APP_CLIENT_ID`); `data.tf`: two `aws_secretsmanager_secret` data sources.
-
-### Phase C — frontend image  *(next PR)*
-- `frontend/next.config.mjs` → `output:'standalone'`; `frontend/Dockerfile` (node:20-alpine standalone, `PORT=3000`, `HOSTNAME=0.0.0.0`); `.dockerignore`; `infra/ecr` add `demo-platform/frontend`; `.github/workflows/frontend-ci.yml` (amd64, OIDC push on merge to main).
-
-### Phase D — frontend infra  *(next PR)*
-- `infra/alb-internal` frontend TG (`demo-platform-fe-dev`, port 3000, health `/` 200) + listener rule priority 130 host `admin-dev.atomai.click`.
-- `infra/cloudfront` same-origin distribution (two origins/behaviors per decision #2).
-- `infra/route53-private-zone` public alias `admin-dev.atomai.click` → CloudFront (private split-horizon record already exists).
-- `infra/dashboard-ecs` frontend task def + service (port 3000) + SG ingress 3000.
-
-### Phase E — Cognito login  *(next PR)*
-- Authorization Code + **PKCE** (public SPA client) Hosted-UI flow: `lib/auth-config.ts`, `lib/pkce.ts`, `lib/auth.ts`, `lib/token-store.ts` (access/id in memory, refresh in sessionStorage), `components/AuthProvider.tsx`, `components/LoginGate.tsx`, `app/auth/callback/page.tsx`; `lib/api.ts` attaches `Bearer <access_token>`; `app/page.tsx` gated + logout; `NEXT_PUBLIC_AUTH_ENABLED=false` dev bypass (mirrors api `skipJwt`).
-- `NEXT_PUBLIC_*` are **build-time inlined** → the prod image must be built with prod Cognito values + `redirect_uri=https://admin-dev.atomai.click/auth/callback`.
-
----
-
-## Cross-phase deployment guardrails (human actions)
-
-- **Image-before-infra:** merge code → confirm new image digest in ECR → apply/roll infra. ECS services use `ignore_changes=[task_definition]` so `atlantis apply` registers a revision but does **not** roll the service — force `aws ecs update-service --force-new-deployment` after the new image + revision exist.
-- **ECR repo before first push:** `atlantis apply -d infra/ecr` before the first merge that triggers `frontend-ci`.
-- **Worker must run for real toggles:** worker `desiredCount=0` today; scale to 1 after its config is baked + github/argocd secrets populated.
-- **Apply order (Phase D):** `alb-internal` → `cloudfront` → `route53-private-zone` → `dashboard-ecs`.
-- **Safe-first live toggle order (real data):** only `argocd-app` (×2, `multi-region-mall`) and `rds` exist — **no ecs/ec2**. Test a single `argocd-app` first; `rds` last (slow start, fire-and-forget).
-- **CloudFront `/api/*` must use CachingDisabled + AllViewer** or the `Authorization` header is stripped → 401.
+Current code and limits live in [dashboard context](../../../dashboard/CLAUDE.md),
+[frontend context](../../../dashboard/frontend/CLAUDE.md) and
+[ADR-001](../../decisions/ADR-001-sqs-worker-for-async-jobs.md). Image publication,
+ECS rollout and public TLS/login/resource verification remain separate steps in
+the [release runbook](../../runbooks/review-and-release.md).
