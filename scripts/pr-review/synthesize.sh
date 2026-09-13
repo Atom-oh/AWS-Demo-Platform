@@ -188,7 +188,40 @@ fi
 # VERDICT must stay the last line, so the banner is prepended.
 if [ -s "$WORK/degraded-models.txt" ]; then
   DEGRADED="$(tr '\n' ',' < "$WORK/degraded-models.txt" | sed 's/,$//; s/,/, /g')"
-  { echo "⚠️ **Coverage degraded**: model(s) [$DEGRADED] produced zero responses across all lenses (invalid flag / binary absent / auth failure, etc.) — the review below was synthesized without them."
+  { echo "⚠️ **Coverage degraded**: model(s) [$DEGRADED] produced zero responses across all lenses (invalid flag / binary absent / auth failure / quota, etc.) — the review below was synthesized without them."
+    echo ""
+    cat "$OUT"
+  } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
+fi
+
+# Kiro preflight failed (aggregate.sh merged run-panel.sh's per-job flags): the fixed
+# no-tools check did not return NO_TOOLS, so the PR diff was never sent to that Kiro job.
+# coverage-severe.flag already forces FAIL; this makes the "why" readable in the comment.
+if [ -s "$WORK/kiro-preflight.flag" ]; then
+  PREFLIGHT_DETAIL="$(tr '\n' ' ' < "$WORK/kiro-preflight.flag" | sed 's/ *$//')"
+  { echo "🛑 **Kiro preflight failed**: $PREFLIGHT_DETAIL The no-tools contract could not be confirmed, so those Kiro cells were not started — forced FAIL. Procedure: docs/runbooks/pr-review-panel.md"
+    echo ""
+    cat "$OUT"
+  } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
+fi
+
+# Kiro monthly quota (kiro-quota.flag): pins the real cause behind empty Kiro rows instead
+# of the degraded banner's candidate list. Not a code/flag problem — the KIRO_API_KEY
+# account hit MONTHLY_REQUEST_COUNT — so the comment states the human action and reset date.
+if [ -s "$WORK/kiro-quota.flag" ]; then
+  QUOTA_DETAIL="$(tr '\n' ' ' < "$WORK/kiro-quota.flag" | sed 's/ *$//')"
+  { echo "🚫 **Kiro monthly request quota exhausted**: the KIRO_API_KEY account reached its MONTHLY_REQUEST_COUNT limit, so Kiro cells returned nothing (\`$QUOTA_DETAIL\`) — not a kiro-cli headless-flag failure. Account-owner recovery must follow the existing budget policy; do not enable paid overages merely to pass review. Approved key: \`/demo-platform/actions/AI-key\`. Procedure: docs/runbooks/pr-review-panel.md"
+    echo ""
+    cat "$OUT"
+  } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
+fi
+
+# Kiro agent fallback (kiro-agent-fallback.flag): the runner's kiro-cli ignored
+# `--agent inline-review` and ran the tool-enabled default agent. Responses were discarded
+# and coverage-severe forces FAIL; this explains the FAIL in the comment body.
+if [ -s "$WORK/kiro-agent-fallback.flag" ]; then
+  AGENTFAIL_DETAIL="$(tr '\n' ' ' < "$WORK/kiro-agent-fallback.flag" | sed 's/ *$//')"
+  { echo "🔓 **Kiro no-tools contract broken**: kiro-cli ignored \`--agent inline-review\` and ran the default agent WITH tools (\`$AGENTFAIL_DETAIL\`) — those responses were discarded, forced FAIL. Check the runner image's kiro-cli version and agent schema (docs/runbooks/pr-review-panel.md)."
     echo ""
     cat "$OUT"
   } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
@@ -228,16 +261,25 @@ if [ -f "$SLOT/kiro-diff-truncated.flag" ]; then
   } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
 fi
 
-# coverage-severe.flag: at most 1 vendor survived, so cross-checking no longer holds —
-# force VERDICT: FAIL regardless of the chair's verdict. Remove the existing VERDICT line
-# (only if present — GNU sed's `0,/re/d` deletes the whole file on no match) and re-append.
+# coverage-severe.flag: force VERDICT: FAIL regardless of the chair's verdict. Set by
+# aggregate.sh for a coverage collapse (≤1 vendor or an unreviewed lens) or a Kiro no-tools
+# contract breach (preflight failure / ignored --agent); the banner names whichever applies.
+# Remove the existing VERDICT line (only if present — GNU sed's `0,/re/d` deletes the whole
+# file on no match) and re-append.
 if [ -f "$WORK/coverage-severe.flag" ]; then
   if grep -q '^VERDICT:' "$OUT"; then
     TAC_TMP="$(tac "$OUT" | sed '0,/^VERDICT:/d' | tac)"
     printf '%s\n' "$TAC_TMP" > "$OUT"
   fi
+  SEVERE_WHY="at most 1 vendor survived or a lens went unreviewed, so the lens×model matrix's cross-checking no longer holds"
+  if [ -s "$WORK/kiro-preflight.flag" ] || [ -s "$WORK/kiro-agent-fallback.flag" ]; then
+    SEVERE_WHY="the Kiro no-tools contract could not be upheld (see the Kiro banner below)"
+    if [ -s "$WORK/degraded-lenses.txt" ] || [ "$(wc -l < "$WORK/degraded-models.txt" 2>/dev/null || echo 0)" -ge 3 ]; then
+      SEVERE_WHY="$SEVERE_WHY and coverage also collapsed"
+    fi
+  fi
   {
-    echo "🛑 **Coverage collapse — forced FAIL**: at most 1 vendor survived, so the lens×model matrix's cross-checking no longer holds — fail-closed regardless of the chair's verdict."
+    echo "🛑 **Forced FAIL**: $SEVERE_WHY — fail-closed regardless of the chair's verdict."
     echo ""
     cat "$OUT"
     echo ""

@@ -20,24 +20,38 @@ runner credentials to test a workflow change.
 
 Local `.kiro/steering/project-context.md` points to `AGENTS.md`. CI Kiro uses an
 isolated cwd/HOME and no read tools, so that bridge alone cannot deliver context.
-Each fresh Kiro cell receives the trusted
+Each fresh cell receives the trusted
 [`kiro-inline-review.json`](../scripts/pr-review/kiro-inline-review.json) as
 `.kiro/agents/inline-review.json`; the command explicitly selects `--agent inline-review`.
-The profile sets `tools: []` and `allowedTools: []` and declares no additional MCP
-servers, resources or hooks. Default resource patterns may still be inherited;
-the fresh cell HOME/cwd contains no repository steering files. Directory preparation,
-profile readiness and copying must succeed before the affected Kiro call.
-These script-side failures prevent invocation; CLI-side profile loading needs
-separate verification after upgrades.
+The profile sets `tools: []` and `allowedTools: []`, with no MCP servers, resources
+or hooks and `useLegacyMcpJson: false`. `run-panel.sh` rejects a profile whose
+content deviates (including duplicate JSON keys) before any model call. Directory
+preparation, profile validation and copying must succeed before the affected Kiro
+call; failures stop execution rather than reusing stale state or falling back to
+default tools.
 
 The [Kiro configuration reference](https://kiro.dev/docs/custom-agents/configuration-reference/)
 distinguishes available `tools` from approval-free `allowedTools`. PR #109 run
 `34729311650` (head `2d47015`, `kiro-fable/L2`) produced only glob-search output
-under `--trust-tools=` alone: an empty approval grant did not
-remove the default catalog. That flag remains as defense in depth; the named
-profile now defines availability. Schema validation and the local `/tools` catalog
-were checked with Kiro CLI 2.11.1 on 2026-09-13. Offline checks do not establish
-successful model execution or meaningful review coverage.
+under `--trust-tools=` alone: kiro-cli 2.11.1 parses the empty value as a custom
+tool name, warns and ignores it, so the default catalog survived. The named profile
+is the only guard; `--trust-tools=` and the v3-only `--mode default` were removed
+from the invocation so nobody mistakes them for one. The `--v3` engine ignores
+`tools: []` and is not used.
+
+Each Kiro job first runs a preflight: a fixed canary prompt with the same profile
+in a fresh directory with the profile and a random canary file must
+return exactly `NO_TOOLS`; otherwise the PR diff is withheld from that job's
+cells and the chair forces failure, except for a quota-only failure whose severity
+is left to the coverage floors. Quota never suppresses evidence of agent fallback,
+tool use or canary disclosure. After the review, stderr signatures for an
+ignored `--agent` (response discarded, forced failure) and for monthly quota
+exhaustion (`Monthly request limit reached`, at preflight or review time, not
+retried, cause named in the comment, severity left to the coverage floors) are
+folded into per-model flags inside the uploaded slot. Offline profile validation and mocked preflight/signature tests check
+configuration and control flow, not successful model execution or meaningful
+review coverage. Failure handling is in the
+[panel runbook](runbooks/pr-review-panel.md).
 
 Kiro gets context plus capped diff in argv; other cells get the prepared context
 and diff through their existing prompt/stdin paths. An assembled Kiro argument of
@@ -99,8 +113,10 @@ sections. Optional hardening belongs in suggestions with its trade-off and scope
 The current implementation counts non-empty output, not validated semantic success.
 Preparation filters selected generated/lockfile hunks and truncates at 3,000 lines;
 Kiro further caps diff text at 100,000 bytes. Warnings/flags expose truncation.
-Aggregation forces failure when at least three of four model rows are empty or a
-lens has no responses. One or two empty model rows are warnings, not forced failure.
+Aggregation forces failure when at least three of four model rows are empty, a
+lens has no responses, or a Kiro job reports a preflight failure or ignored
+`--agent`. One or two empty model rows — including a Kiro quota outage — are
+warnings, not forced failure.
 A non-empty error response can still be counted. These are actual limitations, not
 assurance that the review is complete.
 
@@ -121,9 +137,10 @@ gates to obtain a pass.
 ## Verification
 
 `bash tests/run-all.sh` includes mocked review pipeline tests. They verify input
-provenance, Kiro context delivery, explicit empty-tool profile selection, failure
-before default-agent fallback, argument limits, artifact aggregation, scrubbing and
-chair failure behavior. They do not prove the installed CLI's model behavior or
+provenance, Kiro context delivery, explicit empty-tool profile selection and
+validation, the preflight gate, quota and agent-fallback signature handling,
+failure before default-agent fallback, argument limits, artifact aggregation,
+scrubbing and chair failure behavior. They do not prove the installed CLI's model behavior or
 judgment quality. Reverify profile compatibility and actual review output after
 CLI upgrades; a nonempty tool log is still not a completed review.
 For a script-changing PR, assess supplemental review at the exact head with trusted

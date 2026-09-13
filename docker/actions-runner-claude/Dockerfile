@@ -14,7 +14,7 @@ USER root
 
 # bubblewrap — required for the codex sandbox.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends bubblewrap \
+ && apt-get install -y --no-install-recommends bubblewrap python3 \
  && rm -rf /var/lib/apt/lists/* \
  && bwrap --version
 
@@ -59,23 +59,23 @@ RUN curl -fsSL https://chatgpt.com/codex/install.sh -o /tmp/codex-install.sh \
  && rm /tmp/codex-install.sh \
  && codex --version
 
-# Kiro CLI. `--v3` routes to a narrower model catalog that rejected gpt-5.5 (ADR-011);
-# run-panel.sh always calls `kiro-cli chat` without --v3.
+# Kiro CLI. `--v3` routes to a narrower model catalog that rejected gpt-5.5 (ADR-011) and
+# ignores an agent's `tools: []`; run-panel.sh always calls `kiro-cli chat` without --v3.
 RUN test "$TARGETARCH" = "arm64" \
  && curl -fsSL "https://prod.download.cli.kiro.dev/stable/latest/kirocli-aarch64-linux.zip" -o /tmp/kirocli.zip \
  && unzip -q /tmp/kirocli.zip -d /tmp/kirocli \
  && KIRO_CLI_SKIP_SETUP=1 /tmp/kirocli/kirocli/install.sh \
  && rm -rf /tmp/kirocli /tmp/kirocli.zip \
- && kiro-cli --version \
+ && kiro-cli --version
+
+# Offline build compatibility checks. Some CLI versions require authentication for
+# `agent validate`; never add a provider key to the image build. The authenticated
+# job validates the shipped profile and probes its behavior before sending PR data.
+RUN python3 --version \
  && kiro-cli chat --help > /tmp/kiro-chat-help \
  && grep -F -- "--agent" /tmp/kiro-chat-help \
- && grep -F -- "--mode" /tmp/kiro-chat-help \
  && grep -F -- "--no-interactive" /tmp/kiro-chat-help \
  && grep -F -- "--wrap" /tmp/kiro-chat-help \
- # Check the review scripts' required CLI flags before publishing a weekly image.
- # Approval flags do not remove tools; run-panel.sh selects the empty-tool profile.
- # Reverify profile loading and the effective catalog after CLI upgrades.
- && grep -F -- "trust no tools: '--trust-tools='" /tmp/kiro-chat-help \
  && rm /tmp/kiro-chat-help
 
 # Codex Bedrock config (global, global.openai.gpt-6-astra via amazon-bedrock-runtime)
