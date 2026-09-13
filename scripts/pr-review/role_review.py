@@ -1,25 +1,14 @@
 #!/usr/bin/env python3
-"""Portable role-review preparation, response validation, and aggregation.
+"""Offline protocol; see README.md and COMMAND --help.
 
-CLI:
-  prepare --diff RAW --context CONTEXT --head SHA --base SHA --work WORK
-          [--context-cap BYTES] [--paths JSON_FILE] [--provenance JSON_FILE]
-  issue --work WORK --tag TAG
-  record --work WORK --tag TAG --output FILE --stderr FILE --exit-code RC --nonce NONCE
-  aggregate --work WORK
-
-Schema 1 plans list all four tags; only required roles get roles/TAG.txt and
-roles/TAG.diff. Response ``role`` is the stable role slug, not the tag. Result
-envelopes obtain tag, configured family/model and fingerprints from the plan.
-Exit 2 means blocked. Aggregate exit 0 means deterministic PASS or chair handoff;
-read chair-mode.txt to distinguish them. No networking or model invocation.
-Use a fresh work directory per complete reviewed diff. This library does not
-coordinate chunks. These are scope attestations,
-not proof of model honesty or of the provider's actual executed weights.
+Exit 2 blocks. After aggregate exit 0, chair-mode.txt distinguishes deterministic
+results from adjudication. Use fresh work per complete diff; no chunk coordinator,
+networking or model calls. Scope attestations do not prove provider execution.
 """
 
 import argparse
 import ast
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -77,7 +66,7 @@ FAILURE_CODES = {
     "invalid_findings", "invalid_finding", "invalid_uncertainties",
     "invalid_json_wrapper", "empty_response", "model_selection_diagnostic",
     "model_fallback_diagnostic", "quota_diagnostic", "agent_preflight_diagnostic",
-    "duplicate_record",
+    "duplicate_record", "invalid_invocation_nonce", "invalid_issued_request",
 }
 TERMINAL_CODES = {"model_selection_diagnostic", "model_fallback_diagnostic",
                   "quota_diagnostic", "agent_preflight_diagnostic"}
@@ -302,7 +291,8 @@ def routing(paths, diff):
         for p in paths
     )
     aws = bool(AWS_SIGNAL.search(diff))
-    deployment = bool(DEPLOY_SIGNAL.search(diff))
+    deployment = bool(DEPLOY_SIGNAL.search(diff)) or any(
+        Path(p).suffix.lower() in {".tsx", ".jsx"} for p in paths)
     return {
         "codex": (True, "always_required_independent_implementation_review"),
         "claude-self": (True, "always_required_independent_requirements_review"),
@@ -367,7 +357,7 @@ def invocation_digest(prepared_digest, nonce):
     return digest({"prepared_request_digest": prepared_digest, "invocation_nonce": nonce})
 
 
-def excluded_only(provenance):
+def excluded_only(provenance, policy_hash):
     if not isinstance(provenance, dict):
         return False
     paths = provenance.get("scope_paths")
@@ -382,8 +372,24 @@ def excluded_only(provenance):
         provenance.get("scope_exception") == "configured_exclusions_only"
         and isinstance(provenance.get("input_policy_sha256"), str)
         and re.fullmatch(r"[0-9a-f]{64}", provenance["input_policy_sha256"]) is not None
+        and provenance["input_policy_sha256"] == policy_hash
         and paths == provenance.get("excluded_paths")
     )
+
+
+def policy_bytes(file):
+    """The caller selects trusted BASE policy; this library anchors its bytes."""
+    try:
+        path = Path(file)
+        if path.is_symlink() or not path.is_file():
+            raise Invalid("invalid_exclusions_policy")
+        raw = path.read_bytes()
+        policy = strict_json(raw.decode("utf-8"))
+        if not isinstance(policy, dict) or policy.get("schema_version") != 1:
+            raise Invalid("invalid_exclusions_policy")
+        return raw
+    except (OSError, UnicodeError, TypeError, Invalid):
+        raise Invalid("invalid_exclusions_policy") from None
 
 
 def prepare(args):
@@ -409,19 +415,6 @@ def prepare(args):
         failures.append("diff_line_limit")
     if not context.strip() or len(context.encode()) > args.context_cap:
         failures.append("context_size")
-    try:
-        manifest = strict_json(text_file(args.paths)) if args.paths else None
-        scope = strict_json(text_file(args.provenance)) if args.provenance else {}
-        metadata_only = scope.get("path_only", []) if isinstance(scope, dict) else []
-        if not isinstance(metadata_only, list) or any(not isinstance(x, str) for x in metadata_only):
-            raise Invalid("invalid_input_provenance")
-        empty_scope = not raw and manifest == [] and excluded_only(scope)
-        paths = [] if empty_scope else diff_paths(diff, manifest, metadata_only)
-    except Invalid as exc:
-        paths = []
-        failures.append(str(exc))
-    if re.search(r"^(?:Binary files .* differ|GIT binary patch)$", diff, re.M):
-        failures.append("binary_content_not_reviewable")
     provenance = {}
     if args.provenance:
         try:
@@ -438,18 +431,44 @@ def prepare(args):
             ):
                 raise Invalid("invalid_input_provenance")
             failures.extend(declared)
-            provenance = scrub(provenance)
         except Invalid:
             provenance = {}
             failures.append("invalid_input_provenance")
+    material, policy_hash = None, None
+    try:
+        manifest = strict_json(text_file(args.paths)) if args.paths else None
+        metadata_only = provenance.get("path_only", [])
+        if not isinstance(metadata_only, list) or any(not isinstance(x, str) for x in metadata_only):
+            raise Invalid("invalid_input_provenance")
+        if (args.allow_exclusions_only or args.policy
+                or provenance.get("scope_exception") == "configured_exclusions_only"):
+            if not args.allow_exclusions_only or not args.policy:
+                raise Invalid("exclusions_policy_not_opted_in")
+            candidate = policy_bytes(args.policy)
+            if raw or manifest != [] or not excluded_only(provenance, digest(candidate)):
+                raise Invalid("invalid_exclusions_policy")
+            material, policy_hash = candidate, digest(candidate)
+        paths = [] if policy_hash else diff_paths(diff, manifest, metadata_only)
+    except Invalid as exc:
+        paths = []
+        failures.append(str(exc))
+    anchor = work / "exclusions-policy.json"
+    if material is not None:
+        write(anchor, material)
+    else:
+        remove(anchor)
+    if re.search(r"^(?:Binary files .* differ|GIT binary patch)$", diff, re.M):
+        failures.append("binary_content_not_reviewable")
+    provenance = scrub(provenance)
     plan = {
         "schema_version": 1, "head_sha": args.head, "base_sha": args.base,
         "diff_sha256": digest(raw), "context_sha256": digest(context.encode()),
         "diff_bytes": len(raw), "diff_lines": lines, "context_cap": args.context_cap,
         "paths": paths, "roles": {}, "provenance": provenance,
+        "exclusions_policy_sha256": policy_hash,
     }
     routes = routing(paths, diff)
-    if not raw and not paths and excluded_only(provenance):
+    if policy_hash:
         routes = {tag: (False, "approved_exclusions_only") for tag in ROLES}
     for tag, (slug, family, model, description) in ROLES.items():
         required, reason = routes[tag]
@@ -501,6 +520,12 @@ def load_plan(work):
     try:
         if set(plan["roles"]) != set(ROLES) or not isinstance(plan["paths"], list):
             raise Invalid("invalid_plan_roles")
+        policy_hash = plan.get("exclusions_policy_sha256")
+        if policy_hash is not None and (
+            digest(policy_bytes(work / "exclusions-policy.json")) != policy_hash
+            or not excluded_only(plan.get("provenance"), policy_hash)
+        ):
+            raise Invalid("invalid_exclusions_policy")
         for tag, (slug, family, model, _) in ROLES.items():
             role = plan["roles"][tag]
             if (role["role"], role["family"], role["model"]) != (slug, family, model):
@@ -509,7 +534,7 @@ def load_plan(work):
                 raise Invalid("invalid_plan_requirement")
             if (tag in ("codex", "claude-self") and not role["required"]
                     and not (plan["paths"] == [] and plan["diff_bytes"] == 0
-                             and excluded_only(plan.get("provenance")))):
+                             and excluded_only(plan.get("provenance"), policy_hash))):
                 raise Invalid("missing_independent_role")
             if role["paths"] != (plan["paths"] if role["required"] else []):
                 raise Invalid("invalid_plan_scope")
@@ -525,26 +550,49 @@ def load_plan(work):
     return plan
 
 
+@contextmanager
+def slot_operation(work, tag):
+    if tag not in ROLES:
+        raise Invalid("inactive_role")
+    lock = Path(work) / "slot" / f".{tag}-operation-lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        lock.mkdir()
+    except FileExistsError:
+        raise Invalid("record_in_flight") from None
+    try:
+        yield
+    finally:
+        lock.rmdir()
+
+
 def issue_request(work, tag):
+    with slot_operation(work, tag):
+        return _issue_request(work, tag)
+
+
+def attempt_history(work, tag):
+    path = work / "slot" / f"{tag}-attempts.json"
+    history = strict_json(text_file(path)) if path.exists() else []
+    if not isinstance(history, list) or len(history) > 32:
+        raise Invalid("invalid_attempt_history")
+    return history
+
+
+def _issue_request(work, tag):
     work = Path(work)
     plan = load_plan(work)
     role = plan["roles"][tag]
     if not plan["input_complete"] or not role["required"]:
         raise Invalid("inactive_or_incomplete_request")
-    nonce = secrets.token_hex(16)
-    prompt_text = (work / "roles" / f"{tag}.txt").read_bytes().decode("utf-8")
-    diff_text = (work / "roles" / f"{tag}.diff").read_bytes().decode("utf-8")
-    instruction, payload = frame_request(prompt_text, diff_text, nonce)
-    receipt = {
-        "schema_version": 1, "tag": tag, "head_sha": plan["head_sha"],
-        "base_sha": plan["base_sha"], "plan_digest": plan["plan_digest"],
-        "prepared_request_digest": role["request_digest"], "invocation_nonce": nonce,
-        "request_digest": invocation_digest(role["request_digest"], nonce),
-        "prompt_sha256": digest(instruction.encode()), "input_sha256": digest(payload.encode()),
-    }
+    if any((work / "slot" / f"{tag}-{name}.json").exists()
+           for name in ("request", "result", "attempts")):
+        issued_request(work, plan, tag)
     previous = work / "slot" / f"{tag}-result.json"
     if previous.exists():
         prior = strict_json(text_file(previous))
+        if not isinstance(prior, dict):
+            raise Invalid("valid_result_reissue")
         history_file = work / "slot" / f"{tag}-attempts.json"
         history = strict_json(text_file(history_file)) if history_file.exists() else []
         if not isinstance(history, list) or len(history) >= 32:
@@ -554,6 +602,8 @@ def issue_request(work, tag):
         terminal = TERMINAL_CODES.intersection(prior.get("failure_codes", []))
         if terminal:
             write(work / "slot" / f"role-{tag}-terminal.flag", "\n".join(sorted(terminal)) + "\n")
+    nonce = secrets.token_hex(16)
+    instruction, payload, receipt = request_receipt(work, plan, tag, nonce)
     remove(previous)
     remove(work / "slot" / f"{tag}.record-claim")
     remove(work / "slot" / f"{tag}-duplicate.flag")
@@ -563,22 +613,27 @@ def issue_request(work, tag):
     return nonce, instruction, payload
 
 
+def request_receipt(work, plan, tag, nonce):
+    role = plan["roles"][tag]
+    instruction, payload = frame_request(
+        (work / "roles" / f"{tag}.txt").read_bytes().decode("utf-8"),
+        (work / "roles" / f"{tag}.diff").read_bytes().decode("utf-8"), nonce,
+    )
+    return instruction, payload, {
+        "schema_version": 1, "tag": tag, "head_sha": plan["head_sha"],
+        "base_sha": plan["base_sha"], "plan_digest": plan["plan_digest"],
+        "prepared_request_digest": role["request_digest"], "invocation_nonce": nonce,
+        "request_digest": invocation_digest(role["request_digest"], nonce),
+        "prompt_sha256": digest(instruction.encode()), "input_sha256": digest(payload.encode()),
+        "history_digest": digest(attempt_history(work, tag)),
+    }
+
+
 def issued_request(work, plan, tag):
     try:
         receipt = strict_json(text_file(work / "slot" / f"{tag}-request.json"))
-        role = plan["roles"][tag]
         nonce = receipt["invocation_nonce"]
-        instruction, payload = frame_request(
-            (work / "roles" / f"{tag}.txt").read_bytes().decode("utf-8"),
-            (work / "roles" / f"{tag}.diff").read_bytes().decode("utf-8"), nonce,
-        )
-        expected = {
-            "schema_version": 1, "tag": tag, "head_sha": plan["head_sha"],
-            "base_sha": plan["base_sha"], "plan_digest": plan["plan_digest"],
-            "prepared_request_digest": role["request_digest"], "invocation_nonce": nonce,
-            "request_digest": invocation_digest(role["request_digest"], nonce),
-            "prompt_sha256": digest(instruction.encode()), "input_sha256": digest(payload.encode()),
-        }
+        instruction, payload, expected = request_receipt(work, plan, tag, nonce)
         if (receipt != expected
                 or (work / "requests" / f"{tag}.prompt").read_bytes() != instruction.encode()
                 or (work / "requests" / f"{tag}.input").read_bytes() != payload.encode()):
@@ -657,15 +712,23 @@ def diagnostic_failure(stderr):
         if re.search(r"^failed to set model\b|^(?:invalid|unknown|unsupported)\s+model\b|"
                      r"^model\s+.{0,100}\s+(?:not found|not available|unsupported)\b", body, re.I):
             return "model_selection_diagnostic"
-        if re.search(r"^no agent with name\b.*\bfound\b", body, re.I):
+        if re.search(r"^no agent with name\b.*\bfound\b|^Json supplied at .* is invalid\b", body, re.I):
             return "agent_preflight_diagnostic"
         if re.search(r"^(?:falling back|using (?:a )?fallback|fallback model)\b", body, re.I):
             return "model_fallback_diagnostic"
-        if re.search(r"^(?:quota exceeded|rate limit exceeded|insufficient credits|"
+        if re.search(r"^(?:MONTHLY_REQUEST_COUNT|UsageLimitReachedError|"
+                     r"quota exceeded|rate limit exceeded|insufficient credits|"
                      r"monthly request limit (?:reached|exceeded)|"
                      r"usage limit (?:reached|exceeded)|billing hard limit reached)\b", body, re.I):
             return "quota_diagnostic"
     return None
+
+
+SENSITIVE_KEY = re.compile(
+    r"(?i:(?<![A-Za-z0-9])[A-Za-z0-9_.:-]*(?:password|passwd|pwd|dsn|api[_-]?key|"
+    r"secret|token|credential|passphrase|private[_-]?key|cookie|authorization|"
+    r"connection[_-]?string|origin[_-]?verify|AccessKeyId|access[_-]?key[_-]?id|external[_-]?id)[A-Za-z0-9_.:-]*)"
+)
 
 
 def scrub(value):
@@ -673,36 +736,55 @@ def scrub(value):
     if isinstance(value, list):
         return [scrub(x) for x in value]
     if isinstance(value, dict):
-        return {k: scrub(v) for k, v in value.items()}
+        fields = {str(k).lower(): v for k, v in value.items()}
+        sensitive_values = {v for k, v in (("name", "value"), ("headername", "headervalue"))
+                            if isinstance(fields.get(k), str) and SENSITIVE_KEY.fullmatch(fields[k])}
+        return {k: "[REDACTED]" if isinstance(k, str) and (
+            SENSITIVE_KEY.fullmatch(k) or k.lower() in sensitive_values
+        ) else scrub(v) for k, v in value.items()}
     if not isinstance(value, str):
         return value
     value = re.sub(r"(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]", "", value)
     value = re.sub(r"(?:\x1b[\]PX^_]|\x9d|\x90|\x98|\x9e|\x9f).*?(?:\x07|\x9c|\x1b\\|$)", "", value, flags=re.S)
     value = re.sub(r"\x1b[ -/]*[0-~]", "", value)
     value = "".join(c for c in value if c in "\n\r\t" or unicodedata.category(c) not in ("Cc", "Cf", "Zl", "Zp"))
-    identifier = (
-        r"(?i:(?<![A-Za-z0-9])[A-Za-z0-9_-]*(?:password|passwd|api[_-]?key|"
-        r"secret|token|credential|passphrase|private[_-]?key|cookie|AccessKeyId|access[_-]?key[_-]?id|external[_-]?id)[A-Za-z0-9_-]*)"
-    )
-    key = identifier + r"""["']?\s*[:=]\s*"""
+    try:
+        decoded = strict_json(value)
+        if isinstance(decoded, (dict, list)):
+            return canonical(scrub(decoded))
+    except Invalid:
+        pass
+    def quoted(match):
+        try:
+            return canonical(scrub(strict_json(match.group())))
+        except Invalid:
+            return match.group()
+    # Decode nested JSON strings/escaped keys before applying key/value patterns.
+    value = re.sub(r'"(?:\\.|[^"\\])*"', quoted, value)
+    identifier = SENSITIVE_KEY.pattern
+    quote = r"""\\*["']"""
+    key = identifier + rf"(?:{quote})?\s*[:=]\s*"
     patterns = (
         r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)",
-        r"\b(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b",
-        r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b",
-        r"\bnpm_[A-Za-z0-9]{20,}\b",
-        r"\bsk-[A-Za-z0-9_-]{16,}",
-        r"\bxox[abprs]-[A-Za-z0-9-]{10,}",
-        r"\bAIza[0-9A-Za-z_-]{30,}",
-        r"\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
-        r"(?i:\bBearer\s+)[A-Za-z0-9_.~+/-]+=*",
-        r"""(?i:\bAuthorization)["']?\s*:\s*["']?(?i:Basic|Bearer)\s+[A-Za-z0-9+/=_.~-]+""",
+        r"(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
+        r"(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})",
+        r"npm_[A-Za-z0-9]{20,}",
+        r"sk-[A-Za-z0-9_-]{16,}",
+        r"xox[abprs]-[A-Za-z0-9-]{10,}",
+        r"AIza[0-9A-Za-z_-]{30,}",
+        r"eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
+        r"(?i:Bearer\s+)[A-Za-z0-9_.~+/-]+=*",
+        r"""(?i:Authorization)["']?\s*:\s*["']?(?i:Basic|Bearer)\s+[A-Za-z0-9+/=_.~-]+""",
         r"""[A-Za-z][A-Za-z0-9+.-]*://[^/\s:@"']*:[^@\s/"']+@""",
         r"""https://hooks\.slack\.com/services/[^\s"'<>]+""",
         r"""(?im)^[ \t]*[+-]?[ \t]*(?:set-)?cookie["']?[ \t]*:[^\r\n]*""",
-        r"""(?i:\bx-origin-verify)["']?\s*:\s*["']?[^\s"',;}\]]+""",
+        r"""(?i:x-origin-verify)["']?\s*:\s*["']?[^\s"',;}\]]+""",
+        key + r"[\[({].*",
         key + r"[|>][-+]?[ \t]*\r?\n(?:[+-]?[ \t]+[^\r\n]*(?:\r?\n|\Z))+",
-        r"""(?i:\bname)\s*:\s*["']?""" + identifier + r"""["']?[ \t]*\r?\n[+-]?[ \t]*(?i:value)\s*:[^\r\n]*""",
-        key + r"""(?P<quote>["']).*?(?P=quote)""",
+        rf"(?i:\b(?:header)?name)(?:{quote})?\s*[:=]\s*(?:{quote})?" + identifier
+        + rf"(?:{quote})?[\s,]*[+-]?[ \t]*(?:{quote})?(?i:(?:header)?value)(?:{quote})?\s*[:=]\s*"
+        + rf"(?:(?P<named>{quote}).*?(?P=named)|[^\s,}}\]]+)",
+        key + rf"(?P<quote>{quote}).*?(?P=quote)",
         key + r"""[^\s"',;}\]]+""",
     )
     for pattern in patterns:
@@ -711,6 +793,19 @@ def scrub(value):
 
 
 def record(args):
+    if args.tag not in ROLES:
+        return 2
+    try:
+        with slot_operation(args.work, args.tag):
+            return _record(args)
+    except Invalid as exc:
+        if str(exc) != "record_in_flight":
+            raise
+        write(Path(args.work) / "slot" / f"{args.tag}-duplicate.flag", "record_in_flight\n")
+        return 2
+
+
+def _record(args):
     work = Path(args.work)
     if args.tag not in ROLES:
         return 2
@@ -837,6 +932,24 @@ def aggregate(args):
                 if not isinstance(attempts, list) or len(attempts) > 32:
                     raise Invalid("invalid_attempt_history")
                 history[tag] = scrub(attempts)
+                for number, prior in enumerate(attempts, 1):
+                    if not isinstance(prior, dict):
+                        raise Invalid("invalid_attempt_history")
+                    if prior.get("valid") is not True:
+                        continue
+                    if (plan is None or prior.get("plan_digest") != plan["plan_digest"]
+                            or prior.get("tag") != tag):
+                        raise Invalid("invalid_attempt_history")
+                    response = prior.get("response")
+                    validate_response(response, plan, tag)
+                    if prior.get("response_digest") != digest(response):
+                        raise Invalid("invalid_attempt_history")
+                    # History retains candidates, never current-role coverage.
+                    findings.extend({"tag": tag, "source_attempt": number, **scrub(item)}
+                                    for item in response["findings"]
+                                    if item["severity"] in ("CRITICAL", "MAJOR"))
+                    uncertainties.extend({"tag": tag, "source_attempt": number, "text": scrub(text)}
+                                         for text in response["uncertainties"])
             except Invalid:
                 failures.append(f"invalid_attempt_history:{tag}")
     mode = "blocked" if failures else "review" if uncertainties or any(
@@ -888,7 +1001,7 @@ def aggregate(args):
                 lines.append("- " + text)
             if not findings:
                 lines.append("NOT_APPLICABLE: trusted project policy excludes all changed files; no model review was performed."
-                             if plan and excluded_only(plan.get("provenance")) else
+                             if plan and not any(r["required"] for r in plan["roles"].values()) else
                              "No findings reported by all required validated role responses.")
         lines += ["", "VERDICT: FAIL" if mode == "blocked" else "VERDICT: PASS", ""]
         write(work / "deterministic-review.md", "\n".join(lines))
@@ -910,6 +1023,9 @@ def main(argv=None):
         prep.add_argument("--" + name, required=True)
     prep.add_argument("--context-cap", type=context_cap, default=MAX_CONTEXT_BYTES)
     prep.add_argument("--paths", help="JSON array of complete repository-relative changed paths")
+    prep.add_argument("--allow-exclusions-only", action="store_true",
+                      help="Opt into no-model PASS for the trusted collector's exclusions-only scope")
+    prep.add_argument("--policy", help="Trusted BASE policy JSON file; exact bytes must match provenance")
     prep.add_argument("--provenance", help=(
         "JSON object with head_sha, base_sha and raw diff_sha256; optional "
         "input_failures and approved metadata-only deletion path_only arrays"))
