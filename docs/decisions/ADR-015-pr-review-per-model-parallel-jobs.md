@@ -61,8 +61,11 @@ Kiro dispatch tags, checked empty off-roster cells and reduced artifact retentio
 Do not add `continue-on-error` to panel invocation merely to conceal roster errors.
 
 A prior prompt incorrectly named Terraform 1.9.8; the repository pin is 1.9.6.
-The accompanying expired-GPG-key explanation was not reliable evidence and is not
-part of this decision. Use `atlantis.yaml` for the compatibility pin.
+The old `atlantis.yaml` header records an image-bundled key failure. The
+`k8s/system/atlantis/deployment.yaml` comment records renewal in v0.44.1; the
+historical failure is not a current upgrade blocker. Keep the configured pin
+until a separately reviewed version change, rather than inferring one from
+either historical comment.
 
 ## Current limitations and later updates
 
