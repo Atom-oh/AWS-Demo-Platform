@@ -249,6 +249,8 @@ class RoleReviewTests(unittest.TestCase):
             ("_ghp_" + "A" * 36 + "_", "A" * 36),
             ('password = ("wrapped-private")', "wrapped-private"),
             ('{"password": [["nested-private"]]}', "nested-private"),
+            ('{"auth":"registry-private"}', "registry-private"),
+            (".dockerconfigjson: docker-private", "docker-private"),
         ]
         cases += [(f"_{text}_", secret) for text, secret in cases]
         for index, (text, secret) in enumerate(cases):
@@ -399,14 +401,19 @@ class RoleReviewTests(unittest.TestCase):
         self.assert_blocked()
 
     def test_reissue_retains_terminal_failure_and_blocks_clean_replacement(self):
-        self.prepare()
-        self.record("codex", stderr="[warn] failed to set model", expected=2)
-        self.cli("issue", "--work", self.work, "--tag", "codex")
-        self.record("codex")
-        self.record("claude-self")
-        self.assert_blocked()
-        history = self.read("slot/codex-attempts.json")
-        self.assertIn("model_selection_diagnostic", history[0]["failure_codes"])
+        cases = [
+            ("[warn] failed to set model", "model_selection_diagnostic", 0),
+            ('[ERROR] HTTP 400 body={"reason":"MONTHLY_REQUEST_COUNT"}', "quota_diagnostic", 1),
+        ]
+        for index, (stderr, code, rc) in enumerate(cases):
+            self.work = self.root / f"terminal-{index}"
+            self.prepare()
+            self.record("codex", stderr=stderr, rc=rc, expected=2)
+            self.cli("issue", "--work", self.work, "--tag", "codex")
+            self.record("codex")
+            self.record("claude-self")
+            self.assert_blocked()
+            self.assertIn(code, self.read("slot/codex-attempts.json")[0]["failure_codes"])
 
     def test_issued_request_persists_the_exact_framed_payload(self):
         self.prepare()
@@ -736,6 +743,7 @@ class RoleReviewTests(unittest.TestCase):
             "+ Monthly request limit reached\n"
             "+ Error: no agent with name X found\n"
             "+ Falling back to user specified default\n"
+            '+ [ERROR] HTTP 400 body={"reason":"MONTHLY_REQUEST_COUNT"}\n'
         ))
         self.assertTrue(result["valid"])
 
@@ -863,6 +871,11 @@ class RoleReviewTests(unittest.TestCase):
                 self.record("claude-self")
                 self.cli("aggregate", "--work", self.work)
                 self.assertEqual(self.read("role-summary.json")["mode"], "review")
+                result = self.work / "slot/codex-result.json"
+                saved = result.read_bytes()
+                result.unlink()
+                self.cli("issue", "--work", self.work, "--tag", "codex", expected=2)
+                result.write_bytes(saved)
                 self.cli("issue", "--work", self.work, "--tag", "codex")
                 self.record("codex")
                 self.cli("aggregate", "--work", self.work)
