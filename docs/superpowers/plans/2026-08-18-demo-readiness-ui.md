@@ -1,7 +1,7 @@
 # Demo readiness UI — historical implementation record
 
 **Date:** 2026-08-18. **Original branch:** `feat/demo-readiness-ui`.
-**Reconciled:** 2026-09-13; the planned features exist and PR #103 changed their UX.
+**Reconciled:** 2026-09-13; UI history below runs through PR #103.
 Task-by-task code, commit commands and repeated review transcripts remain in Git
 history. This is not a pending execution plan.
 
@@ -30,7 +30,7 @@ could not represent heterogeneous ArgoCD handles with one value. Resource-level
 aggregation and eventual status reads were accepted non-production trade-offs,
 not complete serialization or rollback mechanisms.
 
-## Current evidence and superseded assumptions
+## Implementation history through PR #103
 
 [The design record](../specs/2026-08-18-demo-readiness-ui-design.md) summarizes
 intent. The [scale route](../../../dashboard/backend/packages/api/src/routes/scale.ts),
@@ -41,13 +41,15 @@ tests implement the contracts.
 
 The old permanently disabled ArgoCD control was superseded by the namespace fix
 on 2026-08-20. HPA baselines were added on 2026-08-21, with first-failure limits
-clarified on 2026-09-12. PR #103 adds confirmation for visible candidates,
+clarified on 2026-09-12. PR #103 added confirmation for visible candidates,
 client-side 1–20 validation, mounted-control locking, responsive discovery and
 request-order protection. Neither locks across clients nor safe crash replay were
 added. [ADR-017](../../decisions/ADR-017-demo-scale-job-operation.md) is the current
 limitation record; do not reuse the old unconditional range-loss warning.
 
-[Frontend context](../../../dashboard/frontend/CLAUDE.md) owns current behavior,
-checks and the manually mirrored cap. Frontend test code exists but CI omits
-Vitest. Image publication remains separate from runtime rollout under the
+PR #107 later replaced that bulk-start UI with selected on/off operations,
+a sortable operating table and page-level guards.
+[Frontend context](../../../dashboard/frontend/CLAUDE.md) owns current dispatch,
+retry and page-lifetime behavior. Frontend test code exists but CI omits Vitest.
+Image publication remains separate from runtime rollout under the
 [release runbook](../../runbooks/review-and-release.md).
