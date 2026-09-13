@@ -63,6 +63,12 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
 
+      - name: Prepare fresh review workspace
+        run: |
+          test ! -L /tmp/pr-review
+          rm -rf -- /tmp/pr-review
+          mkdir -p /tmp/pr-review
+
       - name: Verify panel CLI present (pre-installed on runner)
         run: |
           # Missing CLI is non-blocking: run-panel.sh leaves that cell empty and
@@ -144,6 +150,12 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
+
+      - name: Prepare fresh review workspace
+        run: |
+          test ! -L /tmp/pr-review
+          rm -rf -- /tmp/pr-review
+          mkdir -p /tmp/pr-review
 
       - name: Verify Claude Code CLI present (pre-installed on runner)
         run: |
