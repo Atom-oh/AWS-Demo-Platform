@@ -524,6 +524,7 @@ class RoleReviewTests(unittest.TestCase):
                 else:
                     archive.write_text("[]")
                 self.assert_blocked()
+                self.cli("issue", "--work", self.work, "--tag", "codex", expected=2)
 
     def test_corrupt_historical_candidate_cannot_be_silently_dropped(self):
         self.prepare()

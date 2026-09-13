@@ -1,7 +1,7 @@
 # Specialist review protocol
 
-Offline protocol only: the live legacy panel is unchanged. Executors, project
-adapters and activation require separate review. No Git fetch or model calls.
+Offline library; the legacy panel stays live. Executor/adapter activation needs
+separate review. No Git fetch or model calls.
 
 | Tag | Requested model | Responsibility |
 | --- | --- | --- |
@@ -10,9 +10,9 @@ adapters and activation require separate review. No Git fetch or model calls.
 | `kiro-sol` | `gpt-5.6-sol` | Deployment, contracts, recovery |
 | `claude-self` | `global.anthropic.claude-fable-5-1` | Auth, data, API, ADR requirements |
 
-`kiro-fable` means Opus. Kiro aliases differ from Bedrock profile IDs. `ROLES`
-governs specialists; existing roster files govern legacy execution. Prompts request
-English (not mechanically validated). Configuration does not attest model weights.
+`kiro-fable` means Opus; Kiro aliases differ from Bedrock IDs. `ROLES` owns
+specialists; legacy uses roster files. English is requested, not validated.
+Configuration does not attest model weights.
 
 ## API
 

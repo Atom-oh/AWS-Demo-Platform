@@ -527,6 +527,9 @@ def issue_request(work, tag):
     role = plan["roles"][tag]
     if not plan["input_complete"] or not role["required"]:
         raise Invalid("inactive_or_incomplete_request")
+    if any((work / "slot" / f"{tag}-{name}.json").exists()
+           for name in ("request", "result", "attempts")):
+        issued_request(work, plan, tag)
     nonce = secrets.token_hex(16)
     prompt_text = (work / "roles" / f"{tag}.txt").read_bytes().decode("utf-8")
     diff_text = (work / "roles" / f"{tag}.diff").read_bytes().decode("utf-8")
@@ -542,8 +545,8 @@ def issue_request(work, tag):
     if previous.exists():
         prior = strict_json(text_file(previous))
         history_file = work / "slot" / f"{tag}-attempts.json"
-        history = strict_json(text_file(history_file)) if history_file.exists() else []
-        if not isinstance(history, list) or len(history) >= 32:
+        history = attempt_history(work, tag)
+        if len(history) >= 32:
             raise Invalid("attempt_history_limit")
         history.append(prior)
         write_json(history_file, history)
