@@ -62,5 +62,12 @@ Scope assertions do not prove that every defect was found.
 uses no provider credentials or model calls. Activation must additionally verify
 executors, project input preparation, invocation limits and exact-head publishing.
 
-AWS Demo Platform keeps its 12,288-byte context ceiling; activation must pass that
-lower project limit explicitly.
+Structural parsing cannot establish that an upstream collector supplied every Git
+change. A pure mode-only record can match a prefix cut from a longer change, and
+an omitted whole file is invisible without authoritative scope metadata. The
+trusted collector must validate full source scope and original fingerprints.
+AWS Demo Platform retains its 12,288-byte context ceiling at activation.
+
+Each record writer claims its slot exclusively. Concurrent/duplicate records
+retain the first result and leave a blocking flag. A new preparation/issuance
+starts a new record lifecycle; wait for all writers before aggregating.
