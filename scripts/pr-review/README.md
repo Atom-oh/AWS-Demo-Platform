@@ -7,8 +7,8 @@ models nor verifies GitHub/Git provenance on the caller's behalf.
 
 Target responsibilities: Codex `global.openai.gpt-6-astra` checks correctness;
 Kiro `claude-opus-5` checks AWS; Kiro `gpt-5.6-sol` checks operations; Claude
-`global.anthropic.claude-fable-5-1` checks auth/data/API/ADR requirements. Sol is an
-intentional replacement for the legacy Terra slot when activation occurs. Kiro
+`global.anthropic.claude-fable-5-1` checks auth/data/API/ADR requirements. These model
+identities match the current legacy roster; the responsibility split is staged. Kiro
 aliases and Bedrock profile IDs are separate namespaces. The `kiro-fable` tag is
 the compatibility name of the Opus slot. Prompts request English-only review artifacts; response language is not mechanically validated.
 
@@ -28,6 +28,10 @@ result. A result cannot nominate a different nonce. Hashes bind prepared inputs,
 provenance, issued frames and results; they are not provider signatures or proof
 of a model's identity, honesty or transport. The trusted executor and upstream
 collector remain responsible for actual execution and complete source selection.
+Recording and aggregation compare the persisted `requests/TAG.prompt/.input`
+bytes with the receipt and reconstructed frames; missing or altered files block.
+Retain these frames and prepared role files in the private validation workspace,
+following the project's input-custody policy.
 
 Start each job with a fresh work directory before collecting current inputs.
 `prepare` removes prior `*-result.json`, `*-request.json` and timing files from
