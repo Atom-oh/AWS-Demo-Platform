@@ -1,60 +1,83 @@
 # ADR-001: SQS + dedicated worker for async lifecycle jobs
 
 ## Status
-Accepted (Stage 2, 2026-05-28)
 
-## Context
+Accepted (Stage 2, 2026-05-28). Current applicability clarified 2026-09-13.
 
-The Lifecycle Controller turns demo resources on/off. A toggle ranges from
-seconds (ECS desiredCount) to minutes (RDS start polling), so it must be
-asynchronous: the API returns `202 + job_id` immediately and the work happens in
-the background. We needed a queue + execution model.
+## Context and decision
+
+Lifecycle requests range from short ECS updates to minutes of RDS startup.
+The API must return `202 {job_id}` without waiting for resource readiness.
+
+| Option | Trade-off at adoption |
+| --- | --- |
+| In-process API queue | Simple, but couples requests and jobs and loses queued work on restart |
+| SQS + dedicated ECS worker (chosen) | Durable queue, independent execution and a DLQ; one additional service |
+| Step Functions | Managed orchestration, but unnecessary complexity for a single-admin demo tool |
+
+The API stores jobs in DynamoDB and enqueues to `demo-platform-jobs-dev`.
+The worker long-polls; a startup sweep re-enqueues discovered `running` jobs.
+Controllers aim to tolerate repeat calls. This choice provides best-effort
+recovery, not transactional or exactly-once execution.
 
 ```mermaid
 flowchart LR
-  U[User] -->|POST actions/turn_off| API[api task]
-  API -->|enqueue| Q[(SQS demo-platform-jobs-dev)]
+  U[User] -->|lifecycle request| API[API]
+  API --> J[(DynamoDB jobs)]
+  API --> Q[(SQS)]
   API -->|202 job_id| U
-  Q -->|long-poll| W[worker task]
-  W -->|status / progress| J[(DDB jobs)]
-  W -->|DLQ after 3 tries| D[(jobs-dlq)]
+  Q --> W[Worker]
+  W --> J
+  Q -->|redrive policy: maxReceiveCount 3| D[(DLQ)]
 ```
 
-## Options Considered
+## Current applicability
 
-### Option 1: In-process queue in the API task
-- **Pros**: Simplest; no extra infra; no extra Fargate task.
-- **Cons**: In-flight jobs lost on task restart; couples API latency to job load.
+- **Admission is conditional, persistence is not atomic.** Off requires `on`;
+  on accepts `off` or `error`. The API conditionally enters `transitioning`, then
+  creates/enqueues a job. Job creation failure can strand the transition.
+  Enqueue failure attempts `markFailed` then state rollback; failure in either
+  leaves manual recovery work. There is no transactional outbox.
+- **Recovery replays work.** `markRunning` is unconditional; the runner neither
+  rejects completed jobs nor skips `done` progress. Startup recovery scans only
+  `running` jobs, without pagination or an age/ownership check. It does not
+  repair pending jobs that never reached SQS, and can duplicate existing delivery.
+- **Restoration is not checkpointed before mutation.** Off accumulates returned
+  controller data in memory and saves it by `stepKey` at `markOff`. A crash after
+  mutation can lose original capacity; replay can capture the reduced state.
+  HPA baselines mitigate part of this, with the persistence limits in
+  [ADR-017](ADR-017-demo-scale-job-operation.md).
+- **Partial lifecycle outcomes differ from scale.** Off still marks `off` with
+  available restoration data when a resource fails. Any lifecycle resource error
+  produces `partial_failure`, even if all fail. On failures use `markError` and
+  retain restoration data for retry; missing entries are skipped and can still
+  produce `on`. Success clears the restoration map.
+- **The DLQ does not contain every failed operation.** The queue/consumer use
+  300-second visibility without renewal. Escaped handler errors leave the message
+  for redelivery; handled resource failures finish the job and delete it.
+  Malformed JSON and unknown project/account messages are also deleted.
+- **Success is not readiness.** RDS availability polling is launched without
+  awaiting it, before terminal job/history writes and message deletion. It can
+  outlive the handler, is lost on restart and only logs failures. Other
+  controllers likewise do not wait for full service readiness.
+- **History is best-effort.** Job status and history writes are separate.
+  The poll loop currently supplies actor `system`; the authenticated request actor
+  is stored on lifecycle state, not propagated through the job. History is not a
+  complete audit of the submitting user.
 
-### Option 2: SQS + a dedicated `worker` ECS service
-- **Pros**: Durable; decoupled from API latency; restart-safe (startup sweep
-  re-enqueues `running` jobs); DLQ isolates poison messages.
-- **Cons**: One extra queue + one extra Fargate task to operate.
+These limitations are relevant to the accepted non-production design. Review
+saved data and actual resources before replaying a failed job.
 
-### Option 3: Step Functions
-- **Pros**: Managed orchestration, retries, visual history.
-- **Cons**: Over-engineered for a single-admin non-prod tool; new IaC + concepts.
+## Evidence
 
-## Decision
-
-**Option 2.** The `api` service enqueues to `demo-platform-jobs-dev`; a separate
-`worker` service long-polls and processes jobs idempotently. Job state lives in
-the `jobs` DynamoDB table. On worker startup a sweep re-enqueues any job left in
-`running` (crash recovery). SQS visibility timeout is 300s; long RDS-start
-polling runs in a background promise after the message is deleted, to avoid
-redelivery.
-
-## Consequences
-
-### Positive
-- Durable across task restarts; the API stays responsive under load.
-- DLQ (`maxReceiveCount=3`) captures poison messages.
-
-### Negative
-- One extra Fargate task — rough estimate ~$14/mo (0.25 vCPU / 0.5 GiB, 24×7) —
-  plus SQS (negligible). Acceptable under the non-production tolerance.
-- Idempotency is mandatory in every controller (already required for retries).
-
-## References
-- `docs/superpowers/specs/2026-05-28-stage-2-lifecycle-controller-design.md` §3.3, §4.1.5
-- `dashboard/backend/packages/worker/src/poll-loop.ts`
+- [Lifecycle route](../../dashboard/backend/packages/api/src/routes/actions.ts),
+  [runner](../../dashboard/backend/packages/worker/src/job-runner.ts),
+  [poll loop](../../dashboard/backend/packages/worker/src/poll-loop.ts)
+- [DynamoDB jobs](../../dashboard/backend/packages/shared/src/ddb/jobs.ts),
+  [state](../../dashboard/backend/packages/shared/src/ddb/state.ts),
+  [queue configuration](../../infra/sqs/main.tf)
+- [Runner tests](../../dashboard/backend/packages/worker/src/__tests__/job-runner.test.ts)
+  and [poll-loop tests](../../dashboard/backend/packages/worker/src/__tests__/poll-loop.test.ts)
+  cover dispatch/outcomes and recovery payloads, not complete crash recovery.
+- [Original design](../superpowers/specs/2026-05-28-stage-2-lifecycle-controller-design.md)
+  remains a dated rationale.

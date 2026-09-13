@@ -1,146 +1,149 @@
-# dashboard/frontend — Stage 3 Admin UI (MVP)
+# Dashboard frontend
 
-Next.js 14 (App Router, TypeScript) dashboard for the AWS Demo Platform.
-Master-detail discovery + lifecycle control over the projects the backend manages.
+Next.js 14 App Router and React 18 provide discovery and lifecycle controls for
+configured projects. Read the [dashboard guide](../CLAUDE.md) for backend boundaries.
+UI copy is Korean; repository documentation and code comments are English.
+Keep the existing Next.js downgrade floor of 14.2.33 and align `next`/`eslint-config-next`;
+[`package.json`](package.json) currently pins both to 14.2.35.
 
-## Status
-**MVP — dev only.** Renders the live project list, faceted discovery, on/off
-toggles, a detail drawer (resources, GitHub repo link, briefing, history), a
-selected bulk on/off operations with progress and failed-item retry, and per-resource demo-scale controls (ArgoCD/HPA
-replicas, ECS `desiredCount` — see [ADR-017](../../docs/decisions/ADR-017-demo-scale-job-operation.md))
-against the backend API. ECS Fargate and same-origin CloudFront routing are already
-defined. Code on main and an image pushed to ECR do not prove that the running
-service uses the latest revision; verify deployment separately.
+## Development
 
-## Run (from `dashboard/frontend/`)
-Install dependencies with `pnpm install`. For local dev, run `NEXT_PUBLIC_AUTH_ENABLED=false API_ORIGIN=http://localhost:8087 PORT=3001 pnpm dev` with the dev API already up. Auth is enabled unless the flag is literally `false`; `.env.local.example` provides the same local setting if copied to `.env.local`. `pnpm build` produces the production build, `pnpm typecheck` runs `tsc --noEmit`, and `pnpm lint` runs `next lint`.
-
-The backend API in dev is the **dev-server** (`dashboard/backend`, see below),
-not the deployed `admin-api-dev`.
-
-## How it talks to the API
-- All data goes through **same-origin `/api/*`**. `next.config.mjs` `rewrites()`
-  proxies `/api/*` → `${API_ORIGIN}` (default `http://localhost:8087`) in dev.
-- In the deployed path, one CloudFront distribution has separate frontend and API
-  origins. `/api/*` is routed to the API before it reaches Next.js, using
-  `AllViewerExceptHostHeader` and disabled caching. The local rewrite is not the
-  production routing mechanism; client requests remain same-origin.
-- The frontend carries no AWS SDK; every cross-account operation is routed
-  through the backend instead (per `../CLAUDE.md`).
-
-## Backing API in dev: `dashboard/backend` dev-server
-`packages/api/src/dev-server.ts` runs the **real Fastify API** with in-memory
-State/Jobs clients and a fake SQS that **simulates the worker** so toggles
-complete end-to-end. Data is real (`projects/*.yaml`); resource state is
-simulated. It also serves a no-build vanilla fallback dashboard at `/`
-(`dashboard/backend/dev/dashboard.html`) — the prototype this app was ported from.
-To run it: from `dashboard/backend`, run `pnpm -r build`, then start it with
+From `dashboard/frontend`, run `pnpm install`, then
+`NEXT_PUBLIC_AUTH_ENABLED=false API_ORIGIN=http://localhost:8087 PORT=3001 pnpm dev`.
+Start the local API from `dashboard/backend` with `pnpm -r build`, then
 `PORT=8087 node packages/api/dist/dev-server.js`.
 
-## Structure
-`app/` owns the layout, dashboard page and responsive dark CSS. `StatStrip`,
-`FacetSidebar`, `ProjectTable` and the optional `ProjectCard` view provide discovery; `DetailDrawer` contains
-briefing, resources, links and history. `ScaleControl` owns 1–20 inputs, a
-per-control lock and feedback. `Icon` and `lib/presentation.ts` share visuals/copy.
-`hooks/useProjects.ts` loads state and polls toggle/scale jobs; toggles resolve
-`{ok: boolean}`. `hooks/useOperations.ts` coordinates per-project mutation locks
-and a four-worker batch queue; `OperationPanel` retains the latest batch results. `lib/api.ts` and `lib/types.ts`
-mirror backend contracts; resource `stepKey` values come from the API.
+That dev server uses real Fastify routes and project YAML, but in-memory state,
+simulated jobs and explicit auth bypass. It does not run the controllers,
+persist HPA baselines or register history; the drawer's history request returns
+404 there. Its fallback HTML at `/` is separate from this Next.js UI.
 
-## Demo workflow
+Run `pnpm typecheck`, `pnpm lint`, `pnpm test`, and `pnpm build`.
+[Frontend CI](../../.github/workflows/frontend-ci.yml) currently runs typecheck,
+lint and build, **not Vitest**. Component/hook tests live in `components/__tests__/`
+and `hooks/__tests__/`; the [Vitest config](vitest.config.mts) supplies jsdom,
+alias resolution and automatic cleanup.
 
-Search covers displayed names, services, repo, account and description; reset clears
-search/facets. Refresh also recovers previously observed transitions. Both fetch
-paths use per-project request-start ordering; overlapping reloads keep the latest
-result/loading state. A toggle invalidates older reads. Status is not a health check.
+## Discovery and ordering (PR #107)
 
-The default table sorts error/unknown states first, followed by transitioning,
-off and on; name/account ordering and the card view are available. Selection is
-scoped to visible rows and cleared by search, facet or view changes. Confirmation
-copies target names/repos and operation; later selection changes cannot widen a
-started batch. Start targets off/error; stop targets on. Each dispatch rechecks
-the latest loaded status, and the API remains the authoritative state guard.
+[`app/page.tsx`](app/page.tsx) defaults to [`ProjectTable`](components/ProjectTable.tsx)
+and offers an optional card view. Both share search, facets and sorting:
 
-The coordinator permits at most four active client attempts and one per project in this
-mounted dashboard, including scale. A batch waits for individual work to finish
-before it can start; while running, it blocks manual mutations. Completed workers
-immediately take the next queued item. The result panel distinguishes queued,
-running, succeeded, failed and skipped; retry confirms only failed targets.
-Retries retain earlier results and keep an original failure/diagnostic when its
-current state prevents another request (including a partially failed shutdown
-already recorded as off).
+| Sort | Order |
+| --- | --- |
+| Attention (default) | `error`, `unknown`, `transitioning`, `off`, `on`, then displayed name |
+| Name | Displayed project name |
+| Account | Account, then displayed name |
 
-Batch state belongs to this page session. Keep the page open for queued dispatch;
-unmounting prevents new queued requests but does not cancel accepted backend jobs.
-A failed client attempt can also mean polling could not confirm completion;
-accepted backend jobs may outlive that polling window.
-Results survive filtering until dismissed or replaced by a new batch. Other tabs,
-operators and direct API clients are outside these locks (ADR-017 limitation 7).
+Name/account comparisons use Korean locale collation with numeric ordering and
+case-insensitive comparison. Search is trimmed and case-insensitive across
+project/displayed names, repository, description, account, resource types and
+service labels. Category/account/status filters combine. Facet values sort by
+count; facet counts and the stat strip cover all loaded rows.
 
-The drawer traps/restores focus and locks page scrolling. Individual notifications
-appear inside an open drawer. Errors do not auto-expire but later notifications
-can replace them; successes expire after 6.5s. HPA recovery needs a saved baseline;
-a first partial failure may prevent persistence (ADR-017 limitation 6).
+Bulk actions consider only selected visible rows; select-all includes those rows,
+while action counts include only eligible selections. Search, facet or view changes
+clear selection and pending confirmation. Sort changes preserve them. Dashboard
+Refresh dismisses confirmation but keeps selection for repositories still loaded.
+Cards expose individual actions; the selection toolbar is table-only.
 
-## API contract consumed (must match `@demo-platform/api`)
-- `GET /api/projects` → `{repo,name,account}[]`
-- `GET /api/projects/:owner/:name` → `{project, state:{status}}` — each
-  `project.resources[]` entry carries its `stepKey`, computed the same way the
-  worker computes it
-- `POST /api/projects/:owner/:name/actions/{turn_on|turn_off}` → `202 {job_id}`
-  (409 if already in target state)
-- `POST /api/projects/:owner/:name/actions/scale` (`{targets: ScaleTarget[]}`)
-  → `202 {job_id}` (409 if project isn't `on`, 400 on target validation
-  failure) — see [ADR-017](../../docs/decisions/ADR-017-demo-scale-job-operation.md)
-- `GET /api/jobs/:id` → `{status, progress, error, ...}` (terminal statuses include `succeeded`, `failed` and `partial_failure`)
+## Operations, results and locks
 
-## Conventions
-UI labels are Korean; repository documentation and code comments remain English.
-TypeScript strict throughout. `lib/types.ts` mirrors the backend Zod schemas, so
-it needs to stay in sync whenever the API shape changes. Toggleable resource
-types are `ecs`, `ec2`, `argocd-app`, `rds`; the drawer identifies
-resources excluded from lifecycle toggles. Tables/cards summarize service types. `package.json` pins Next at `14.2.35`; the existing
-repository downgrade floor is `14.2.33`. This records a dependency constraint, not
-a current security-support assessment. Review advisories separately when changing
-dependencies and keep the Next/ESLint configuration versions aligned.
+[`useOperations`](hooks/useOperations.ts) coordinates lifecycle actions from the
+table, cards and drawer, plus drawer scale requests. Bulk on accepts selected
+`off`/`error` rows; bulk off accepts selected `on` rows. Confirmation snapshots
+the operation, names and repositories. Dispatch deduplicates that snapshot and
+rechecks each project's **latest loaded status**, not a fresh AWS/API read.
+Later filtering or selection cannot widen a started batch; the API remains the
+authoritative state guard.
 
-## Auth (Cognito)
-- **Authorization Code + PKCE** against the Hosted UI (public SPA client, no secret).
-  `lib/auth.ts` (login/exchange/refresh/logout), `lib/pkce.ts` (Web Crypto),
-  `lib/token-store.ts` (access/id in memory, refresh in sessionStorage),
-  `components/AuthProvider.tsx` (`useAuth`, silent refresh ~60s before exp),
-  `components/LoginGate.tsx` (gates the dashboard), `app/auth/callback/page.tsx`.
-- `lib/api.ts` sends the **ACCESS token** as `Authorization: Bearer` (the api
-  verifies `tokenUse:'access'` and matches `cognito:username` vs `ADMIN_USERNAMES`).
-- `NEXT_PUBLIC_*` (see `.env.local.example`) are **build-time inlined**. The deployed
-  image receives the configured Cognito values as build args.
-  `NEXT_PUBLIC_AUTH_ENABLED=false` bypasses the local login UI; it does not weaken
-  the API's independent JWT enforcement. Without an access token, calls to the
-  deployed API still return 401. For local Cognito testing, configure real client
-  and callback values matching the chosen port instead of using the bypass.
-- Deploy build: **arm64/Graviton** — `frontend-ci` builds `--platform=linux/arm64` on the
-  `aws-demo-platform-arm` self-hosted runner; frontend task `cpu_architecture=ARM64`,
-  consistent with api/worker after the PR #16 Graviton migration landed on main.
+At most four client attempts run at once, with one per project. A batch can start
+only when no individual attempt is active; it blocks new individual lifecycle or
+scale calls while running. Each completed dispatch immediately takes the next
+queued target. These limits cover local POST/poll/refresh attempts, not the number
+of backend jobs still executing.
 
-## Image & deploy
-- `Dockerfile` (Next standalone, `PORT=3000`, `HOSTNAME=0.0.0.0`), `output:'standalone'`.
-- ECR repo `demo-platform/frontend`; built/pushed by `.github/workflows/frontend-ci.yml`.
-- Runtime infra: `infra/dashboard-ecs` frontend service + `infra/alb-internal` TG
-  (priority 130) + `infra/cloudfront` same-origin distribution (`/api/*`→api) +
-  `infra/route53-private-zone` public alias `admin-dev.atomai.click`.
-- Image CI does not roll ECS services. Select an explicit task-definition revision
-  and verify running tasks, TLS, login and authenticated API access after rollout.
+[`OperationPanel`](components/OperationPanel.tsx) tracks the latest **bulk lifecycle
+batch** as `queued`, `running`, `succeeded`, `failed` or `skipped`. Queued targets
+have not yet been submitted; running covers a client attempt, not verified server
+progress. Failure can mean backend failure, partial failure, request/poll error
+or unconfirmed completion. Individual actions and scale use notifications instead
+of adding panel entries.
 
-## Tests
-`pnpm test` runs vitest (`vitest.config.mts` — jsdom, `vite-tsconfig-paths` for
-`@/*` resolution, `globals: true` so `@testing-library/react`'s `afterEach`
-auto-cleanup runs between tests). Component tests live under
-`components/__tests__/`, hook tests under `hooks/__tests__/`.
+Failed-item retry requires confirmation, uses the same operation and retains other
+results. A no-longer-eligible retry keeps its original failure/message plus a retry
+note rather than claiming a request ran. This matters for partial shutdowns already
+stored as `off`. Results remain until dismissed or replaced by a new batch; they
+cannot be cleared while that batch runs.
 
-## Not yet done (follow-ups)
-- Secrets management UI and dynamic `ec2-tag` code-server resolution. Explicit
-  code-server URLs already render in the drawer.
-- Real-time updates (SSE/WebSocket) instead of poll-on-toggle
-- Token storage hardening (httpOnly cookie BFF): the current in-memory/sessionStorage
-  approach is XSS-exposed, which is acceptable for a single-admin non-prod tool but
-  is the reason a BFF is the eventual target
+Queue, results and locks are **in-memory state in the mounted dashboard**. They
+survive filters, view changes, drawer close/reopen and the dashboard Refresh action.
+Browser reload, navigation/unmount or another tab does not restore/share them.
+Unmounting prevents new queued submissions; accepted backend jobs are not cancelled.
+There is no persisted batch/job-ID recovery. Local locks release when the client
+attempt settles, including a polling timeout, so a backend job may still be running.
+
+## Loading, detail and scale
+
+[`useProjects`](hooks/useProjects.ts) loads the list/details and preserves
+per-project request-start ordering across reloads and post-toggle refreshes. It
+does not pin cached status while a mutation runs; a newer read can show older server
+state, while `useOperations` still blocks another local mutation of that project.
+Previously loaded rows stay visible during refresh or a list error, with mutation
+controls disabled. Detail-read failure yields `unknown`. Refresh does not recover
+job polling for transitions observed when the page loaded. The older `turnOnAll`
+helper remains exported but is not used by this dashboard.
+
+Toggle/scale polling makes up to 60 attempts with one-second delays and resolves
+`{ok: boolean}`. A timeout does not cancel work. There is no continuous refresh,
+SSE or WebSocket; stored lifecycle status and service-type labels are not live
+health or capacity. Table rows show local active attempts as busy.
+
+The drawer shows resource identifiers, plain-text briefing (2,000-character
+preview), history and configured links. Non-toggleable/`always_on` resources have
+exclusion text; ECS, EC2, ArgoCD and non-`always_on` RDS participate in lifecycle
+actions. Native detail buttons open it; focus is trapped/restored, Escape closes
+it and page scrolling is locked. Notifications render inside an open drawer;
+success notices expire after 6.5s, errors persist until dismissed or replaced.
+
+[`ScaleControl`](components/ScaleControl.tsx) starts blank and accepts integers
+1–20 only while the project is `on` and actions are enabled. Its own submission
+lock supplements the dashboard's per-project lock, which survives drawer reopening.
+Keep `MAX_SCALE_COUNT` in [`lib/presentation.ts`](lib/presentation.ts) aligned with
+backend [`MAX_SCALE_REPLICAS`](../backend/packages/shared/src/step-key.ts), and
+[`lib/types.ts`](lib/types.ts) aligned with backend schemas/routes. Use API-supplied
+`stepKey` values; current counts must be checked in ArgoCD/ECS.
+
+HPA notices distinguish a saved baseline from a partially changed failed target.
+Verify a failed first scale before another scale/off captures already-pinned bounds.
+[ADR-017](../../docs/decisions/ADR-017-demo-scale-job-operation.md) owns recovery,
+backend/cross-client races and the limits of the new local locks.
+
+## API and auth
+
+[`lib/api.ts`](lib/api.ts) uses relative `/api/*` paths and sends the access token.
+The production verifier reads `username`, maps it to internal `cognito:username`,
+and enforces the admin allowlist. ID-token claims are used for display.
+[ADR-005](../../docs/decisions/ADR-005-cognito-spa-auth-code-pkce.md) covers PKCE,
+token storage and independent frontend/backend bypasses.
+
+| Request | Response / constraint |
+| --- | --- |
+| `GET /api/projects` | `{repo,name,account}[]` from configured YAML |
+| `GET /api/projects/:owner/:name` | `{project,state}`; state may be null; resources include `stepKey` |
+| `POST .../actions/{turn_on\|turn_off}` | `202 {job_id}`; on accepts off/error, off requires on; conflict is 409 |
+| `POST .../actions/scale` | `{targets}` → `202 {job_id}`; requires on (409), validates targets (400) |
+| `GET /api/jobs/:id` | Progress and status; terminal: succeeded, failed, partial_failure |
+| `GET .../:owner/:name/history?limit=20` | `{items}`; stored job history, not live resource events |
+
+[`next.config.mjs`](next.config.mjs) defines an unconditional API rewrite, used
+for local development. Deployed CloudFront handles `/api/*` before Next.js;
+[ADR-004](../../docs/decisions/ADR-004-same-origin-cloudfront-dashboard.md) defines
+the origin policies. `NEXT_PUBLIC_*` values are baked into the image.
+
+The [Dockerfile](Dockerfile) packages Next standalone on ARM64. CI publishes
+`demo-platform/frontend`; it does not roll ECS. See the
+[release runbook](../../docs/runbooks/review-and-release.md).
+
+Secrets management, dynamic `ec2-tag` URL resolution, real-time updates and a
+cookie BFF are unimplemented follow-ups. Explicit code-server URLs already work.

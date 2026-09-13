@@ -1,220 +1,138 @@
 # ADR-017: Demo-scale job operation (ArgoCD/HPA replicas, ECS desiredCount)
 
 ## Status
-Accepted (2026-08-19).
 
-## Context
+Accepted 2026-08-19. Evolution and current applicability reconciled 2026-09-13.
 
-Ahead of a live demo, an operator sometimes needs more headroom on a resource
-than its restored baseline gives it — bump an ArgoCD-managed HPA's replica
-count, or an ECS service's `desiredCount` — independent of the existing on/off
-restoration flow. `turn_on`/`turn_off` restore a resource to whatever capacity
-it had before the last `turn_off`; they have no concept of "bigger than
-that," and folding one in would conflate two different state machines (on/off
-transitions vs. an arbitrary resize).
+## Context and decision
+
+Demo preparation sometimes needs extra capacity while a project remains on.
+The existing lifecycle operations restore saved state; a resize should not
+change their state machine.
+
+| Option | Rationale at adoption |
+| --- | --- |
+| Resize through `turn_on` | Conflates arbitrary capacity with restoration and `transitioning → on` |
+| Synchronous API mutation | Adds a second execution path and duplicates worker credential/controller wiring |
+| Separate `scale` job (chosen) | Reuses queue, controllers, polling and history without changing project status |
+
+`POST /api/projects/:owner/:name/actions/scale` accepts a nonempty `targets`
+array. Each unique `stepKey` must identify an ECS or ArgoCD resource in that
+project: ECS requires `desiredCount`, ArgoCD requires `replicas`, and the other
+field is rejected. API and controllers enforce integer values 1–20. The API
+returns 400 for invalid targets, 409 unless project state is `on`, or
+`202 {job_id}` after creation/enqueue. Targets persist in DynamoDB as well as SQS
+so the startup sweep can reconstruct scale requests.
+
+The worker rechecks `on` at branch entry and never changes project status.
+It patches ECS desired count, or all matching ArgoCD HPA bounds first and then
+Deployment/StatefulSet replicas. One requested count applies to every handle
+in that Application/namespace; zero matching handles fails explicitly.
 
 ```mermaid
 flowchart LR
-  UI[Detail drawer: scale input] -->|POST .../actions/scale| R[scale route]
-  R -->|plain read, no transition| SC[StateClient.read status==on?]
-  R -->|create job, targets persisted| J[(DDB job record)]
-  R -->|enqueue| Q[SQS]
-  Q --> W[worker: runScaleJob]
-  W -->|recheck status==on?| SC
-  W -->|ecs target| ECS[EcsController.setDesiredCount]
-  W -->|argocd-app target| ARGO[ArgocdController.scale — HPA first]
-  W -->|per-target done/failed| J
-  W --> H[(HistoryClient — audit)]
+  UI[Scale control] --> API[Validate targets and stored on state]
+  API --> J[(Job with targets)]
+  API --> Q[(SQS)]
+  Q --> W[Worker rechecks on]
+  W --> C[ECS or ArgoCD controller]
+  C --> B[Persist captured HPA baseline if absent]
+  B --> J
 ```
 
-## Options Considered
+Scale aggregates outcomes per target: all succeed → `succeeded`, some fail →
+`partial_failure`, all fail → `failed`. Empty targets or a failed status recheck
+also yield `failed` before target processing. Such aborts write no new progress;
+a replay may retain old progress. Worker outcomes append history, including those
+aborts; route validation rejection does not. History durability and lifecycle's
+different failure aggregation are documented in
+[ADR-001](ADR-001-sqs-worker-for-async-jobs.md).
 
-### Option 1: Fold into `turn_on` as a "resize" variant
-- **Pros**: no new route, no new job operation.
-- **Cons**: `turn_on` restores from `restoration_data` and always transitions
-  `transitioning → on`; a resize needs neither. Overloading it would make the
-  on/off state machine's transitions conditional on an unrelated concern.
+## Dated evolution
 
-### Option 2: Synchronous API call, no job model
-- **Pros**: simpler, immediate feedback.
-- **Cons**: breaks the one execution path this platform already has (ADR-001:
-  API validates → DDB job → SQS → worker); the API would need its own
-  cross-account ArgoCD/AWS credentials, duplicating the assume-role wiring
-  `worker` already owns and contradicting `dashboard/CLAUDE.md`'s
-  backend-does-cross-account convention.
+- **2026-08-20:** per-call `workload_selector.namespace` replaced the client's
+  placeholder filter, enabling real Application handles for on/off/scale.
+- **2026-08-21:** a permanent `hpa-baseline#<stepKey>` state item added conditional
+  write-once HPA bounds. This addressed the original loss of elasticity after
+  successful sequential scale calls: off prefers an available saved baseline,
+  and on restores the resulting restoration data. It did not make mutation and
+  persistence atomic.
+- **2026-09-12 (PR #103):** the mounted UI control gained duplicate-submit
+  protection, and HPA guidance was qualified for first partial failures.
+  A failure notice asks operators to verify bounds; it does not promise recovery.
+- **2026-09-13 (PR #107):** the mounted dashboard coordinates lifecycle and scale
+  through per-project locks that survive drawer close/reopen, with up to four
+  active client attempts. Bulk lifecycle operations use a local queue and retained
+  results. This does not add backend locks or persistence across browser reloads.
 
-### Option 3: New `scale` job operation, `targets` persisted on the job record (chosen)
-- **Pros**: reuses the existing async job model end to end (route → DDB → SQS →
-  worker → DDB), including restart recovery, job status polling, and history —
-  the only new primitive is the operation and its per-target payload.
-- **Cons**: `targets` don't fit the `turn_on`/`turn_off` job shape exactly (no
-  `restoration_data`, no status transition), so the job-runner branch has to be
-  structurally separate rather than reusing the existing postlude as-is.
+## Current limitations
 
-## Decision
+The historical limitation numbers are retained for existing references.
 
-**Option 3.** A new job `operation: 'scale'` with a `targets` array (each
-`{ stepKey, replicas? | desiredCount? }`) **persisted on the job record
-itself**, not only carried in the SQS message body — `sweepRunningJobs`'
-restart recovery rebuilds in-flight jobs from DDB, not the queue, so
-SQS-only targets would recover to nothing to act on.
+- **1. Baseline recovery is conditional.** The original range-loss limitation is
+   mitigated by a saved baseline, not eliminated in every failure case. The first
+   successfully persisted nonempty HPA map wins, not necessarily the earliest
+   observation. Only explicitly numeric live min/max pairs are captured. The item
+   has no TTL or update/merge path for later HPA additions or desired baseline
+   changes. There is no standalone reset-to-baseline API/UI.
+- **2. Scale can race with off.** Both status reads are eventually consistent;
+   neither is a lock. Off can begin after the worker recheck, or a stale read
+   can still report `on`. There is no per-target recheck or conditional mutation.
+- **3. Targeting is per resource, not per workload handle.** One ArgoCD replica
+   value is broadcast to every matching Deployment, StatefulSet and HPA.
+- **4. Enqueue recovery is incomplete.** If enqueue fails, the route attempts
+   `markFailed`. If that also fails, the pending job is not recovered by the
+   running-only startup sweep. General replay limits belong to ADR-001.
+- **6. A failed target may already have mutated resources.** The controller reads
+   each HPA before pinning it, patches the remaining HPAs and then sibling
+   Deployment/StatefulSet handles, and returns captured bounds only after all
+   succeed. `runScaleJob` then persists the baseline and writes `done`. A sibling
+   patch failure, baseline-write failure or crash can leave the first HPA pinned
+   without a baseline. Off has the same capture → mutate → persist gap.
 
-Exposed via `POST /api/projects/:owner/:name/actions/scale`, a route distinct
-from the existing `:op` route (different body shape) rather than a third `:op`
-value. Its precondition — project status is currently `on` — is a **plain,
-eventually-consistent status read** via the existing `StateClient.read()`, not
-an atomic conditional write: `scale` has no status transition of its own to
-attach a DynamoDB `ConditionExpression` to. This narrows, but does not
-eliminate, a race against a concurrent `turn_off` — the worker mitigates the
-rest of that window with a **start-of-branch status recheck**: at the top of
-the `scale` branch, the worker re-reads `state.status` and aborts the whole
-job — zero per-target `appendProgress` calls, not a per-target failure — if
-the project is no longer `on`.
+   **Before the next `turn_off` or scale after a failed first scale, inspect live
+   bounds and the stored baseline.** Otherwise off can record already-pinned
+   bounds as the permanent baseline. An off/on cycle cannot reconstruct original
+   bounds that were never saved. A baseline read is also eventually consistent;
+   off falls back to its freshly captured map if no baseline is returned.
+   A different resource's failure does not undo a successfully saved baseline.
+- **7. Scale requests can overlap outside local attempt locks.** There is no
+   backend/cross-client in-flight guard. Since PR #107, `useOperations` locks one
+   attempt per project across lifecycle and scale in the mounted dashboard, even
+   when the drawer closes/reopens; a running batch blocks individual mutations.
+   Dashboard Refresh retains those locks, but browser reload/unmount and other
+   tabs/operators/direct clients do not share them. A lock also ends when local
+   polling settles or times out, even if the backend job continues. Concurrent
+   first captures can still persist out of observation order, so write-once does
+   not prove original bounds.
+- **8. Recovery replays every target.** The runner does not skip recorded `done`
+   entries or reject completed-job redelivery. Reapplying an older requested
+   count can overwrite a newer scale, despite being a repeat of the same job.
+- **9. ECS failure can also be ambiguous.** A timed-out update may have reached AWS.
+   UI reminders use `done` for ECS; ArgoCD also warns on `failed:` progress because
+   it aggregates multiple handle mutations. Poll timeout/error does not cancel
+   either operation or establish that nothing changed.
 
-The job-runner's `scale` branch (`runScaleJob`) is **structurally separate**
-from the `turn_on`/`turn_off` postlude: it only ever updates the *job's*
-status, never calls `markOn`/`markError` on the project's `state.status`. Per
-target, it dispatches by resource type: `argocd-app` calls a new
-`ArgocdController.scale(application, replicas)` that dispatches **per
-workload handle by kind** — `patchReplicas(replicas)` for
-Deployment/StatefulSet, `patchHpaBounds({min: replicas, max: replicas})` for
-HPA, **HPA-kind handles patched before Deployment/StatefulSet-kind handles**
-(carrying over the existing `turnOn`/`turnOff` "HPA first, to prevent
-re-scaling" convention). `ecs` targets call a new, standalone
-`EcsController.setDesiredCount`, independent of the existing turn-on/off
-restoration capture. Both controllers reject a non-integer, non-positive, or
-`MAX_SCALE_REPLICAS`-exceeding (20) value before calling AWS/ArgoCD at all —
-the same shared constant the route validates against, so a restart-recovered
-job (which re-enters the controller directly from the DDB record, bypassing
-route validation) is still bounded.
+## ArgoCD sync exposure
 
-A job is `partial_failure` if some but not all targets fail, `failed` only if
-every target fails — a convention **new to `scale`**: the existing `runJob`
-path for `turn_on`/`turn_off` never actually sets `failed` itself, only
-`partial_failure` for any error (including all-targets-failed); only the
-route's own enqueue-rollback path sets `failed`. Aggregation is at the
-**target level**, not per-workload-handle: within a single `argocd-app`
-target backed by multiple handles, one handle failing marks that whole target
-(and, if it's the only target, the whole job) as failed even if a sibling
-handle on the same application patched successfully.
+[Cluster-wide diff exclusions](../../k8s/system/argocd/values.yaml) cover workload
+replicas and HPA min/max. They suppress differences; they do not alone preserve
+live patches when an Application sync reapplies Git manifests. The repository's
+`RespectIgnoreDifferences=true` setting is on the self-managed
+[ArgoCD Application](../../argocd-apps/system/argocd.yaml), not its tenant
+Applications. Verify the owning Application's policy before a demo; a later sync
+can undo off/scale changes. This exposure predates scale.
 
-A `scale` job appends a `HistoryClient` record the way `turn_on`/`turn_off`
-do, for audit parity — including on the two abort paths (empty targets,
-status-recheck failure), so a rejected scale attempt is still part of the
-audit trail.
+## Evidence
 
-## Consequences
-
-### Positive
-- Reuses the existing async job model end to end — no new execution path, no
-  new credential wiring, restart recovery and job polling work unchanged.
-- The scale/`turn_off` race is narrowed by two independent checks (route-level
-  read, worker-level recheck) without needing a distributed lock or a
-  synthetic transitional status.
-- Both controllers validate against one shared ceiling constant regardless of
-  entry path (fresh request vs. restart recovery).
-
-### Negative — accepted limitations
-1. **`argocd-app` scaling irreversibly collapses the HPA's autoscaling
-   range** — at the moment of the scale itself, not only after a later
-   `turn_off`. `scale` pins `patchHpaBounds({min, max})` to a single value;
-   nothing captures the pre-scale asymmetric range, and scaling back down
-   goes through the same pin-to-a-single-value path, so the original range
-   can never be recovered through this feature. `ecs` has no such range to
-   lose.
-2. **The `turn_off` race is narrowed, not eliminated** — a `scale` and a
-   concurrent `turn_off` can still race in the window between the route's
-   read and the worker's own recheck (SQS latency, or minutes if a
-   restart/sweep-recovery cycle intervenes).
-3. **One replica value is broadcast to every workload handle** on a
-   multi-workload ArgoCD application — "the current value" isn't even
-   well-defined per-application when it backs multiple Deployments/HPAs with
-   different counts, so this pass scales them all to the same requested
-   number rather than building per-handle targeting.
-4. **A job can be left orphaned `pending`** if the SQS-enqueue-failure
-   rollback (`markFailed`) itself also fails — `sweepRunningJobs` only
-   recovers `running` jobs, so a `pending` job that never got marked `failed`
-   is stuck until manually inspected.
-
-> **Update (2026-08-20):** limitation 1 originally listed here — the ArgoCD
-> client's workload-listing filter carrying a hardcoded `namespace:
-> 'placeholder'`, so `listWorkloads` matched zero handles for every real
-> application — is fixed. `ArgocdClient.listWorkloads` now takes `namespace`
-> as a call-time argument instead of a client-construction-time option, and
-> `ArgocdController`/`job-runner.ts` thread each project resource's own
-> `workload_selector.namespace` through on every `turnOff`/`turnOn`/`scale`
-> call. This also unblocks the `turn_on`/`turn_off` ArgoCD path, which shared
-> the same bug. The frontend's `argocd-app` scale control in `DetailDrawer.tsx`
-> is enabled accordingly.
-
-> **Update (2026-08-21):** the range-collapse limitation itself (limitation 1
-> above) is now also resolved. The first live HPA bounds ArgoCD ever reports
-> for a given resource — observed by whichever call (`scale` or `turn_off`)
-> sees them first — is written once to a new, permanent DynamoDB item
-> (`StateClient.recordHpaBaselineIfAbsent`/`readHpaBaseline`, sibling to the
-> `StateRecord` item, keyed `sk=hpa-baseline#<stepKey>`, conditional
-> `attribute_not_exists(pk)` so the true original always wins over any later,
-> already-collapsed observation). `ArgocdController.scale()` now calls
-> `getLive` before `patchHpaBounds` and returns what it captured;
-> `job-runner.ts`'s `turnOffOne` records-then-reads the baseline and prefers it
-> over its own freshly-observed (and possibly already-collapsed) live bounds
-> when composing `restoration_data`. Net effect: a `turn_off`→`turn_on` cycle
-> now recovers the original elasticity, even after any number of prior
-> `scale` calls — this satisfies "recoverable through this feature" via the
-> existing on/off lifecycle, without new API/UI surface. A standalone
-> "reset to baseline without an off/on cycle" action remains a separate,
-> unbuilt enhancement.
-6. **A mixed-kind `argocd-app` target's failure status can mask a completed
-   mutation**: HPA-first ordering means the HPA may already be irreversibly
-   pinned before a sibling Deployment/StatefulSet handle fails and the whole
-   target aggregates to `failed`. The frontend's reminder-toast logic works
-   around this by warning on any non-idle progress-entry outcome for
-   `argocd-app` targets (not just `done`), but the underlying job-status
-   ambiguity itself isn't fixed.
-
-   **Clarification (2026-09-12):** the 2026-08-21 baseline update above does
-   not guarantee recovery after a first partial failure. `runScaleJob`
-   persists the captured baseline only after `ArgocdController.scale()`
-   returns successfully. If an HPA patch succeeds but a sibling fails first,
-   a baseline may never be saved. Off/on restores a saved baseline; it cannot
-   reconstruct unrecorded original bounds. The UI must warn operators to
-   verify failed targets rather than promise restoration.
-   A resource's `done` progress entry is written after its baseline is saved,
-   not per HPA handle; a different resource failing does not undo that write.
-
-7. **No in-flight guard** prevents two `scale` requests targeting the same
-   resource from overlapping.
-   **UI mitigation (2026-09-12):** the open scale control prevents duplicate
-   submissions locally. No backend or cross-client guard prevents overlap
-   across reopened controls, tabs, operators or direct API clients.
-
-   **UI update (2026-09-13):** the dashboard now coordinates lifecycle and scale
-   mutations with per-project locks that survive drawer close/reopen in the same
-   mounted page. Page reloads, other tabs/operators and direct API calls still do
-   not share that lock; the backend/cross-client limitation remains.
-8. **A restart-recovered `scale` job replays every target** in its `targets`
-   array rather than consulting its own `progress` map to skip ones already
-   recorded `done` before the restart — usually idempotent (re-applying the
-   same value), but not guaranteed so given limitation 7's overlap gap.
-9. **A `failed:` progress entry for an `ecs` target can, in principle, mask an
-   `UpdateServiceCommand` that actually reached AWS** before a later step
-   timed out. The frontend accepts this narrow ambiguity for `ecs` rather than
-   over-warning the way it does for `argocd-app` (limitation 6), since `ecs`'s
-   failure surface is a single call with no multi-handle aggregation.
-
-`scale`, like the existing `turn_off` HPA-2 pattern before it, also depends on
-the cluster-wide ArgoCD `ignoreDifferences` for Deployment/StatefulSet
-`/spec/replicas` and HPA `/spec/{min,max}Replicas`
-(`k8s/system/argocd/values.yaml`) — stated precisely, not overstated:
-`ignoreDifferences` only suppresses ArgoCD's own diff/self-heal
-reconciliation, so a covered Application is protected from ArgoCD *reverting*
-a `scale` patch on its own, but a **git-triggered sync** (an unrelated commit
-auto-syncing that Application mid-demo) still re-applies the manifest's
-replicas/HPA bounds and undoes the patch regardless of coverage. Full
-protection additionally requires that Application to set
-`RespectIgnoreDifferences=true`, which today only the self-managed
-`argocd-apps/system/argocd.yaml` does, not tenant Applications. This is the
-same pre-existing exposure the `turn_off` HPA-2 pattern already carries —
-nothing is newly broken by `scale` — but it's an operator-relevant mid-demo
-risk worth recording precisely rather than implying covered Applications are
-fully safe.
+- [Route](../../dashboard/backend/packages/api/src/routes/scale.ts),
+  [runner](../../dashboard/backend/packages/worker/src/job-runner.ts),
+  [ArgoCD controller](../../dashboard/backend/packages/worker/src/controllers/argocd.ts),
+  [baseline persistence](../../dashboard/backend/packages/shared/src/ddb/state.ts)
+- [Route tests](../../dashboard/backend/packages/api/src/__tests__/scale.test.ts),
+  [runner tests](../../dashboard/backend/packages/worker/src/__tests__/job-runner.test.ts),
+  [DynamoDB integration tests](../../dashboard/backend/packages/shared/src/ddb/__tests__/state.int.test.ts)
+  cover validation, outcomes and sequential write-once behavior; they do not prove
+  first-failure or concurrent-capture recovery.
+- [Frontend guide](../../dashboard/frontend/CLAUDE.md) owns UI limits, polling and
+  the manually mirrored 1–20 cap.
