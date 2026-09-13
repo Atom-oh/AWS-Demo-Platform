@@ -53,6 +53,7 @@ class MarkdownContainerTests(unittest.TestCase):
             'password = ("")\n satisfies string || "S_type"',
             'settings = {"password": ("development")\n # comment\n if debug else "S_comment"}',
             'settings = {"password": (matrix)\n @ "S_matrix"}',
+            *(f'{{"password":(p)\n{k} p in["S_comp"]}}' for k in ("for", "async for")),
         )
 
     def report(self, container, verdict="PASS"):
