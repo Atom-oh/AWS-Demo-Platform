@@ -18,7 +18,7 @@ retaining independent review of sensitive changes.
 
 Use Codex for implementation, Kiro Opus for AWS constraints, Kiro Sol for
 operations/recovery, and Claude for auth/data/API/ADR requirements. Trusted routing
-selects applicable Kiro roles. Codex and Claude cover all changed paths, maintaining
+selects applicable Kiro roles. Codex and Claude cover all reviewable source paths, maintaining
 OpenAI/Anthropic independence without assuming that four slots mean four vendors.
 Kiro's AWS value comes from the supplied evidence and assigned scope; this is not
 a claim of privileged training data or a reason to grant tools to untrusted PR data.
@@ -34,8 +34,8 @@ The chair cannot waive missing coverage. Preserve existing account limits.
 The fully active ordinary path uses four review requests and two Kiro safety
 checks; adjudication adds one chair request before retries/fallback. Timing
 artifacts permit later comparison; no wall-clock reduction is claimed yet.
-The common input bound remains explicit and fail-closed. Larger changes require
-complete bounded review under the repository's approved chunking contract.
+The common input bound remains explicit and fail-closed. Larger changes must be split into separately reviewable PRs; a new chunk
+coordinator requires its own reviewed implementation.
 
 See [specialist review](../pr-review-specialists.md) for current limits, model
 aliases, artifact validation and verification commands. Legacy entrypoints are
