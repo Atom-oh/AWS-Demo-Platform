@@ -1,9 +1,11 @@
 # Specialist review protocol
 
-This phase adds the standalone protocol and offline tests. The live workflow
-still uses its legacy panel. Executors, approved project input adapters and
-activation follow in a separate reviewed change. This library neither invokes
-models nor verifies GitHub/Git provenance on the caller's behalf.
+The protocol, executors and their offline tests are staged here. The live
+workflow still uses its legacy panel; activation requires a separate reviewed
+change. `prepare_roles.py` validates pinned Git input and approved scope policy;
+`run_role.py` invokes one configured specialist with issued frames;
+`synthesize_roles.py` consumes validated results and enforces chair limits.
+`role_review.py` remains the standalone, network-free protocol library.
 
 Target responsibilities: Codex `global.openai.gpt-6-astra` checks correctness;
 Kiro `claude-opus-5` checks AWS; Kiro `gpt-5.6-sol` checks operations; Claude
@@ -92,7 +94,7 @@ Scope assertions do not prove that every defect was found.
 
 ## Verification
 
-`python3 -m unittest discover -s scripts/pr-review -p test_role_review.py -v`
+`python3 -m unittest discover -s scripts/pr-review -p 'test_*role*.py' -v`
 uses no provider credentials or model calls. Activation must additionally verify
 executors, project input preparation, invocation limits and exact-head publishing.
 

@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "basenames": [
+    "package-lock.json",
+    "yarn.lock",
+    ".coverage",
+    ".terraform.lock.hcl"
+  ],
+  "extensions": [],
+  "directories": [],
+  "prefixes": [],
+  "path_regexes": [
+    "^src/prompts/v[0-9.]+/taxonomy_tree\\.(json|md)$",
+    "^infra/modules/[^/]+/build/"
+  ]
+}
