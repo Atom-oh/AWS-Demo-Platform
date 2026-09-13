@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Restore private request frames after receipt-only transport between CI jobs."""
+"""Restore private request frames."""
 
 import argparse
 from pathlib import Path
@@ -33,7 +33,7 @@ def restore(work):
                 raise Invalid("altered_request_frame")
             if not path.exists():
                 write(path, value)
-        # The canonical validator checks revisions, digests, nonce and frame bytes.
+        # Revalidate receipt and frame bytes.
         issued_request(work, plan, tag)
 
 

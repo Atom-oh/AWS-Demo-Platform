@@ -1,4 +1,4 @@
-"""Behavioral tests for the subprocess boundary; no provider calls."""
+"""Offline provider-boundary tests."""
 
 import importlib.util
 import json
@@ -41,13 +41,13 @@ class RoleExecutionTests(unittest.TestCase):
         path.chmod(0o755)
         return str(path)
 
-    def test_process_status_is_not_inferred_from_nonempty_stdout(self):
+    def test_exit_status(self):
         cli = self.executable("print('a plausible review'); raise SystemExit(7)\n")
         code, output, error = self.runner.execute([cli], self.root, os.environ.copy(), "", 2)
         self.assertEqual(code, 7)
         self.assertEqual(output.strip(), "a plausible review")
 
-    def test_timeout_kills_a_child_that_ignores_termination(self):
+    def test_timeout(self):
         cli = self.executable(
             "import signal,time\n"
             "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
@@ -57,7 +57,7 @@ class RoleExecutionTests(unittest.TestCase):
         self.assertEqual(code, 124)
         self.assertIn("partial output", output)
 
-    def test_kiro_environment_contains_no_cloud_or_repository_credentials(self):
+    def test_kiro_env(self):
         source = {
             "PATH": "/usr/bin", "KIRO_API_KEY": "test-key",
             "AWS_SECRET_ACCESS_KEY": "private", "GH_TOKEN": "private",
@@ -68,7 +68,7 @@ class RoleExecutionTests(unittest.TestCase):
         self.assertEqual(result["HOME"], str(self.root))
         self.assertFalse(any(k.startswith("AWS_") or k == "GH_TOKEN" for k in result))
 
-    def test_preflight_rejects_quota_or_model_fallback_despite_no_tools_reply(self):
+    def test_preflight_errors(self):
         for message in (
             "Monthly request limit reached",
             "[warn] failed to set model: Method not found",
@@ -84,7 +84,7 @@ class RoleExecutionTests(unittest.TestCase):
                 )
                 self.assertFalse(ok)
 
-    def test_preflight_uses_empty_catalog_and_never_receives_pr_input(self):
+    def test_preflight_scope(self):
         cli = self.executable(
             "import json,pathlib,sys\n"
             "agent=json.loads(pathlib.Path('.kiro/agents/inline-review.json').read_text())\n"
@@ -100,7 +100,15 @@ class RoleExecutionTests(unittest.TestCase):
         self.assertTrue(ok, error)
         self.assertEqual(code, 0)
 
-    def test_codex_transport_requires_a_complete_unambiguous_event_stream(self):
+    def test_preflight_quota(self):
+        cli = self.executable("print('Error: insufficient credits')\n")
+        ok, code, error = self.runner.preflight(
+            cli, "claude-opus-5", self.root, {"PATH": os.environ["PATH"]}, 2)
+        self.assertFalse(ok)
+        self.assertNotEqual(code, 0)
+        self.assertEqual(role_review.diagnostic_failure(error), "quota_diagnostic")
+
+    def test_codex_events(self):
         message = {"type": "item.completed", "item": {
             "id": "reply", "type": "agent_message", "text": '{"review":"exact"}',
         }}
@@ -119,7 +127,7 @@ class RoleExecutionTests(unittest.TestCase):
                 self.assertFalse(valid)
                 self.assertEqual(output, "")
 
-    def test_codex_transport_uses_cli_final_file_without_concatenating_progress(self):
+    def test_codex_final(self):
         self.assertTrue(hasattr(self.runner, "codex_response"))
         raw = "\n".join(json.dumps(event) for event in [
             {"type": "turn.started"},
@@ -136,7 +144,7 @@ class RoleExecutionTests(unittest.TestCase):
         self.assertEqual(output, '{"second":true}\n')
         self.assertEqual(error, "")
 
-    def test_codex_recovered_error_is_forwarded_without_invalidating_completed_turn(self):
+    def test_codex_reconnect(self):
         raw = "\n".join(json.dumps(event) for event in [
             {"type": "turn.started"},
             {"type": "error", "message": "Reconnecting... stream disconnected before completion"},
@@ -151,7 +159,7 @@ class RoleExecutionTests(unittest.TestCase):
         self.assertEqual(output, '{"review":"complete"}\n')
         self.assertIn("Reconnecting", error)
 
-    def test_existing_control_stripper_preserves_json_values_and_utf8(self):
+    def test_json_controls(self):
         plain = json.dumps({
             "path": "fixtures/이한-password=abcdefghijklmnop.txt",
             "value": "escaped control \x1b and newline\n",
@@ -230,7 +238,7 @@ class RoleRecordingTests(unittest.TestCase):
         self.assertFalse(self.raw_paths[0].is_relative_to(self.harness.work))
         self.assertEqual(self.recorded_modes, [0o600])
 
-    def test_original_response_reaches_protocol_and_paths_are_preserved(self):
+    def test_record_paths(self):
         self.run_recording()
         result = self.harness.read("slot/codex-result.json")
         self.assertTrue(result["valid"], result["failure_codes"])
@@ -244,17 +252,17 @@ class RoleRecordingTests(unittest.TestCase):
         self.assertFalse((self.harness.work / "runtime/codex.txt").exists())
         self.assert_private_response_removed()
 
-    def test_private_response_is_removed_when_recording_raises(self):
+    def test_record_exception(self):
         with self.assertRaisesRegex(OSError, "synthetic recording failure"):
             self.run_recording(record_error=OSError("synthetic recording failure"))
         self.assert_private_response_removed()
 
-    def test_private_response_is_removed_when_recorder_returns_an_error(self):
+    def test_record_exit(self):
         with self.assertRaisesRegex(RuntimeError, "recording failed"):
             self.run_recording(record_code=7)
         self.assert_private_response_removed()
 
-    def test_colored_kiro_response_records_without_scrubbing_valid_paths(self):
+    def test_kiro_colors(self):
         self.path = "fixtures/이한-password=abcdefghijklmnop.txt"
         self.harness.prepare(fixture.patch(self.path))
         report = self.harness.response("kiro-sol", findings=[{
@@ -279,6 +287,62 @@ class RoleRecordingTests(unittest.TestCase):
         self.assertEqual(role_review.parse_response(self.recorded_bytes[0].decode()), report)
         self.assertNotIn(self.private_value, json.dumps(result))
         self.assert_private_response_removed()
+
+    def quota_case(self, tag, code=1, evidence=False, event=False, stderr=False):
+        self.harness.prepare(fixture.patch(self.path))
+        self.original = json.dumps(self.harness.response(tag, checks=[{
+            "path": self.path, "evidence": 'Example: "Error: insufficient credits".',
+        }])) + "\n"
+        calls = []
+
+        def provider(command, cwd, environment, input_text, timeout):
+            if tag.startswith("kiro-") and "preflight-canary.txt" in command[2]:
+                return 0, "> NO_TOOLS\n", ""
+            calls.append(timeout)
+            if not evidence and len(calls) == 1:
+                if event:
+                    rc, output, error = self.fake_codex(
+                        command, cwd, environment, input_text, timeout)
+                    lines = output.splitlines()
+                    lines.insert(1, json.dumps({"type": "error", "message":
+                        "You have reached the limit for overages"}))
+                    return rc, "\n".join(lines), error
+                if stderr:
+                    return code, "", "You have reached the limit for overages"
+                return code, "Error: insufficient credits", ""
+            if tag == "codex":
+                return self.fake_codex(command, cwd, environment, input_text, timeout)
+            return 0, self.original, ""
+
+        timeout, attempts = (480, 2) if tag == "claude-self" else (300, 3)
+        with patch.dict(os.environ, {"PANEL_TIMEOUT": str(timeout),
+                                    "PANEL_RETRIES": str(attempts)}):
+            self.run_recording(tag=tag, execute=provider)
+        self.assertTrue(all(value == timeout for value in calls))
+        return calls, self.harness.read(f"slot/{tag}-result.json")
+
+    def test_account_streams(self):
+        for tag in ("claude-self", "kiro-sol", "codex"):
+            for code in (0, 1):
+                for stderr in (False, True):
+                    with self.subTest(tag=tag, code=code, stderr=stderr):
+                        calls, result = self.quota_case(tag, code, stderr=stderr)
+                        self.assertEqual(len(calls), 1)
+                        self.assertFalse(result["valid"])
+                        self.assertIn("quota_diagnostic", result["failure_codes"])
+
+    def test_codex_quota(self):
+        calls, result = self.quota_case("codex", event=True)
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(result["valid"])
+        self.assertIn("quota_diagnostic", result["failure_codes"])
+
+    def test_quota_evidence(self):
+        for tag in ("claude-self", "kiro-sol", "codex"):
+            with self.subTest(tag=tag):
+                calls, result = self.quota_case(tag, evidence=True)
+                self.assertEqual(len(calls), 1)
+                self.assertTrue(result["valid"], result["failure_codes"])
 
 
 if __name__ == "__main__":

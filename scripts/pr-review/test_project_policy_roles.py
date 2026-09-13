@@ -1,4 +1,4 @@
-"""Trusted project policies must retain their input and chair safeguards."""
+"""Project-policy tests."""
 
 import json
 import os
@@ -27,36 +27,36 @@ class ProjectPolicyTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
 
-    def test_policy_is_optional_for_existing_generic_projects(self):
+    def test_optional(self):
         self.assertEqual(prepare_roles.project_policy(self.root), {})
 
-    def test_duplicate_policy_keys_cannot_replace_a_guard(self):
+    def test_duplicates(self):
         (self.root / "role-project.json").write_text(
             '{"schema_version":1,"schema_version":2}'
         )
         with self.assertRaises(ValueError):
             prepare_roles.project_policy(self.root)
 
-    def test_policy_rejects_an_adapter_outside_the_trusted_directory(self):
+    def test_adapter(self):
         data = dict(POLICY, input_adapter="../../outside.py")
         (self.root / "role-project.json").write_text(json.dumps(data))
         with self.assertRaises(ValueError):
             prepare_roles.project_policy(self.root)
 
-    def test_chair_policy_survives_legacy_script_removal(self):
+    def test_defaults(self):
         options = synthesize_roles.chair_options(POLICY)
         self.assertEqual(options["timeout"], 600)
         self.assertEqual(options["turns"], (8, 12))
         self.assertIn("Bash", options["deny"])
         self.assertIn("Task", options["deny"])
 
-    def test_environment_cannot_disable_or_raise_mandatory_turn_caps(self):
+    def test_turns(self):
         for value in ("0", "9"):
             with self.subTest(value=value), patch.dict(os.environ, {"CHAIR_MAX_TURNS": value}):
                 with self.assertRaises(ValueError):
                     synthesize_roles.chair_options(POLICY)
 
-    def test_project_policy_cannot_drop_the_required_deny_baseline(self):
+    def test_denials(self):
         data = json.loads(json.dumps(POLICY))
         data["chair"]["disallowed_tools"] = ["Write"]
         with self.assertRaises(ValueError):

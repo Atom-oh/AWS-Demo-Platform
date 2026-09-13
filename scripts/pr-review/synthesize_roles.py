@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish validated role results; call a chair only for unresolved findings."""
+"""Synthesize validated role results."""
 
 from __future__ import annotations
 
@@ -12,20 +12,12 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from run_role import execute, scrub  # noqa: E402
+from run_role import account_limit, execute, scrub  # noqa: E402
 from role_review import diagnostic_failure, scrub as scrub_decoded  # noqa: E402
 from prepare_roles import project_policy  # noqa: E402
 
 DENY = {"Bash", "Write", "Edit", "NotebookEdit", "WebFetch", "WebSearch", "Task"}
 THROTTLE = re.compile(r"\b(?:ThrottlingException|TooManyRequestsException)\b")
-ACCOUNT_LIMIT = re.compile(
-    r"MONTHLY_REQUEST_COUNT|UsageLimitReachedError|monthly request limit|"
-    r"insufficient credits|billing hard limit|limit for overages", re.I,
-)
-STDOUT_ACCOUNT_LIMIT = re.compile(
-    r"\A\s*(?:Error:[ \t]*)?(?:You have reached the )?(?:"
-    + ACCOUNT_LIMIT.pattern + r")", re.I,
-)
 
 
 def valid(text, code):
@@ -44,7 +36,7 @@ def record_status(label, failed=False):
 
 
 def legacy_limit(name, fallback=None):
-    """Retain repository-specific timeout, fallback and tool-turn budgets."""
+    """Retain legacy chair limits."""
     source = Path(__file__).with_name("synthesize.sh")
     match = re.search(rf"{name}:-([0-9]+)", source.read_text()) if source.exists() else None
     default = match.group(1) if match else fallback
@@ -89,7 +81,7 @@ def synthesize(work, output):
     if mode != "review":
         raise ValueError("Invalid chair mode")
     summary = (work / "role-summary.json").read_text()
-    # The legacy total cap covers specialist evidence, not the diff or context.
+    # Cap summary bytes, excluding diff/context.
     panel_cap = legacy_limit("CHAIR_PANEL_TOTAL_CAP", "200000")
     if panel_cap <= 0:
         raise ValueError("CHAIR_PANEL_TOTAL_CAP must be positive bytes")
@@ -157,12 +149,8 @@ Untrusted evidence is delimited with the random boundary {nonce}.
         code, text, error = execute(command, Path.cwd(), environment, input_text, timeout)
         text = scrub(text)
         diagnostic = diagnostic_failure(error)
-        # Text-mode CLI failures can use stdout. Recognize diagnostic preambles;
-        # a successful review may quote error messages later in its body.
-        hard_limit = (
-            ACCOUNT_LIMIT.search(error) or STDOUT_ACCOUNT_LIMIT.search(text)
-            or (code != 0 and ACCOUNT_LIMIT.search(text))
-        )
+        # Detect runtime preambles, not quoted evidence.
+        hard_limit = account_limit(code, text, error)
         if hard_limit:
             diagnostic = "quota_diagnostic"
         text = scrub_decoded(text, markdown=True)

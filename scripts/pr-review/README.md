@@ -142,9 +142,10 @@ fallback; account/monthly/credit limits each prohibit success and fallback.
 - `run_role.py`: `PANEL_TIMEOUT` defaults to 300 seconds (maximum 900),
   `PANEL_RETRIES` to 2 (maximum 3), and `KIRO_PREFLIGHT_TIMEOUT` to 60 seconds
   (maximum 120). Workflow overrides remain within these bounds.
-- `synthesize_roles.py`: retains `CHAIR_*` settings from the legacy synthesis
-  script unless an explicit project policy supplies stricter limits. Hard
-  account/monthly/credit limits stop even if a lower-level classifier is silent.
+- `synthesize_roles.py`: preserves ADP's timeout/summary limits and overrides.
+  `CHAIR_MAX_TURNS`, `CHAIR_FALLBACK_MAX_TURNS`, `CHAIR_FAST_FAIL_S` require BASE
+  legacy defaults (absent in ADP). Project policy may supply turn caps.
+  Hard account limits stop independently of the low-level classifier.
 - `role-controls.sh`: forwards to the canonical `lib.sh` control stripper.
   Transport normalization does not invoke credential scrubbing; responses stay
   private until protocol validation and redaction.

@@ -1,4 +1,4 @@
-"""The deterministic path must never start a model."""
+"""Offline chair tests."""
 
 import importlib.util
 import os
@@ -38,7 +38,7 @@ class SynthesisTests(unittest.TestCase):
             self.module.synthesize(self.root, self.root / "review.md")
         return invoke.call_count, (self.root / "review.md").read_text()
 
-    def test_markdown_container_examples_do_not_remove_final_verdict(self):
+    def test_markdown(self):
         for example in (
             "Checked credentials = []\nExample: secret = {private-value}",
             "-----BEGIN PRIVATE KEY-----\nprivate-value\n-----END PRIVATE KEY-----",
@@ -52,7 +52,7 @@ class SynthesisTests(unittest.TestCase):
                 self.assertIn("proposed behavior", text)
                 self.assertNotIn("private-value", text)
 
-    def test_transient_throttle_uses_configured_fallback(self):
+    def test_throttle(self):
         calls, text = self.run_chair([
             (1, "", "An error occurred (ThrottlingException) invoking the primary model"),
             (0, "Fallback completed the review.\nVERDICT: PASS\n", ""),
@@ -60,7 +60,7 @@ class SynthesisTests(unittest.TestCase):
         self.assertEqual(calls, 2)
         self.assertTrue(text.endswith("VERDICT: PASS\n"))
 
-    def test_account_quota_still_prevents_fallback(self):
+    def test_account(self):
         for error in ("ThrottlingException: MONTHLY_REQUEST_COUNT exhausted",
                       "You have reached the limit for overages"):
             with self.subTest(error=error):
@@ -71,7 +71,7 @@ class SynthesisTests(unittest.TestCase):
                 self.assertEqual(calls, 1)
                 self.assertTrue(text.endswith("VERDICT: FAIL\n"))
 
-    def test_plain_overage_message_prevents_fallback(self):
+    def test_overage(self):
         calls, text = self.run_chair([
             (1, "", "You have reached the limit for overages"),
             (0, "Must not be used.\nVERDICT: PASS\n", ""),
@@ -79,7 +79,7 @@ class SynthesisTests(unittest.TestCase):
         self.assertEqual(calls, 1)
         self.assertTrue(text.endswith("VERDICT: FAIL\n"))
 
-    def test_stdout_account_errors_prevent_fallback_and_pass(self):
+    def test_stdout(self):
         for code in (0, 1):
             for message in (
                 "UsageLimitReachedError",
@@ -95,7 +95,7 @@ class SynthesisTests(unittest.TestCase):
                     self.assertEqual(calls, 1)
                     self.assertTrue(text.endswith("VERDICT: FAIL\n"))
 
-    def test_quoted_account_diagnostics_are_review_evidence(self):
+    def test_quotes(self):
         report = (
             "Reviewed quota handling for UsageLimitReachedError.\n"
             '- The test covers "Monthly request limit reached".\n'
@@ -106,7 +106,7 @@ class SynthesisTests(unittest.TestCase):
         self.assertEqual(calls, 1)
         self.assertTrue(text.endswith("VERDICT: PASS\n"))
 
-    def test_default_panel_byte_cap_blocks_before_any_provider_call(self):
+    def test_default(self):
         summary = '{"findings":["' + "x" * 200000 + '"]}'
         self.prepare_chair(summary)
         (self.root / "review.md").write_text("Stale review.\nVERDICT: PASS\n")
@@ -125,7 +125,7 @@ class SynthesisTests(unittest.TestCase):
         self.assertEqual((self.root / "role-summary.json").read_text(), summary)
         self.assertTrue(status.call_args.kwargs["failed"])
 
-    def test_configured_panel_cap_counts_utf8_bytes_not_characters(self):
+    def test_utf8(self):
         summary = '{"findings":["' + "한" * 20 + '"]}'
         limit = len(summary)
         self.assertGreater(len(summary.encode("utf-8")), limit)
@@ -136,7 +136,7 @@ class SynthesisTests(unittest.TestCase):
         self.assertEqual(calls, 0)
         self.assertTrue(text.endswith("VERDICT: FAIL\n"))
 
-    def test_panel_cap_allows_exact_limit_without_counting_diff_or_context(self):
+    def test_boundary(self):
         summary = '{"findings":["한글"]}'
         context = "Trusted base context.\n" * 20
         diff = "Complete diff evidence.\n" * 20
@@ -154,7 +154,7 @@ class SynthesisTests(unittest.TestCase):
         self.assertIn(summary, supplied)
         self.assertGreater(len(supplied.encode("utf-8")), limit)
 
-    def test_panel_cap_cannot_be_disabled_with_nonpositive_values(self):
+    def test_positive(self):
         self.prepare_chair()
         for limit in ("0", "-1"):
             with self.subTest(limit=limit), \
@@ -166,21 +166,21 @@ class SynthesisTests(unittest.TestCase):
                     self.module.synthesize(self.root, self.root / "review.md")
                 self.assertEqual(invoke.call_count, 0)
 
-    def test_complete_clean_review_does_not_call_chair(self):
+    def test_no_chair(self):
         (self.root / "chair-mode.txt").write_text("deterministic\n")
         (self.root / "deterministic-review.md").write_text("Scope complete.\nVERDICT: PASS\n")
         with patch.object(self.module, "execute", side_effect=AssertionError("Unexpected call")):
             self.module.synthesize(self.root, self.root / "review.md")
         self.assertTrue((self.root / "review.md").read_text().endswith("VERDICT: PASS\n"))
 
-    def test_incomplete_review_cannot_be_waived_by_chair(self):
+    def test_blocked(self):
         (self.root / "chair-mode.txt").write_text("blocked\n")
         (self.root / "deterministic-review.md").write_text("Missing required role.\nVERDICT: FAIL\n")
         with patch.object(self.module, "execute", side_effect=AssertionError("Unexpected call")):
             self.module.synthesize(self.root, self.root / "review.md")
         self.assertTrue((self.root / "review.md").read_text().endswith("VERDICT: FAIL\n"))
 
-    def test_unique_final_verdict_and_body_are_required(self):
+    def test_verdict(self):
         self.assertTrue(self.module.valid("Evidence reviewed.\nVERDICT: PASS\n", 0))
         for output, status in [
             ("VERDICT: PASS", 0),

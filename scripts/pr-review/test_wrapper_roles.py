@@ -1,4 +1,4 @@
-"""Repository context limits are enforced before invoking any staged executor."""
+"""ADP context-limit tests."""
 
 import json
 import os
@@ -48,13 +48,13 @@ class WrapperContextTests(unittest.TestCase):
             return (result, [json.loads(p.read_text()) for p in log.iterdir()],
                     sentinel.exists())
 
-    def test_unset_context_cap_defaults_to_repository_limit(self):
+    def test_default(self):
         result, calls, _ = self.run_wrapper()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(calls), 6)
         self.assertEqual({item["cap"] for item in calls}, {"12288"})
 
-    def test_lower_context_limits_are_exported_to_every_stage(self):
+    def test_lower(self):
         for cap in ("1", "4096", "12288"):
             with self.subTest(cap=cap):
                 result, calls, _ = self.run_wrapper(cap)
@@ -62,7 +62,7 @@ class WrapperContextTests(unittest.TestCase):
                 self.assertEqual(len(calls), 6)
                 self.assertEqual({item["cap"] for item in calls}, {cap})
 
-    def test_invalid_context_caps_fail_before_preparation_or_execution(self):
+    def test_invalid(self):
         for cap in ("12289", "24000", "0", "-1", "invalid", "9" * 100):
             with self.subTest(cap=cap):
                 result, calls, preserved = self.run_wrapper(cap)

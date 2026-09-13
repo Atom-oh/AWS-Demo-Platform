@@ -1,4 +1,4 @@
-"""Trusted context and immutable checkout regressions."""
+"""Trusted preparation tests."""
 
 import importlib.util
 import hashlib
@@ -54,7 +54,7 @@ class PreparationTests(unittest.TestCase):
             prepare.prepare(head, base, self.root / "work")
         return calls
 
-    def test_committed_context_hook_receives_selected_scope_and_lowers_cap(self):
+    def test_hook(self):
         directory = self.root / "scripts/pr-review"
         directory.mkdir(parents=True)
         hook = directory / "prepare_context_roles.py"
@@ -85,7 +85,7 @@ class PreparationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "trusted base"):
             self.prepare_locally(head, base, directory)
 
-    def test_context_hook_absence_keeps_root_but_untracked_file_is_rejected(self):
+    def test_no_hook(self):
         directory = self.root / "scripts/pr-review"
         directory.mkdir(parents=True)
         self.prepare_locally(self.base, self.base, directory)
@@ -96,11 +96,11 @@ class PreparationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "trusted base"):
             self.prepare_locally(self.base, self.base, directory)
 
-    def test_context_comes_from_git_object_not_dirty_working_file(self):
+    def test_context(self):
         (self.root / "AGENTS.md").write_text("UNTRUSTED changed instructions.\n")
         self.assertEqual(prepare.context_at(self.base, 24000), "Trusted reviewer context.\n")
 
-    def test_stale_generated_context_is_rejected(self):
+    def test_digest(self):
         (self.root / "AGENTS.md").write_text(
             "<!-- generated-by: co-agent · claude-md-sha: 000000000000 -->\n"
             "Context with a stale source hash.\n"
@@ -110,19 +110,19 @@ class PreparationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "stale"):
             prepare.context_at(self.git("rev-parse", "HEAD").strip(), 24000)
 
-    def test_wrong_base_checkout_is_rejected_before_network_or_provider_use(self):
+    def test_base(self):
         with self.assertRaisesRegex(ValueError, "pinned base"):
             prepare.prepare(self.base, "f" * 40, self.root / "work")
 
-    def test_branch_name_cannot_replace_immutable_sha(self):
+    def test_shas(self):
         with self.assertRaisesRegex(ValueError, "immutable"):
             prepare.prepare("main", self.base, self.root / "work")
 
-    def test_candidate_context_size_limit_is_enforced(self):
+    def test_size(self):
         with self.assertRaisesRegex(ValueError, "oversized"):
             prepare.context_at(self.base, 3)
 
-    def test_adp_wrapper_preserves_context_limit_before_preparation(self):
+    def test_adp_cap(self):
         fake = self.root / "bin"
         fake.mkdir()
         capture = self.root / "context-cap"
@@ -146,7 +146,7 @@ class PreparationTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 2)
                 self.assertEqual(capture.read_text() if capture.exists() else None, expected)
 
-    def test_directory_exclusions_do_not_exclude_same_named_source_files(self):
+    def test_scope(self):
         policy = self.root / "scripts/pr-review/role-input-scope.json"
         policy.parent.mkdir(parents=True)
         policy.write_text(json.dumps({"schema_version": 1, "directories": ["build", "dist"]}))
@@ -161,7 +161,7 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual(["scripts/build", "dist"], kept)
         self.assertEqual(["build/generated.js", "packages/dist/generated.js"], excluded)
 
-    def test_git_context_hash_preserves_committed_crlf_bytes(self):
+    def test_crlf(self):
         self.git("config", "core.autocrlf", "false")
         source = b"Canonical instructions.\r\nPreserve original bytes.\r\n"
         (self.root / "CLAUDE.md").write_bytes(source)
@@ -172,7 +172,7 @@ class PreparationTests(unittest.TestCase):
         self.git("commit", "-qm", "CRLF source")
         self.assertEqual(prepare.context_at(self.git("rev-parse", "HEAD").strip(), 24000), context)
 
-    def test_exclusions_opt_in_passes_exact_base_policy_bytes_to_engine(self):
+    def test_policy(self):
         policy = self.root / "scripts/pr-review/role-input-scope.json"
         policy.parent.mkdir(parents=True)
         (policy.parent / "role_review.py").write_bytes(MODULE.with_name("role_review.py").read_bytes())
