@@ -250,6 +250,55 @@ class RoleReviewTests(unittest.TestCase):
                 self.prepare(raw, expected=2)
                 self.assert_blocked()
 
+    def test_hunkless_content_changes_cannot_claim_complete_input(self):
+        headers = "diff --git a/file.txt b/file.txt\n"
+        cases = (
+            headers + "new file mode 100644\n",
+            headers + "new file mode 100644\nindex 0000000..1234567\n",
+            headers + "new file mode 100644\nindex 0000000..1234567\n--- /dev/null\n+++ b/file.txt\n",
+            headers + "deleted file mode 100644\nindex 1234567..0000000\n",
+            headers + "old mode 100644\nnew mode 100755\nindex 1234567..abcdef0\n",
+            "diff --git a/old.txt b/new.txt\nsimilarity index 85%\n"
+            "rename from old.txt\nrename to new.txt\nindex 1234567..abcdef0\n",
+            "diff --git a/old.txt b/new.txt\nsimilarity index 85%\n"
+            "copy from old.txt\ncopy to new.txt\n",
+        )
+        for index, raw in enumerate(cases):
+            with self.subTest(index=index):
+                self.work = self.root / f"cut-metadata-{index}"
+                self.prepare(raw, expected=2)
+                self.assert_blocked()
+
+    def test_genuinely_empty_files_and_pure_copies_need_no_hunk(self):
+        for raw, expected_path in (
+            ("diff --git a/empty.txt b/empty.txt\nnew file mode 100644\n"
+             "index 0000000..e69de29\n", "empty.txt"),
+            ("diff --git a/empty.txt b/empty.txt\ndeleted file mode 100644\n"
+             "index e69de29..0000000\n", "empty.txt"),
+            ("diff --git a/old.txt b/new.txt\nsimilarity index 100%\n"
+             "copy from old.txt\ncopy to new.txt\n", "new.txt"),
+        ):
+            with self.subTest(raw=raw):
+                self.assertEqual(self.prepare(raw)["paths"], [expected_path])
+
+    def test_unterminated_private_keys_are_removed_from_public_results(self):
+        for index, kind in enumerate(("", "RSA ", "EC ", "OPENSSH ")):
+            with self.subTest(kind=kind):
+                self.work = self.root / f"unterminated-key-{index}"
+                self.prepare()
+                secret = "SYNTHETIC_PRIVATE_FRAGMENT"
+                evidence = f"-----BEGIN {kind}PRIVATE KEY-----\n{secret}\ncut off"
+                response = self.response("codex", findings=[{
+                    "severity": "MINOR", "path": FRONTEND,
+                    "condition": "When diagnostics contain a partial key", "evidence": evidence,
+                }])
+                result = self.record("codex", raw=json.dumps(response))
+                self.assertTrue(result["valid"])
+                self.assertNotIn(secret, json.dumps(result))
+                self.record("claude-self")
+                self.cli("aggregate", "--work", self.work)
+                self.assertNotIn(secret, (self.work / "deterministic-review.md").read_text())
+
     def test_mode_only_and_git_octal_quoted_paths(self):
         for raw, expected_path in (
             ("diff --git a/a file.sh b/a file.sh\nold mode 100644\nnew mode 100755\n", "a file.sh"),

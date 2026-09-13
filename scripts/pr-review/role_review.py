@@ -212,12 +212,37 @@ def complete_hunks(chunk):
             raise Invalid("invalid_diff_hunk")
     if remaining and remaining != [0, 0]:
         raise Invalid("incomplete_diff_hunk")
-    if not hunk_seen and not (
-        re.search(r"^(?:rename|copy) to ", chunk, re.M) or
-        (re.search(r"^old mode ", chunk, re.M) and re.search(r"^new mode ", chunk, re.M)) or
-        re.search(r"^(?:new file mode|deleted file mode|Binary files |GIT binary patch)", chunk, re.M)
-    ):
-        raise Invalid("diff_change_missing")
+    if hunk_seen:
+        return
+    # A prefix ending at file/rename/mode metadata is not proof of a complete
+    # content change. Only metadata that proves no text hunk is needed can pass.
+    if re.search(r"^(?:--- |\+\+\+ )", chunk, re.M):
+        raise Invalid("incomplete_diff_hunk")
+    index = re.search(r"^index ([0-9a-f]{7,64})\.\.([0-9a-f]{7,64})(?: \d+)?$", chunk, re.M)
+    empty_ids = (
+        hashlib.sha1(b"blob 0\0").hexdigest(),
+        hashlib.sha256(b"blob 0\0").hexdigest(),
+    )
+    def empty_blob(oid):
+        return any(full.startswith(oid) for full in empty_ids)
+
+    if re.search(r"^new file mode ", chunk, re.M):
+        if index and set(index[1]) == {"0"} and empty_blob(index[2]):
+            return
+    elif re.search(r"^deleted file mode ", chunk, re.M):
+        if index and empty_blob(index[1]) and set(index[2]) == {"0"}:
+            return
+    elif not index or index[1] == index[2]:
+        if re.search(r"^similarity index 100%$", chunk, re.M) and any(
+            re.search(rf"^{kind} from ", chunk, re.M) and re.search(rf"^{kind} to ", chunk, re.M)
+            for kind in ("rename", "copy")
+        ):
+            return
+        if re.search(r"^old mode ", chunk, re.M) and re.search(r"^new mode ", chunk, re.M):
+            return
+    if re.search(r"^(?:Binary files |GIT binary patch)", chunk, re.M):
+        return  # Preparation separately rejects unsupported binary input.
+    raise Invalid("diff_change_missing")
 
 
 def diff_paths(text, manifest=None):
@@ -544,7 +569,7 @@ def scrub(value):
         r"""["']?\s*[:=]\s*"""
     )
     patterns = (
-        r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
+        r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)",
         r"\b(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b",
         r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b",
         r"\bsk-[A-Za-z0-9_-]{16,}",
