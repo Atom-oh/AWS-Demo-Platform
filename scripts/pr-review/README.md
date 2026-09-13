@@ -119,8 +119,9 @@ Uncertain boundaries consume the remaining reply, including its verdict.
 Conditional, call, index, concatenation and continuation tails are rejected.
 Plain paragraph text can preserve outside verdicts. Markdown bullets, headings,
 links or closing fences can look like continuations and fail closed. Avoid sensitive
-assignment examples in summaries. Transient throttles may use the configured
-fallback; account/monthly/credit limits each prohibit success and fallback.
+assignment examples in summaries. Amazon Bedrock/Kiro hard account limits stop
+retries and chair fallback, including stdout and mixed diagnostics. Transient
+throttling alone may use the configured fallback.
 
 ## Executor inputs and limits
 
