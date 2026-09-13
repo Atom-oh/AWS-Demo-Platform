@@ -27,6 +27,10 @@ Run `python3 scripts/pr-review/role_review.py COMMAND --help` for flags.
 
 The executor sends issued bytes and retains receipts. Hashes bind input,
 provenance and results, not actual transport. The collector owns source completeness.
+Record/aggregate also compare local `requests/TAG.prompt/.input` bytes against the
+receipt and reconstructed frames. Missing or changed files block. Distributed
+consumers must privately restore exact frames from trusted prepared inputs and
+receipts before aggregation; raw requests must not become public artifacts.
 
 ## Collector input
 

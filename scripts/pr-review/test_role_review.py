@@ -147,6 +147,8 @@ class RoleReviewTests(unittest.TestCase):
             patch(after='const region = "us-west-2";'),
             patch(after='const origin = "internal-app.ap-northeast-2.elb.amazonaws.com";'),
             patch(after='const resource = "aws_iam_role";'),
+            patch(after='const externalId = "synthetic";'),
+            patch(after='const external_id = "synthetic";'),
             patch("misc/unknown.xyz"),
             patch("app/src/app/history/page.tsx"),
             patch("dashboard/frontend/app/page.tsx"),
@@ -221,6 +223,13 @@ class RoleReviewTests(unittest.TestCase):
             ('{"Authorization": "Basic ' + "Q" * 12 + '"}', "Q" * 12),
             ('access_token="' + "D" * 35 + '"', "D" * 35),
             ('client_secret="' + "E" * 35 + '"', "E" * 35),
+            ('adminPassword="' + "L" * 35 + '"', "L" * 35),
+            ('refreshToken="' + "M" * 35 + '"', "M" * 35),
+            ('apiToken="' + "N" * 35 + '"', "N" * 35),
+            ('_authToken=npm_' + "Q" * 35, "npm_" + "Q" * 35),
+            ('ExternalId="' + "R" * 35 + '"', "R" * 35),
+            ('external_id=' + "S" * 35, "S" * 35),
+            ('npm_' + "T" * 35, "npm_" + "T" * 35),
             ("aws_access_key_id=" + "F" * 35, "F" * 35),
             ("AWS_SESSION_TOKEN=\n" + "G" * 35, "G" * 35),
             ("postgresql://user:database-private-value@database.local/app", "database-private-value"),
@@ -459,6 +468,48 @@ class RoleReviewTests(unittest.TestCase):
                     release.set()
                 self.assertEqual(pending.result(timeout=5), 0)
         self.assert_blocked()
+
+    def test_assignment_redaction_preserves_legacy_scrubber_coverage(self):
+        spec = importlib.util.spec_from_file_location("scrub_parity_test", ENGINE)
+        engine = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(engine)
+        secret = "SYNTHETIC_VALUE_WITH_32_CHARACTERS"
+        covered = 0
+        for key in ("password", "adminPassword", "dbpassword", "api_key", "myApiKey",
+                    "clientSecret", "access_token", "refreshToken", "apiToken", "AWS_SESSION_TOKEN"):
+            for quote in ('"', "'", ""):
+                value = f"{key}={quote}{secret}{quote}"
+                baseline = subprocess.run(
+                    ["bash", "-c", 'source "$1"; scrub_secrets', "parity", str(ENGINE.with_name("lib.sh"))],
+                    input=value, capture_output=True, text=True, timeout=5,
+                )
+                self.assertEqual(baseline.returncode, 0)
+                if secret not in baseline.stdout:
+                    covered += 1
+                    with self.subTest(key=key, quote=quote):
+                        self.assertNotIn(secret, engine.scrub(value))
+        self.assertGreaterEqual(covered, 20, "legacy comparison must exercise real redaction")
+
+    def test_record_rejects_changed_issued_input(self):
+        self.prepare()
+        self.cli("issue", "--work", self.work, "--tag", "codex")
+        (self.work / "requests/codex.input").write_text("different provider input")
+        result = self.record("codex", expected=2)
+        self.assertIn("invalid_issued_request", result["failure_codes"])
+
+    def test_aggregate_rejects_changed_or_missing_issued_frames(self):
+        for suffix in ("prompt", "input"):
+            for action in ("change", "delete"):
+                with self.subTest(suffix=suffix, action=action):
+                    self.work = self.root / f"issued-{suffix}-{action}"
+                    self.prepare()
+                    self.finish()
+                    frame = self.work / f"requests/codex.{suffix}"
+                    if action == "change":
+                        frame.write_text("modified after recording")
+                    else:
+                        frame.unlink()
+                    self.assert_blocked()
 
     def test_mode_only_and_git_octal_quoted_paths(self):
         for raw, expected_path in (
