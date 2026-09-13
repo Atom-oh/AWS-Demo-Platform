@@ -73,8 +73,10 @@ Blocked input yields deterministic FAIL; the chair cannot waive coverage failure
 
 Publish scrubbed reports/receipts/metadata only; never raw `roles/*.diff` or
 `requests/*.input/.prompt`.
-The executor gives `record` the original response through a mode-0600 temporary
-file outside the review workspace, removed after recording even on errors.
+The executor strips transport controls only, then gives `record` the JSON response
+through a mode-0600 temporary file outside the review workspace, removed after
+recording even on errors. Transport normalization does not scrub credentials or
+change valid JSON/path values.
 Diagnostics remain scrubbed; protocol validation preserves source paths before
 redacting response evidence.
 
@@ -120,7 +122,9 @@ React edits retain `kiro-sol`; altered or missing receipt-bound history blocks.
 Chair Markdown redacts complete nested/multiline containers, respecting quoted
 and escaped delimiters. Syntax is parsed without evaluation; malformed, unclosed
 or unsupported container syntax consumes the remaining reply and cannot leave a
-valid verdict. Complete containers preserve the outside verdict. A transient
+valid verdict. Conditional, concatenated, called, indexed or continued expression
+tails are also rejected rather than treating the first container as the complete
+value. Supported standalone containers preserve the outside verdict. A transient
 model throttle may use the configured fallback; account/monthly/credit limits
 independently prevent publishing success or invoking a fallback.
 
@@ -141,5 +145,6 @@ independently prevent publishing success or invoking a fallback.
 - `synthesize_roles.py`: retains `CHAIR_*` settings from the legacy synthesis
   script unless an explicit project policy supplies stricter limits. Hard
   account/monthly/credit limits stop even if a lower-level classifier is silent.
-- `role-controls.sh`: transport control-character normalization used with the
-  repository credential scrubber; raw responses stay private until validation.
+- `role-controls.sh`: forwards to the canonical `lib.sh` control stripper.
+  Transport normalization does not invoke credential scrubbing; responses stay
+  private until protocol validation and redaction.

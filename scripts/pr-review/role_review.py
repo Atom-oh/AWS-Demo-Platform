@@ -765,6 +765,11 @@ SENSITIVE_KEY = re.compile(
 def _scrub_markdown_containers(value, key):
     """Remove complete containers; an uncertain boundary consumes the remainder."""
     opening = re.compile(key + r"[\[({]")
+    line_end = re.compile(r"[ \t\r]*(?:\n|\Z)")
+    continuation = re.compile(
+        r"\s*(?:[" + re.escape("()[]{}.+-*/%&|^?\\<>=!,\"'")
+        + r"]|(?:if|else|and|or|in|is|not)\b)"
+    )
     closing = {"[": "]", "(": ")", "{": "}"}
     pieces, cursor = [], 0
     while match := opening.search(value, cursor):
@@ -807,6 +812,11 @@ def _scrub_markdown_containers(value, key):
                 warnings.simplefilter("error")
                 ast.parse(value[start:index], mode="eval")
         except (SyntaxError, ValueError, RecursionError, Warning):
+            return "".join(pieces)
+        # A balanced prefix can still be followed by a conditional, call, index
+        # or concatenation. Do not guess where such a sensitive expression ends.
+        boundary = line_end.match(value, index)
+        if boundary is None or continuation.match(value, boundary.end()):
             return "".join(pieces)
         cursor = index
     pieces.append(value[cursor:])

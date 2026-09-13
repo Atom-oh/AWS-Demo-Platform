@@ -39,6 +39,14 @@ class MarkdownContainerTests(unittest.TestCase):
             'password = [\n """synthetic-triple-private " ]\n',
             'password = ["synthetic-invalid-private", }]',
             r'password = ["synthetic-invalid-escape-private\q"]',
+            'password = ("development") if debug else "synthetic-fallback-private"',
+            'password = ("development") + "synthetic-concat-private"',
+            'password = ("development")("synthetic-call-private")',
+            'password = ("development")["synthetic-index-private"]',
+            'password = ("development").replace("development", "synthetic-method-private")',
+            'password = ("development") \\\n + "synthetic-continuation-private"',
+            'password = ("development")\n + "synthetic-next-line-private"',
+            'password = ("development")\n\n ["synthetic-next-index-private"]',
         )
 
     def report(self, container, verdict="PASS"):
@@ -82,7 +90,10 @@ class MarkdownContainerTests(unittest.TestCase):
     def test_parser_warnings_cannot_emit_private_source_or_leave_pass(self):
         with warnings.catch_warnings(record=True) as observed:
             warnings.simplefilter("always")
-            text = scrub(self.report(self.malformed_cases()[-1]), markdown=True)
+            text = scrub(
+                self.report(r'password = ["synthetic-invalid-escape-private\q"]'),
+                markdown=True,
+            )
         self.assertEqual(observed, [])
         self.assertNotIn("synthetic-", text)
         self.assertFalse(synthesize_roles.valid(text, 0))
