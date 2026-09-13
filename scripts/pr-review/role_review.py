@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Offline protocol; see README.md and COMMAND --help.
-
-Exit 2 blocks. After aggregate exit 0, chair-mode.txt distinguishes deterministic
-results from adjudication. Use fresh work per complete diff; no chunk coordinator,
-networking or model calls. Scope attestations do not prove provider execution.
-"""
+"""Offline protocol; see README.md."""
 
 import argparse
 import ast
@@ -589,6 +584,8 @@ def _issue_request(work, tag):
            for name in ("request", "result", "attempts")):
         issued_request(work, plan, tag)
     previous = work / "slot" / f"{tag}-result.json"
+    if (work / "slot" / f"{tag}.record-claim").exists() and not previous.exists():
+        raise Invalid("missing_record_result")
     if previous.exists():
         prior = strict_json(text_file(previous))
         if not isinstance(prior, dict):
@@ -716,7 +713,7 @@ def diagnostic_failure(stderr):
             return "agent_preflight_diagnostic"
         if re.search(r"^(?:falling back|using (?:a )?fallback|fallback model)\b", body, re.I):
             return "model_fallback_diagnostic"
-        if re.search(r"^(?:MONTHLY_REQUEST_COUNT|UsageLimitReachedError|"
+        if re.search(r"\bMONTHLY_REQUEST_COUNT\b|^(?:UsageLimitReachedError|"
                      r"quota exceeded|rate limit exceeded|insufficient credits|"
                      r"monthly request limit (?:reached|exceeded)|"
                      r"usage limit (?:reached|exceeded)|billing hard limit reached)\b", body, re.I):
@@ -726,7 +723,7 @@ def diagnostic_failure(stderr):
 
 SENSITIVE_KEY = re.compile(
     r"(?i:(?<![A-Za-z0-9])[A-Za-z0-9_.:-]*(?:password|passwd|pwd|dsn|api[_-]?key|"
-    r"secret|token|credential|passphrase|private[_-]?key|cookie|authorization|"
+    r"secret|token|credential|passphrase|private[_-]?key|cookie|authorization|auth(?![A-Za-z])|dockerconfigjson|"
     r"connection[_-]?string|origin[_-]?verify|AccessKeyId|access[_-]?key[_-]?id|external[_-]?id)[A-Za-z0-9_.:-]*)"
 )
 
