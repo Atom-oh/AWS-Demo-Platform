@@ -153,6 +153,22 @@ else
     "severe=$([ -f "$WORK/coverage-severe.flag" ] && echo yes || echo no) degraded=$(tr '\n' ',' < "$WORK/degraded-models.txt")"
 fi
 
+# (k) An exhausted fallback request is still a no-tools breach. Keep both causes
+# when the same Kiro job reports them, even with every other model present.
+setup "L2"
+for m in codex kiro-fable claude-self; do fill "$m" L2 "finding"; done
+fill kiro-sol L2 ""
+echo "startup check failed" > "$WORK/slot/kiro-preflight-kiro-sol.flag"
+echo "Falling back to user specified default" > "$WORK/slot/kiro-agent-fallback-kiro-sol.flag"
+echo "Monthly request limit reached" > "$WORK/slot/kiro-quota-kiro-sol.flag"
+"$SCRIPT" "$LENSES" "$WORK" >/dev/null 2>"$WORK/agg.err"
+if [ -s "$WORK/kiro-preflight.flag" ] && [ -s "$WORK/kiro-agent-fallback.flag" ] \
+  && [ -s "$WORK/kiro-quota.flag" ] && [ -f "$WORK/coverage-severe.flag" ]; then
+  pass "aggregate (k) simultaneous fallback and quota retains both causes and forces severe"
+else
+  fail "aggregate (k) simultaneous fallback and quota retains both causes and forces severe" "missing cause or severe flag"
+fi
+
 if [ "${_t_fail+set}" = set ]; then
   [ "$_t_fail" = 0 ] && echo "PASS: test-aggregate" || exit 1
 fi

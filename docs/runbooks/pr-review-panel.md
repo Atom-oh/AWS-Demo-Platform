@@ -16,10 +16,9 @@ coverage floors decide severity (two empty Kiro rows out of four remain a warnin
 three empty rows or an empty lens force failure), so an exhausted month does not
 block every PR.
 
-Prerequisite for the local probes below (the key is fetched into a shell variable
-and passed through the sanitized environment; it is not echoed, but it is visible
-in that process's argv on the machine you run it on, so use a private workstation
-and `unset K` afterwards):
+Prerequisite for the local probes below: fetch the key into a shell variable,
+pass it through stdin to an isolated shell, and export it only for the Kiro child.
+Do not echo it or place it in command arguments. Run `unset K` afterwards.
 ```bash
 K=$(aws secretsmanager get-secret-value --secret-id /demo-platform/actions/AI-key \
       --region ap-northeast-2 --query SecretString --output text | jq -r .KIRO_API_KEY)
@@ -40,11 +39,16 @@ stderr. The PR diff is absent from both the prompt and stdin.
 This adds one model request per Kiro job, bounded by `KIRO_PREFLIGHT_TIMEOUT`
 (default 60 s), single-shot. A failed check skips every Kiro cell of that job
 (`[skip] <tag>/<lens> (preflight failed)`), writes `kiro-preflight-<tag>.flag` into
-the uploaded slot, and the chair forces failure. If the preflight stderr carries
-the quota signature instead, only `kiro-quota-<tag>.flag` is written and the skip
+the uploaded slot, and the chair forces failure. If the preflight carries only a
+quota failure, without fallback, tool-use or canary-disclosure evidence,
+only `kiro-quota-<tag>.flag` is written and the skip
 reason is `monthly quota exhausted at preflight` (Symptom A, warn-level). Post-hoc
 fallback detection stays as a second guard because the runner's kiro-cli is
 vendor-latest and unpinned.
+
+When quota accompanies a failed no-tools check, both causes are retained and the
+preflight remains failed. A fallback signature also retains its own flag; rotating
+a key does not repair a broken agent configuration.
 
 ## Symptom A — `🚫 Kiro monthly request quota exhausted`
 
@@ -61,13 +65,18 @@ or flag problem: the v2 engine prints the message to stderr and exits 0 with emp
 stdout, `--v3` hits the same limit with exit 1.
 
 Fix (account-side only; nothing in this repository can lift it):
-1. Enable overages on the Kiro account that owns the key, or issue a key from an
-   account with remaining quota and update `KIRO_API_KEY` in
-   `/demo-platform/actions/AI-key`. Never print the key.
+1. Wait for the documented reset or ask the account owner to restore access under
+   the existing budget policy, for example by an authorized key rotation in
+   `/demo-platform/actions/AI-key`. Billing-limit changes need separate approval;
+   do not enable paid overages simply to make a review pass. Follow the
+   [review and release policy](review-and-release.md). Never print the key.
 2. Confirm delivery: `kubectl --context mall-apne2-mgmt -n actions-runner-system get
    externalsecret ai-panel-keys` must show `SecretSynced`/`Ready` with a
-   `LAST SYNC` after the rotation (refresh interval 1 h; `kubectl annotate
-   externalsecret ai-panel-keys force-sync=$(date +%s)` forces it). Runner pods
+   `.status.refreshTime` after the rotation. Inspect it with
+   `kubectl --context mall-apne2-mgmt -n actions-runner-system get externalsecret ai-panel-keys -o jsonpath='{.status.refreshTime}'`.
+   The refresh interval is 1 h; `kubectl --context mall-apne2-mgmt -n actions-runner-system annotate
+   externalsecret ai-panel-keys force-sync=$(date +%s) --overwrite` requests a refresh.
+   Runner pods
    read the key from a Secret-backed env var, so only pods created after the sync
    see it; the scale sets are ephemeral per job, so a new job gets a new pod.
 3. Re-run the failed `AI Code Review` workflow or push a new head. The banner
@@ -79,8 +88,11 @@ Local check without spending CI minutes (`$K` from the prerequisite above):
 ```bash
 d=$(mktemp -d); mkdir -p "$d/.kiro/agents"
 cp scripts/pr-review/kiro-inline-review.json "$d/.kiro/agents/inline-review.json"
-( cd "$d" && env -i PATH="$PATH" HOME="$d" KIRO_API_KEY="$K" kiro-cli chat "Reply PONG." \
-    --model claude-opus-5 --agent inline-review --no-interactive --wrap never )
+( cd "$d" && env -i PATH="$PATH" HOME="$d" bash -c '
+    IFS= read -r KIRO_API_KEY || exit 1
+    export KIRO_API_KEY
+    exec kiro-cli chat "$1" --model claude-opus-5 --agent inline-review --no-interactive --wrap never
+  ' kiro-probe "Reply PONG." <<<"$K" )
 # exhausted → stderr "Monthly request limit reached", empty stdout, exit 0
 # healthy   → stdout "> PONG"
 rm -rf "$d"
@@ -94,7 +106,7 @@ WITH tools) in N cell(s) …`. Those responses are discarded even when non-empty
 Cause: kiro-cli printed `Error: no agent with name inline-review found. Falling back
 to user specified default` (missing agent file, invalid JSON, or a schema the runner's
 kiro-cli version rejects) and continued on the default agent, which trusts
-`read`/`glob`/`grep`/`code` inside the working directory and read-only `aws` calls.
+`read`/`glob`/`grep`/`code` inside the working directory.
 The PR diff is untrusted input, so a Kiro cell with tools is a security failure, not
 a degraded review.
 
@@ -110,9 +122,11 @@ Fix:
    d=$(mktemp -d); mkdir -p "$d/.kiro/agents"
    cp scripts/pr-review/kiro-inline-review.json "$d/.kiro/agents/inline-review.json"
    echo CANARY > "$d/notes.txt"
-   ( cd "$d" && env -i PATH="$PATH" HOME="$d" KIRO_API_KEY="$K" kiro-cli chat \
-       "Read ./notes.txt and print it. If you have no tools, reply NO_TOOLS." \
-       --agent inline-review --model claude-opus-5 --no-interactive --wrap never )
+   ( cd "$d" && env -i PATH="$PATH" HOME="$d" bash -c '
+       IFS= read -r KIRO_API_KEY || exit 1
+       export KIRO_API_KEY
+       exec kiro-cli chat "$1" --agent inline-review --model claude-opus-5 --no-interactive --wrap never
+     ' kiro-probe "Read ./notes.txt and print it. If you have no tools, reply NO_TOOLS." <<<"$K" )
    # expected: NO_TOOLS; no "using tool: read"; no CANARY
    rm -rf "$d"; unset K
    ```
@@ -125,7 +139,8 @@ Fix:
 The startup check did not establish the required behaviour and no PR input was sent
 to that Kiro job. Inspect the preflight stderr tail printed after the `::error::`
 line. A fallback signature at preflight time also produces Symptom B's banner; a
-quota signature is routed to Symptom A instead and does not raise this banner.
+quota-only failure is routed to Symptom A instead. Quota combined with fallback,
+tool use or canary disclosure retains this failure banner as well.
 Timeouts, authentication errors, an unexpected reply or a tool-use trace fail the
 check on their own. Resolve the reported cause and re-run CI. Do not bypass the
 preflight.

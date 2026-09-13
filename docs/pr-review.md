@@ -40,9 +40,11 @@ from the invocation so nobody mistakes them for one. The `--v3` engine ignores
 `tools: []` and is not used.
 
 Each Kiro job first runs a preflight: a fixed canary prompt with the same profile
-in a fresh directory holding only the profile and a random canary file must
+in a fresh directory with the profile and a random canary file must
 return exactly `NO_TOOLS`; otherwise the PR diff is withheld from that job's
-cells and the chair forces failure. After the review, stderr signatures for an
+cells and the chair forces failure, except for a quota-only failure whose severity
+is left to the coverage floors. Quota never suppresses evidence of agent fallback,
+tool use or canary disclosure. After the review, stderr signatures for an
 ignored `--agent` (response discarded, forced failure) and for monthly quota
 exhaustion (`Monthly request limit reached`, at preflight or review time, not
 retried, cause named in the comment, severity left to the coverage floors) are

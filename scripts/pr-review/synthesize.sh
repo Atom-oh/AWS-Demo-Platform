@@ -210,7 +210,7 @@ fi
 # account hit MONTHLY_REQUEST_COUNT — so the comment states the human action and reset date.
 if [ -s "$WORK/kiro-quota.flag" ]; then
   QUOTA_DETAIL="$(tr '\n' ' ' < "$WORK/kiro-quota.flag" | sed 's/ *$//')"
-  { echo "🚫 **Kiro monthly request quota exhausted**: the KIRO_API_KEY account reached its MONTHLY_REQUEST_COUNT limit, so Kiro cells returned nothing (\`$QUOTA_DETAIL\`) — not a kiro-cli headless-flag failure. Repeats every run until overages are enabled or the key in \`/demo-platform/actions/AI-key\` is rotated. Procedure: docs/runbooks/pr-review-panel.md"
+  { echo "🚫 **Kiro monthly request quota exhausted**: the KIRO_API_KEY account reached its MONTHLY_REQUEST_COUNT limit, so Kiro cells returned nothing (\`$QUOTA_DETAIL\`) — not a kiro-cli headless-flag failure. Account-owner recovery must follow the existing budget policy; do not enable paid overages merely to pass review. Approved key: \`/demo-platform/actions/AI-key\`. Procedure: docs/runbooks/pr-review-panel.md"
     echo ""
     cat "$OUT"
   } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"

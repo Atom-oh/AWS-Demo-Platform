@@ -185,9 +185,9 @@ PY
   # tool-enabled agent, so first prove the no-tools contract with a fixed, harmless prompt
   # and a random canary file in the cwd: the only acceptable reply is NO_TOOLS. Any other
   # outcome withholds the PR diff from every Kiro cell of this job. A quota signature at
-  # this point is an account outage, not a contract breach: it leaves only the quota flag
-  # (warn-level, coverage floors decide) so an exhausted month does not force FAIL on every
-  # PR. Everything else (canary contents, a tool-use trace, a fallback signature, rc≠0)
+  # this point is an account outage only when no fallback, tool-use trace or disclosed
+  # canary is present: quota alone leaves only the quota flag (coverage floors decide).
+  # Mixed evidence retains both causes and the failed preflight. Everything else (rc≠0)
   # also writes the preflight flag, which aggregate.sh escalates to coverage-severe.
   # Costs one extra request per Kiro job. stdin is /dev/null, not $DIFF.
   if command -v kiro-cli >/dev/null 2>&1; then
@@ -215,18 +215,24 @@ PY
     then
       KIRO_PREFLIGHT_OK=1
       echo "Kiro preflight passed: $MODEL_TAG (no PR input sent)" >&2
-    elif grep -qE "$KIRO_QUOTA_RE" "$PREFLIGHT_ERR"; then
+    elif grep -qE "$KIRO_QUOTA_RE" "$PREFLIGHT_ERR" \
+        && ! grep -qiE "$KIRO_AGENT_FALLBACK_RE|using tool:" "$PREFLIGHT_ERR" \
+        && ! grep -Fqf "$PREFLIGHT_CWD/preflight-canary.txt" "$PREFLIGHT_OUT"; then
       KIRO_SKIP_REASON="monthly quota exhausted at preflight"
       { echo "[preflight $MODEL_TAG]"; grep -E "$KIRO_QUOTA_RE|limits reset on" "$PREFLIGHT_ERR" | strip_ansi | scrub_secrets | head -3; } \
         | tr '\n' ' ' | sed 's/ *$//' > "$SLOT/kiro-quota-$MODEL_TAG.flag"; echo >> "$SLOT/kiro-quota-$MODEL_TAG.flag"
-      echo "::error::Kiro monthly request quota exhausted for KIRO_API_KEY at $MODEL_TAG preflight: $(cat "$SLOT/kiro-quota-$MODEL_TAG.flag") — enable overages or rotate the key (/demo-platform/actions/AI-key); Kiro cells skipped, not a headless-flag or no-tools failure" >&2
+      echo "::error::Kiro monthly request quota exhausted for KIRO_API_KEY at $MODEL_TAG preflight: $(cat "$SLOT/kiro-quota-$MODEL_TAG.flag") — restore provider access under the account policy (/demo-platform/actions/AI-key); Kiro cells skipped, not a headless-flag or no-tools failure" >&2
     else
       KIRO_SKIP_REASON="preflight failed"
       printf '%s\n' "$MODEL_TAG startup check failed (exit $PREFLIGHT_RC); PR input withheld from all $MODEL_TAG cells." \
         > "$SLOT/kiro-preflight-$MODEL_TAG.flag"
-      if grep -qE "$KIRO_AGENT_FALLBACK_RE" "$PREFLIGHT_ERR"; then
-        grep -E "$KIRO_AGENT_FALLBACK_RE" "$PREFLIGHT_ERR" | strip_ansi | scrub_secrets | head -2 \
+      if grep -qiE "$KIRO_AGENT_FALLBACK_RE" "$PREFLIGHT_ERR"; then
+        grep -Ei "$KIRO_AGENT_FALLBACK_RE" "$PREFLIGHT_ERR" | strip_ansi | scrub_secrets | head -2 \
           > "$SLOT/kiro-agent-fallback-$MODEL_TAG.flag"
+      fi
+      if grep -qE "$KIRO_QUOTA_RE" "$PREFLIGHT_ERR"; then
+        { echo "[preflight $MODEL_TAG]"; grep -E "$KIRO_QUOTA_RE|limits reset on" "$PREFLIGHT_ERR" | strip_ansi | scrub_secrets | head -3; } \
+          | tr '\n' ' ' | sed 's/ *$//' > "$SLOT/kiro-quota-$MODEL_TAG.flag"; echo >> "$SLOT/kiro-quota-$MODEL_TAG.flag"
       fi
       echo "::error::Kiro preflight failed for $MODEL_TAG (exit $PREFLIGHT_RC) — no PR input sent to Kiro; see docs/runbooks/pr-review-panel.md" >&2
       strip_ansi < "$PREFLIGHT_ERR" | scrub_secrets | tail -25 >&2
@@ -326,15 +332,15 @@ fi
 # Quota exhaustion: any `$slot.quota` marker pins the real cause (the KIRO_API_KEY
 # account's MONTHLY_REQUEST_COUNT limit and its reset date) instead of the degraded
 # banner's generic guesses. Every repo sharing this runner image consumes the same key,
-# so the fix is account-side (enable overages or rotate KIRO_API_KEY in Secrets Manager
-# /demo-platform/actions/AI-key), not a code change. Coverage rules are unchanged.
+# so recovery belongs to the account owner under the existing quota/budget policy.
+# /demo-platform/actions/AI-key holds the approved key. Coverage rules are unchanged.
 shopt -s nullglob
 QUOTA_MARKERS=("$SLOT"/*.quota)
 shopt -u nullglob
 if [ "${#QUOTA_MARKERS[@]}" -gt 0 ]; then
   QUOTA_DETAIL="$(cat "${QUOTA_MARKERS[@]}" | scrub_secrets | grep -v '^\s*$' | sort -u | tr '\n' ' ' | sed 's/ *$//')"
   QUOTA_CELLS="$(for q in "${QUOTA_MARKERS[@]}"; do basename "$q" .md.quota; done | tr '\n' ' ' | sed 's/ *$//')"
-  echo "::error::Kiro monthly request quota exhausted for KIRO_API_KEY — ${#QUOTA_MARKERS[@]} cell(s) [$QUOTA_CELLS]: $QUOTA_DETAIL — enable overages or rotate the key (/demo-platform/actions/AI-key); not a headless-flag failure" >&2
+  echo "::error::Kiro monthly request quota exhausted for KIRO_API_KEY — ${#QUOTA_MARKERS[@]} cell(s) [$QUOTA_CELLS]: $QUOTA_DETAIL — restore provider access under the account policy (/demo-platform/actions/AI-key); not a headless-flag failure" >&2
   printf '%s\n' "[$QUOTA_CELLS] $QUOTA_DETAIL" > "$SLOT/kiro-quota-$MODEL_TAG.flag"
   rm -f "${QUOTA_MARKERS[@]}"
 fi
