@@ -1,10 +1,10 @@
-# Specialist review protocol — planned contract
+# Specialist review protocol
 
-The protocol below is planned; its Python commands become available only after
-the separate implementation PR lands. Current reviews still use the existing
-`run-panel.sh`, `synthesize.sh` and project collector. No new execution path is
-activated by this documentation change.
+**Planned contract:** implementation and tests arrive in the following PR.
+The legacy review pipeline remains active.
 
+Offline protocol; legacy review remains active. Executors/adapters need separate
+activation review. No Git fetch or model calls.
 
 | Tag | Requested model | Scope |
 | --- | --- | --- |
@@ -60,7 +60,7 @@ Require empty diff/paths, `scope_exception: configured_exclusions_only`, lowerca
 shows exclusions/hash. Accidental empty input never qualifies. New exclusions
 need policy review; project-specific exceptions remain.
 
-Start fresh work before collection. `prepare` clears owned outputs, claims,
+Start fresh work before collection. `prepare` clears owned results/receipts, claims,
 duplicate/terminal flags and histories; upstream flags remain. Issue/record exclude
 each other; interrupted operations require fresh work. Duplicate records retain
 the first result and block. Finish writers before aggregation. Reissue archives
@@ -93,5 +93,14 @@ must restore them from trusted inputs/receipts before aggregation, never publish
 Valid historical Critical/Major findings and uncertainties remain in adjudication;
 a clean retry cannot discard them or establish current-role coverage.
 
-The table targets CI's Bedrock Runtime model IDs. Local Mantle configuration uses
-`openai.gpt-6-astra` for Astra; provider-specific IDs are not interchangeable.
+Exclusions-only review requires both `--allow-exclusions-only --policy FILE`.
+The trusted BASE collector supplies a schema-1 policy; its exact bytes must match
+`input_policy_sha256`. The private `exclusions-policy.json` anchor is rechecked
+during aggregation. Missing or mismatched opt-in blocks. The collector, not this
+offline library, must establish complete Git scope and approved exclusions.
+
+Valid historical Critical/Major candidates and uncertainties remain subject to
+adjudication after reissue; old attempts never provide current-role coverage.
+
+The model table targets CI's Bedrock Runtime provider. Local Mantle uses
+`openai.gpt-6-astra` for Astra; provider-specific identifiers are not interchangeable.
