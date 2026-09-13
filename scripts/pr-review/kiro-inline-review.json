@@ -1,0 +1,10 @@
+{
+  "name": "inline-review",
+  "description": "Review supplied diff text without tools.",
+  "prompt": "Review only supplied text. No tool calls are available.",
+  "tools": [],
+  "allowedTools": [],
+  "mcpServers": {},
+  "resources": [],
+  "hooks": {}
+}

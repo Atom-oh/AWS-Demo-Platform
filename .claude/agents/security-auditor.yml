@@ -46,18 +46,18 @@ color: red
 #    - Verify accounts.yaml has no embedded secrets (only ARNs + ExternalId references)
 #
 #  IAM / Trust:
-#    - All cross-account assume-role trust policies enforce ExternalId
-#    - AtlantisIRSARole scoped (no wildcard *) — must only assume DemoPlatformTerraformer
+#    - Configured cross-account application roles require ExternalId; OIDC/IRSA use claim conditions
+#    - Inspect Atlantis IRSA trust and grants in infra/atlantis-bootstrap/main.tf; verify each wildcard and condition in scope
 #    - DemoPlatformTerraformer scoped to required services only
 #    - No IAM user access keys in code (only roles)
 #
 #  Network:
-#    - All ALB SGs accept ONLY CF VPC Origin source SG + 10.0.0.0/8
+#    - Platform internal ALB HTTPS SG accepts CF VPC Origin source SG + 10.0.0.0/8
 #    - No 0.0.0.0/0 ingress on internal LBs
 #    - No public LBs introduced
 #    - No Kubernetes Ingress resource (must be TGB)
 #
 #  Configuration:
-#    - ArgoCD admin password rotated and stored in Secrets Manager
+#    - Distinguish declared secret references from verified persisted credentials and container reloads
 #    - Cognito user pool callback URLs scoped to known hosts (no wildcards)
 #    - CLAUDE.md contains no secrets

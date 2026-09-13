@@ -3,6 +3,8 @@
 ## Status
 Accepted (Stage 2, 2026-05-28)
 
+Current applicability reviewed 2026-09-13; the decision remains in use.
+
 ## Context
 
 The worker's ArgoCD controller implements the HPA-2 on/off pattern: read the
@@ -45,11 +47,31 @@ ArgoCD's `resource-tree` and resource GET/POST-patch endpoints.
 
 ### Negative
 - Slightly higher latency than direct k8s calls (fine for an admin tool).
-- Token rotation is manual in v0.X; a dedicated ArgoCD service account with a
-  managed token is deferred to Stage 4.
-- `eks:DescribeCluster` is still granted to the task role for a future
-  direct-k8s fallback, but is unused on this path today.
+- Token rotation is manual; the proposed service-account/token-management
+  replacement and direct-Kubernetes fallback are not implemented.
+
+## Current applicability
+
+One worker-wide client uses `ARGOCD_BASE_URL`. `listWorkloads(application,
+namespace)` filters the Application's resource tree to Deployment, StatefulSet
+and HPA handles in the requested namespace. The resource's `cluster` and
+`hpa_handling` fields do not select another endpoint or alternate controller
+behavior; the controller always uses the scale-to-one pattern.
+
+Since 2026-08-20, each controller call supplies its resource's namespace,
+replacing the former placeholder. Off captures live state, pins HPA min/max to 1,
+then patches workload replicas to 1. On restores saved HPA bounds before workload
+replicas. Scale uses the same HPA-first order and rejects an empty handle list;
+on/off can complete without matching handles.
+
+These are REST mutations, not readiness checks. Baseline persistence occurs
+after controller completion, and ArgoCD diff exclusions alone do not protect
+against a later sync. See [ADR-017](ADR-017-demo-scale-job-operation.md) for
+baseline failure windows and sync-policy limits.
 
 ## References
-- `docs/superpowers/specs/2026-05-28-stage-2-lifecycle-controller-design.md` §4.3
-- `dashboard/backend/packages/shared/src/argocd/client.ts`
+
+- [Original controller design](../superpowers/specs/2026-05-28-stage-2-lifecycle-controller-design.md)
+- [REST client](../../dashboard/backend/packages/shared/src/argocd/client.ts),
+  [controller](../../dashboard/backend/packages/worker/src/controllers/argocd.ts),
+  [controller tests](../../dashboard/backend/packages/worker/src/controllers/__tests__/argocd.test.ts)

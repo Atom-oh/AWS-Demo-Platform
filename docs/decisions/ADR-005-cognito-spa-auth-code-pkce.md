@@ -40,12 +40,14 @@ flowchart LR
 UI → `/auth/callback` exchanges the code (with the PKCE verifier and a `state`
 CSRF check) → tokens. The SPA sends the **access** token as
 `Authorization: Bearer` — the api verifies `tokenUse:'access'` + `clientId` and
-checks `cognito:username` ∈ `ADMIN_USERNAMES`, so the id token must NOT be sent.
+checks the verified access token's `username` against `ADMIN_USERNAMES`.
+The verifier adapter maps `username` to the plugin's internal
+`cognito:username` field; that internal name is not the access-token claim name.
+The ID token is used for display, not API authorization.
 Access/id tokens live in memory; the refresh token is kept in `sessionStorage` for
 reload survival, with a silent refresh ~60s before expiry.
-`NEXT_PUBLIC_AUTH_ENABLED=false` is the local-dev bypass mirroring the api
-`skipJwt`. For a single-admin non-prod tool we accept in-memory + sessionStorage
-over a BFF.
+`NEXT_PUBLIC_AUTH_ENABLED=false` bypasses the frontend login UI only.
+For a single-admin non-prod tool we accept in-memory + sessionStorage over a BFF.
 
 ## Consequences
 
@@ -56,8 +58,33 @@ over a BFF.
 ### Negative
 - Tokens are XSS-exposed (documented; a cookie BFF is a future tightening).
 - `NEXT_PUBLIC_*` are inlined at build time, so the prod image must be built with the prod Cognito values (client id, redirect/logout URIs, `AUTH_ENABLED=true`).
-- Sending the wrong token type (id instead of access) is a silent 401 — easy to get wrong.
+- Sending the wrong token type (ID instead of access) produces 401.
+
+## Current applicability (2026-09-13)
+
+The production verifier validates the configured user pool, client and access-token
+use before the allowlist check. `/health` is exempt. Missing/invalid credentials
+return 401; a verified non-admin returns 403. Plugin tests inject an already-adapted
+fake verifier, so they do not validate the real Cognito claim adapter.
+
+The API entry point sets `skipJwt` only for literal `NODE_ENV=development`.
+All other values, including unset, enforce JWT; deployed dev tasks explicitly use
+`NODE_ENV=production`. The separate local dev-server injects `skipJwt: true`.
+Changing the frontend flag cannot relax server authorization.
+
+The frontend flag defaults to enabled, and `NEXT_PUBLIC_*` configuration is
+inlined at build time. CI builds the deployed **dev** Cognito configuration;
+its production-mode image is not a separate production environment.
+Refresh failure clears tokens and returns the UI to anonymous state.
+Cookie BFF/token-storage hardening remains unimplemented.
 
 ## References
-- `dashboard/frontend/lib/{auth,auth-config,pkce,token-store}.ts`, `components/AuthProvider.tsx`, `app/auth/callback/page.tsx`
-- `dashboard/backend/packages/api/src/plugins/jwt-cognito.ts`, `infra/cognito/main.tf`; PR #19
+
+- [OAuth functions](../../dashboard/frontend/lib/auth.ts),
+  [token store](../../dashboard/frontend/lib/token-store.ts),
+  [auth provider](../../dashboard/frontend/components/AuthProvider.tsx)
+- [Verifier/plugin](../../dashboard/backend/packages/api/src/plugins/jwt-cognito.ts),
+  [entry point](../../dashboard/backend/packages/api/src/server.ts),
+  [plugin tests](../../dashboard/backend/packages/api/src/__tests__/jwt-cognito.test.ts)
+- [Cognito configuration](../../infra/cognito/main.tf),
+  [frontend CI build arguments](../../.github/workflows/frontend-ci.yml); PR #19

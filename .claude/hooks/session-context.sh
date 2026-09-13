@@ -2,7 +2,7 @@
 # Load project context at Claude Code session start.
 
 echo "=== Project Context ==="
-echo "Project: AWS Demo Platform (Terraform + K8s/ArgoCD + future Next.js dashboard)"
+echo "Project: AWS Demo Platform (Terraform + K8s/ArgoCD + Next.js dashboard + Fastify/SQS backend)"
 
 LAST_COMMIT=$(git log -1 --format="%h %s (%cr)" 2>/dev/null)
 [ -n "$LAST_COMMIT" ] && echo "Last commit: $LAST_COMMIT"

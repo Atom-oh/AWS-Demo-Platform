@@ -1,38 +1,42 @@
-# MRA mgmt-manifest migration — Design
+# Management manifest migration — historical design
 
-**Date**: 2026-06-03
-**Status**: Implemented
-**Goal**: Make AWS-Demo-Platform the sole git source for all hub mgmt-cluster k8s manifests; sever the remaining `multi-region-architecture` (MRA) git dependency for system components.
+**Date:** 2026-06-03. **Original status:** implemented.
+**Reconciled:** 2026-09-13. Repository manifests support the source handoff;
+this document does not reverify live ownership. Original examples remain in Git history.
 
-## Context
+## Intent and scope
 
-After Stage 1, most hub system components were already AppSets in AWS-Demo-Platform sourcing Helm chart repos directly (argocd, atlantis, external-secrets, CSS, alb-controller, ARC + runners, karpenter chart, clickhouse-operator, otel, prometheus). Four AppSets still sourced **manifests** from MRA git, and the runner AppSets referenced MRA only as a `githubConfigUrl` runner-target value (not a manifest source — left unchanged).
+Make AWS Demo Platform the Git source for hub system manifests while retaining
+existing clusters. Four manifest groups still sourced from
+`multi-region-architecture` (MRA): Grafana dashboards, StorageClasses,
+runner-scheduler and Karpenter base/overlays. Their manifests moved into
+`k8s/system/` and their ApplicationSets were repointed here.
 
-## Scope
+Tenant workloads remained in MRA. Runner `githubConfigUrl` identifies the
+repository receiving runners, not a manifest source; those values were outside
+this migration. Terraform/state migration and upstream file deletion were
+separate ownership tasks. Sibling Karpenter bases had to move with their overlays.
 
-In: copy 4 component manifest sets MRA `k8s/infra/*` → AWS-Demo-Platform `k8s/system/*` (faithful) and repoint their AppSets.
+## Trade-offs and corrections
 
-| Component | MRA path → local | AppSet | repoURL + path change |
-|---|---|---|---|
-| grafana dashboards | `k8s/infra/grafana` → `k8s/system/grafana` | `grafana-dashboards` | MRA→ADP, path→k8s/system/grafana |
-| storageclass | `k8s/infra/storageclass` → `k8s/system/storageclass` | `storageclass` | MRA→ADP, path→k8s/system/storageclass |
-| runner-scheduler | `k8s/infra/runner-scheduler` → `k8s/system/runner-scheduler` | `runner-scheduler` | MRA→ADP, path→k8s/system/runner-scheduler |
-| karpenter (base + az-a/az-c/mgmt overlays) | `k8s/infra/karpenter*` → `k8s/system/karpenter*` | `infra-karpenter-crds` | MRA→ADP, karpenterPath→k8s/system/karpenter-apne2-* |
+The intended cutover copied existing resources to minimize changes and used
+Kustomize rendering plus ArgoCD sync/health checks. It was not wholly byte-identical:
+the old public `grafana-nlb.yaml` was deliberately omitted because it violated
+CloudFront-only public ingress. That omission could prune an active route and
+was not itself proof of a complete Grafana replacement.
 
-Out: tenant workloads (`workloads-apne2-*` — stay in MRA per hub-spoke design), runner `githubConfigUrl` values, MRA git deletion (separate later), Terraform (`eks-mgmt` already migrated in Stage 1).
+Grafana's later private-route/credential work is recorded in
+[ADR-018](../../decisions/ADR-018-grafana-private-origin.md). Future cutovers must
+inventory cross-repository consumers, verify a replacement and only then retire
+the old resource; use the [release runbook](../../runbooks/review-and-release.md).
+The internal NLB exception in
+[ADR-007](../../decisions/ADR-007-mgmt-observability-internal-nlb-exception.md)
+permits private observability fan-in, not a public Grafana fallback.
 
-## Cutover
+## Current sources
 
-Single PR: faithful copy + repoint. Manifests are byte-identical to MRA, so on merge `master-system-root` syncs the updated AppSets and ArgoCD re-syncs identical content from the new source (ServerSideApply) — no resource churn. Validated each dir with `kubectl kustomize` (karpenter overlays use `--load-restrictor LoadRestrictionsNone`, already enabled cluster-wide in `argocd-cm`); `k8s/system/grafana` renders identically to MRA.
-
-## Risks / notes
-
-- Karpenter overlays reference the sibling `../karpenter` base — base copied alongside; sibling layout preserved.
-- `actions-runner` (namespace + placeholder secret) is not referenced by any ADP AppSet — not migrated.
-- **`grafana-nlb.yaml` intentionally dropped**: MRA's `k8s/infra/grafana` bundled an `internet-facing` public NLB (with hardcoded MRA subnet/SG IDs) to expose Grafana — this violates the platform's CloudFront-only ingress rule (no public LBs). Only the dashboard ConfigMaps are migrated. On sync the live public NLB is pruned (security improvement); proper Grafana exposure via CF→VPC Origin→Internal ALB→TGB is a separate follow-up.
-- MRA dirs remain after this PR (harmless; nothing sources them once repointed). MRA cleanup is a separate optional PR.
-
-## DoD
-
-- ArgoCD apps `grafana-dashboards`, `storageclass-*`, `runner-scheduler`, `infra-karpenter-crds-*` Synced+Healthy, sourced from AWS-Demo-Platform.
-- 0 hub system apps sourced from MRA git (only the 2 tenant `workloads-apne2-*` remain, by design).
+[System ApplicationSets](../../../argocd-apps/system/),
+[system manifests](../../../k8s/system/) and
+[current architecture](../../architecture.md) define present paths and ownership.
+The old claim that no hub system source remained in MRA was an acceptance target;
+verify actual Application sources before deleting upstream definitions.

@@ -23,7 +23,9 @@ flowchart LR
 
 ### Option 1: Cross-host — frontend and api on separate distributions, Next.js proxies /api/*
 - **Pros**: two simple single-origin distributions; mirrors the existing per-host pattern.
-- **Cons**: the Next.js server-side rewrite re-issues a server-to-api request that does not carry the browser's Cognito `Authorization` header by default; reintroduces CORS and token-forwarding fragility; two public hosts the browser must trust; an `API_ORIGIN` env to manage in the task.
+- **Cons**: adds a server proxy and `API_ORIGIN` configuration whose header
+  forwarding must be verified. Direct browser calls to a second host would
+  additionally require CORS; a same-origin proxy does not inherently require it.
 
 ### Option 2: Same-origin — one distribution for admin-dev with two origins/behaviors
 - **Pros**: the browser stays on one origin, so no CORS; the access-token Bearer rides the same-origin `/api/*` request unchanged; client code uses relative `/api/*` paths; no `API_ORIGIN` in the ECS task.
@@ -43,7 +45,7 @@ The critical point: the default `AllViewer` policy forwards the *viewer* `Host`
 rule (130) and break every api call. `AllViewerExceptHostHeader` makes CloudFront
 set `Host` = the *origin's* `domain_name` (`admin-api-dev` → rule 120,
 `admin-dev` → rule 130) while still forwarding `Authorization`. `CachingDisabled`
-ensures POST toggles and auth are never cached.
+disables response caching for these dashboard behaviors.
 
 ## Consequences
 
@@ -55,7 +57,23 @@ ensures POST toggles and auth are never cached.
 - The `AllViewer` vs `AllViewerExceptHostHeader` distinction is subtle and was an initial routing bug (the `/api/*` behavior with `AllViewer` mis-routed to the frontend); cross-host behaviors must keep `ExceptHostHeader`.
 - `admin-api-dev.atomai.click` remains a separate public distribution; locking it to internal-only is a future tightening.
 
+## Current applicability (2026-09-13)
+
+The two dashboard behaviors still use `AllViewerExceptHostHeader` with
+`CachingDisabled`. Both origins use the shared VPC Origin/internal ALB;
+the API remains independently authenticated. The separate API distribution
+uses `AllViewer` for its own API hostname.
+
+Next.js defines its rewrite unconditionally, but deployed `/api/*` traffic is
+routed by CloudFront before reaching Next.js. The rewrite serves local
+development; it is not evidence that Next.js drops Authorization by default.
+The original choice was about routing ownership and avoiding an additional
+production proxy, not a framework limitation.
+
 ## References
-- `infra/cloudfront/main.tf` (`aws_cloudfront_distribution.dashboard_frontend`)
-- `infra/alb-internal/main.tf` (listener rules 120 api / 130 frontend), `dashboard/frontend/next.config.mjs`
-- `docs/superpowers/specs/2026-06-03-dashboard-public-deploy-design.md` (locked decision #2); PR #19
+
+- [CloudFront](../../infra/cloudfront/main.tf),
+  [ALB rules](../../infra/alb-internal/main.tf),
+  [Next.js rewrite](../../dashboard/frontend/next.config.mjs)
+- [Original public-deployment design](../superpowers/specs/2026-06-03-dashboard-public-deploy-design.md)
+  (locked decision #2); PR #19

@@ -1,4 +1,4 @@
-<!-- generated-by: co-agent · source: CLAUDE.md · claude-md-sha: 016b4c3cbd51 · generated-at: 2026-09-13 · DO NOT EDIT — edit CLAUDE.md then run /co-agent sync-context -->
+<!-- generated-by: co-agent · source: CLAUDE.md · claude-md-sha: c8d709918b27 · generated-at: 2026-09-13 · DO NOT EDIT — edit CLAUDE.md then run /co-agent sync-context -->
 > You are an external reviewer for this repo — project context below, distilled from CLAUDE.md. This file is shared verbatim by Kiro, Codex, and Agy (not a per-AI copy).
 
 # AWS Demo Platform review context
@@ -53,8 +53,9 @@ Verify required coverage and current-head findings independently.
   `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build`. CI currently omits tests.
 - `bash tests/run-all.sh`; inspect skips. Grafana needs kubectl/PyYAML. Structure
   checks assume primary-checkout `.git/hooks`, a linked-worktree limitation.
-- Terraform 1.9.6 is pinned in Atlantis; do not justify it with an unverified GPG
-  defect. S3 `multi-region-mall-terraform-state`, unique key per root, DynamoDB
+- Terraform 1.9.6 is pinned in Atlantis. The recorded GPG failure concerned an
+  older image; the deployment manifest records renewal, not a current upgrade
+  blocker. S3 `multi-region-mall-terraform-state`, unique key per root, DynamoDB
   `multi-region-mall-terraform-locks`; no TF 1.10+ `use_lockfile`. Init/fmt/validate
   and review a real plan before apply. Render owning Kustomize overlays and dry-run
   with explicit verified context and prerequisites.
