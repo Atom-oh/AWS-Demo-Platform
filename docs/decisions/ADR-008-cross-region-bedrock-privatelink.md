@@ -1,26 +1,33 @@
-# ADR-008: Cross-region private Bedrock connectivity via TGW + PrivateLink
+# ADR-008: Cross-region private Bedrock connectivity via TGW and PrivateLink
 
 ## Status
-Superseded by ADR-009 (2026-07-05)
 
-## Context
-The multi-AI PR review panel and interactive tooling call Bedrock in us-east-1/us-east-2
-(`bedrock-runtime`, `bedrock-mantle` for `openai.gpt-5.5`/codex) from ap-northeast-2 over
-the public internet (NAT→IGW). Two consumer VPCs need this private: mgmt-vpc (10.254/16)
-and production-vpc (10.2/16), both already attached to the existing TGW `tgw-0162c7d68d7886619`.
-Interface endpoints are regional and their private DNS only applies within the endpoint VPC.
+Fully superseded by [ADR-009](ADR-009-revert-bedrock-privatelink-to-public-path.md)
+on 2026-07-05. Historical design only; `infra/bedrock-privatelink/` is absent from
+the current repository and is not an apply target.
 
-## Decision
-Reuse the existing ap-ne2 TGW and create per-region us-east TGWs joined by **inter-region TGW
-peering** (2 peerings) rather than VPC peering (which would need 2 consumers × 2 regions = 4
-peerings). Dedicated endpoint VPCs (10.60.0.0/24, 10.61.0.0/24) host the interface endpoints
-with `private_dns_enabled = false`; cross-region name resolution uses Route 53 Private Hosted
-Zones (`bedrock-runtime.<r>.amazonaws.com`, `bedrock-mantle.<r>.api.aws`) associated to both
-consumer VPCs, pointing to the endpoint ENI private IPs.
+## Historical context and decision
 
-## Consequences
-- + Both consumers covered with 2 inter-region peerings; existing TGW reused.
-- + No public-internet path for us-east Bedrock once consumers resolve via the PHZ.
-- − ~$170–220/mo standing cost (4 interface endpoints + 2 TGWs + 2 peerings + data).
-- − The module adds routes to a TGW/consumer RTs managed out-of-band; additive only, confirm via `atlantis plan`.
-- Alternatives rejected: VPC peering (4 cross-region peerings), relocating codex to us-east (ARC topology rework).
+The design sought private Bedrock runtime/mantle access from the Seoul management
+and production VPCs to then-selected endpoints in `us-east-1` and `us-east-2`.
+It reused the Seoul TGW and proposed two regional endpoint VPCs
+(`10.60.0.0/24`, `10.61.0.0/24`), two US TGWs and two inter-region TGW peerings.
+Interface endpoints disabled private DNS; Route 53 private hosted zones associated
+with both consumer VPCs mapped service names to endpoint ENI addresses.
+
+This covered two consumers with two TGW peerings instead of four VPC peerings.
+Relocating review runners to a US region was rejected because it required changing
+the ARC topology. Endpoint, DNS and route changes formed one connectivity contract;
+none alone established a private working path.
+
+## Historical trade-offs
+
+The decision estimated **$170–220/month** of standing cost for endpoints, TGWs,
+peerings and traffic assumptions. This was a planning estimate, not current pricing,
+a verified bill or guaranteed savings after removal. The design also added routes
+to shared infrastructure owned elsewhere, increasing coordination and debugging.
+
+ADR-009 records the reversal. Preserve this rationale without recreating the
+removed stack or treating its regions/model names as current review configuration.
+Use [architecture](../architecture.md) and the workflow/runner sources for the
+implemented system.

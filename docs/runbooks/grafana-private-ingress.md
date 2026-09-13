@@ -19,8 +19,9 @@ Neither the binding object nor the Service ClusterIP is an additional ALB traffi
 
 The repository already configures the chart and both sidecars to use
 `monitoring/grafana-admin`. Its Secret keys are `admin-user` and `admin-password`.
-The persisted login remains `admin`; changing the JSON username alone does not
-rename that database account. Terraform manages only the secret container, with
+The 2026-09-11 recovery used persisted login `admin`; verify the database account
+before rotating. Changing the JSON username alone does not rename it.
+Terraform manages only the secret container, with
 seven-day recovery; older dashboard `slot` resources retain their zero-day policy.
 
 Resolve live IDs from outputs/APIs before operations. The 2026-09-11 recovery used
@@ -84,8 +85,11 @@ restart containers or refresh their environment variables automatically.
    sync it. Keeping the changed Pod template in Git avoids self-heal removing an
    out-of-band restart annotation and causing another `Recreate` rollout. Never
    use a credential value as the rollout marker.
-6. Verify rollout completion, all six credential references, target health, login
-   and an authenticated datasource query. Until consumers restart, old sidecar
+6. Verify rollout completion and all six credential references in the rendered
+   Pod spec (username/password for Grafana and both sidecars), plus target health,
+   login and an authenticated datasource query. The ApplicationSet has one
+   `existingSecret` setting; Helm expands it into these references.
+   Until consumers restart, old sidecar
    credentials can cause provisioning-reload 401s. Avoid repeated bad logins while
    checking rejection.
 

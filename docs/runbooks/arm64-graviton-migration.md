@@ -1,90 +1,81 @@
-# Runbook: api/worker arm64 (Graviton) migration & rollback
+# ARM64 migration and architecture rollback
 
-Covers the one-time switch of the `demo-platform-{api,worker}-dev` ECS Fargate
-services from `X86_64` (amd64 images) to `ARM64` (native arm64 / Graviton),
-introduced in PR #16. This is a historical migration procedure; its service counts
-and old architecture describe that rollout, not current runtime status. For ongoing
-rollouts, use [the ECS guide](../../infra/dashboard-ecs/CLAUDE.md) and verify the
-actual task-definition revision and image first.
+PR #16 introduced the API/worker migration from X86_64 to ARM64 in June 2026.
+That migration is historical; current Terraform declares ARM64 for API, worker
+and frontend. Old task revisions, image tags and worker counts are not a live
+inventory. Use the [rollout procedure](dashboard-public-deploy-execution.md) for
+normal deployments and the [ECS guide](../../infra/dashboard-ecs/CLAUDE.md) for
+source ownership.
 
-## Why order matters
+## Architecture boundary
 
-The ECS services declare `ignore_changes = [task_definition, desired_count]`
-(`infra/dashboard-ecs/main.tf`). Consequences:
+`infra/dashboard-ecs/main.tf` ignores service `task_definition` and `desired_count`
+drift. Terraform can register a new revision without updating a service. Backend
+CI publishes native ARM64 `sha-<12-character-commit>` and `main-latest` images;
+it does not roll services. `data.tf` still selects the floating `main-latest` tag.
 
-- `atlantis apply` **registers a new ARM64 task-definition revision** but does
-  **not** move the running service onto it — the service stays on its current
-  revision until an explicit, out-of-band `aws ecs update-service`.
-- The image roll is **manual** (`aws ecs update-service`); there is no GHA step
-  that does it. `backend-ci.yml` only builds and pushes images to ECR.
-- Both task defs reference the floating `:main-latest` tag
-  (`infra/dashboard-ecs/data.tf`), which `push-images` overwrites with arm64 on
-  merge to `main`.
+An X86_64 task revision pulling an ARM64 image can fail with `exec format error`.
+Updating a floating image tag before moving every affected service creates a
+restart hazard. The original rollout's cached running image was not protection
+against a later restart. Treat image architecture and task architecture as one
+reviewed selection; preserve a known-good image digest for recovery.
 
-The failure mode: if the service runs a **X86_64** revision while `:main-latest`
-has already become **arm64**, the task fails to start with `exec format error`.
-`api` is LIVE in dev, so this is real (brief downtime is acceptable per the
-non-production policy, but avoid the broken interim state).
+## Migration or recovery sequence
 
-## Deploy sequence (do in this exact order)
+1. Inventory actual service revisions/counts and each running image digest.
+   Preserve the previous compatible task definition and image. Initial Terraform
+   counts (including worker zero) do not establish current counts.
+2. Build/publish and inspect the intended architecture. Review/apply the matching
+   task definitions through Atlantis:
 
-1. **Merge PR** to `main`.
-   → `backend-ci` `push-images` builds natively on the `aws-demo-platform-arm`
-   self-hosted runner and pushes `sha-<sha>` + overwrites `:main-latest` as
-   **arm64** for both `api` and `worker`.
-
-2. **Apply Terraform** (registers the ARM64 task-def revisions):
-   ```
-   # in PR comment
+   ```text
+   atlantis plan -d infra/dashboard-ecs
    atlantis apply -d infra/dashboard-ecs
    ```
-   No service disruption yet — services still on the old X86_64 revision.
 
-3. **Move each service onto the new ARM64 revision** (this is the cutover):
-   ```bash
-   CLUSTER=demo-platform-dev
-   for svc in api worker; do
-     NEW_REV=$(aws ecs describe-task-definition \
-       --task-definition demo-platform-$svc-dev \
-       --query 'taskDefinition.taskDefinitionArn' --output text)
-     aws ecs update-service --cluster "$CLUSTER" \
-       --service "demo-platform-$svc-dev" \
-       --task-definition "$NEW_REV" --force-new-deployment
-   done
-   ```
-   > ⚠️ Do **not** run a bare `--force-new-deployment` without `--task-definition`
-   > pointing at the new ARM64 revision. That re-deploys the **old X86_64**
-   > revision against the now-arm64 `:main-latest` → `exec format error`.
+3. Select an explicit reviewed `family:revision` or ARN. Do not select the newest
+   family revision implicitly, or use a bare `--force-new-deployment` while the
+   old revision and moving tag disagree. Example for one service, with variables
+   set from the reviewed deployment record:
 
-4. **Verify** the api comes back healthy:
    ```bash
-   curl -fsS https://admin-api-dev.atomai.click/health   # expect 200
-   aws ecs describe-services --cluster demo-platform-dev \
-     --services demo-platform-api-dev \
-     --query 'services[0].deployments[].{status:status,taskDef:taskDefinition,running:runningCount}'
+   : "${SERVICE_NAME:?Set the intended demo-platform service}"
+   : "${TASK_DEFINITION:?Set the reviewed family:revision or ARN}"
+   aws ecs describe-task-definition --region ap-northeast-2 \
+     --task-definition "$TASK_DEFINITION" \
+     --query 'taskDefinition.{arn:taskDefinitionArn,platform:runtimePlatform,images:containerDefinitions[].image}'
+   aws ecs update-service --region ap-northeast-2 \
+     --cluster demo-platform-dev --service "$SERVICE_NAME" \
+     --task-definition "$TASK_DEFINITION" --force-new-deployment
+   aws ecs wait services-stable --region ap-northeast-2 \
+     --cluster demo-platform-dev --services "$SERVICE_NAME"
    ```
 
-`worker` runs at `desiredCount=0`, so its arch change is inert until it is
-scaled up (see `infra/dashboard-ecs/CLAUDE.md`); just ensure an arm64 image
-exists before scaling it to 1.
+4. Verify running task architecture/digests, target health, API auth and public
+   behavior as described in the rollout runbook. A zero-count service has no
+   running task to validate; record that limitation and verify it when enabled.
 
 ## Rollback
 
-Roll back by **immutable `sha-` tag**, never by `:main-latest` — once migrated,
-`:main-latest` is arm64, so a X86_64 task def must not pull it.
+Select a known-good task definition and retained image digest with matching
+architecture. SHA tags in these mutable ECR repositories are not enforced immutable.
+Do not point an X86_64 rollback definition at an ARM64 `main-latest` image.
 
-1. Find the last known-good amd64 image tag (a `sha-<sha>` pushed before the
-   migration) in ECR `demo-platform/{api,worker}`.
-2. Revert `infra/dashboard-ecs/main.tf` `cpu_architecture` to `X86_64` and point
-   `data.tf` `*_image` at that `sha-` tag (not `:main-latest`); `atlantis apply`.
-3. `aws ecs update-service ... --task-definition <reverted X86_64 rev> --force-new-deployment`.
+A cross-architecture rollback requires a reviewed Terraform change to both
+`cpu_architecture` and the selected image, then an explicit service update to the
+registered revision. Normal rollback stays ARM64. Preserve intended counts and
+verify the resulting tasks; reverting source alone does not roll ECS.
 
-## Operational dependency
+## Build dependency
 
-CI for the backend now depends on the `aws-demo-platform-arm` self-hosted runner
-(ARC scale-to-zero on the `mall-apne2-mgmt` hub). If that runner pool is down,
-`backend-ci` (lint-test + push-images) cannot run. Check ARC:
+Backend lint/test and image publication run on the `aws-demo-platform-arm` ARC
+fleet; frontend lint/build uses GitHub-hosted Ubuntu while its image job uses
+that ARM64 fleet. Check the explicitly verified hub context:
+
+```bash
+kubectl --context mall-apne2-mgmt -n actions-runner-system get pods \
+  -l actions.github.com/scale-set-name=aws-demo-platform-arm
 ```
-kubectl config current-context   # must be mall-apne2-mgmt
-kubectl -n actions-runner-system get pods | grep aws-demo-platform-arm
-```
+
+An idle scale-to-zero fleet may have no runner Pod. Inspect ARC listeners,
+queued jobs and Pod events before concluding that the fleet is unavailable.
