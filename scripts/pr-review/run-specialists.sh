@@ -5,6 +5,7 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 WORK="${3:?Expected diff, lenses directory and work directory}"
 REVIEW_CONTEXT_CAP="${REVIEW_CONTEXT_CAP:-12288}"
 if ! [[ "$REVIEW_CONTEXT_CAP" =~ ^[0-9]+$ ]] ||
+   [ "${#REVIEW_CONTEXT_CAP}" -gt 5 ] ||
    [ "$REVIEW_CONTEXT_CAP" -lt 1 ] || [ "$REVIEW_CONTEXT_CAP" -gt 12288 ]; then
   echo "run-specialists.sh: ADP REVIEW_CONTEXT_CAP must be 1..12288 bytes" >&2
   exit 2
