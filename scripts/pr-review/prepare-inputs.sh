@@ -126,3 +126,8 @@ if [ "$TOTAL_LINES" -gt "$MAX_LINES" ]; then
   done
   : > "$WORK/diff-truncated.flag"
 fi
+
+# Prepare the specialist contract under the same read-only GitHub token.
+if [ "${ROLE_REVIEW:-0}" = 1 ]; then
+  python3 "$(dirname "$0")/prepare_roles.py" --work "$WORK"
+fi

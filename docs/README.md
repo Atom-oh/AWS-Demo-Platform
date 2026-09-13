@@ -71,3 +71,5 @@ product UI and its test assertions may be Korean. Keep historical records concis
 retaining dates, rationale, limitations and links. Obsolete code transcripts remain
 in Git history rather than repeated in every review context. Templates are aids,
 not mandatory sections in every document.
+
+- [Specialist PR review](pr-review-specialists.md): current role routing, coverage and synthesis.

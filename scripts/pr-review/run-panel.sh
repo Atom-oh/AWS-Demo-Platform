@@ -10,6 +10,14 @@
 # is retried up to PANEL_RETRIES times.
 # One model's 4 lenses run in parallel (&+wait) — wall clock ~= the slowest lens.
 set -uo pipefail
+
+# CI selects the specialist protocol; legacy matrix fixtures remain isolated.
+if [ "${ROLE_REVIEW:-0}" = 1 ]; then
+  ROLE_DIR="$(cd "$(dirname "$0")" && pwd)"
+  . "$ROLE_DIR/lib.sh"
+  ensure_slots "$3"
+  exec python3 "$ROLE_DIR/run_role.py" --work "$3" --tag "$4"
+fi
 DIFF="$(realpath "$1" 2>/dev/null)" \
   || { echo "run-panel.sh: realpath failed to resolve diff path: $1" >&2; exit 1; }
 LENSES_DIR="$2"; WORK="$3"; MODEL_TAG="$4"
@@ -113,7 +121,7 @@ for lens_file in "${LENS_FILES[@]}"; do
     # model — no region pinning needed, unlike the prior gpt-5.6-sol/bedrock-mantle setup.
     if command -v codex >/dev/null 2>&1; then
       ( try_panel "$SLOT/codex-$lens.md" "$SLOT/codex-$lens.err" \
-          timeout "$T" codex exec -s read-only --skip-git-repo-check "$LENS_PROMPT" ) &
+          timeout "$T" codex exec --model global.openai.gpt-6-astra -s read-only --skip-git-repo-check "$LENS_PROMPT" ) &
     else echo "[skip] codex/$lens (binary absent)" >&2; : > "$SLOT/codex-$lens.md"; fi
   elif [ -n "$KIRO_TAG" ]; then
     # Kiro's non-interactive `chat` ignores stdin and reads only the prompt arg.
