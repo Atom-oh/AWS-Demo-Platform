@@ -2,7 +2,9 @@
 
 CI selects `ROLE_REVIEW=1`: trusted project inputs feed specialist executors,
 validated results feed aggregation, and substantive findings reach the chair.
-See [the project contract](../../docs/pr-review-specialists.md).
+`prepare_roles.py`, `run_role.py`, `synthesize_roles.py` and
+`restore_role_frames.py` own preparation, execution, adjudication and private
+frame restoration. See [the project contract](../../docs/pr-review-specialists.md).
 
 | Tag | Requested model | Responsibility |
 | --- | --- | --- |
@@ -99,7 +101,7 @@ request below 128 KiB. Projects may lower these. Oversized input blocks; there i
 no chunk coordinator and separate PASS results cannot establish larger coverage.
 Preserve existing source exclusions, custody and budget controls.
 
-Verify: `python3 -m unittest discover -s scripts/pr-review -p test_role_review.py`.
+Verify: `python3 -m unittest discover -s scripts/pr-review -p 'test_*role*.py'`.
 Offline CI: `.github/workflows/pr-review-roles-tests.yml`. Also run all `test_*role*.py` tests for executors/adapters, limits and publication.
 Offline tests do not prove live provider success.
 
