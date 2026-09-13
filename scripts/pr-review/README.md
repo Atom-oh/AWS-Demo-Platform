@@ -1,8 +1,5 @@
 # Specialist review protocol
 
-**Planned contract:** implementation and tests arrive in the following PR.
-The legacy review pipeline remains active.
-
 Offline protocol; legacy review remains active. Executors/adapters need separate
 activation review. No Git fetch or model calls.
 
@@ -104,3 +101,5 @@ adjudication after reissue; old attempts never provide current-role coverage.
 
 The model table targets CI's Bedrock Runtime provider. Local Mantle uses
 `openai.gpt-6-astra` for Astra; provider-specific identifiers are not interchangeable.
+
+React edits retain `kiro-sol`; altered or missing receipt-bound history blocks.

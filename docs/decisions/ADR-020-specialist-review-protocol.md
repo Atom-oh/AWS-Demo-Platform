@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted, 2026-09-13 (design; not live activation). Protocol implementation planned; the legacy workflow is still
+Accepted, 2026-09-13 (design; not live activation). Protocol library staged; the legacy workflow is still
 active. Activation must be reviewed separately with its input and runner controls.
 
 ## Decision
