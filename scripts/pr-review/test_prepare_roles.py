@@ -1,4 +1,4 @@
-"""Trusted context and immutable checkout regressions."""
+"""Trusted preparation tests."""
 
 import hashlib
 import json
@@ -51,7 +51,7 @@ class PreparationTests(unittest.TestCase):
             prepare.prepare(head, base, self.root / "work")
         return calls
 
-    def test_committed_hook_scope_and_cap(self):
+    def test_hook(self):
         directory = self.root / "scripts/pr-review"
         directory.mkdir(parents=True)
         hook = directory / "prepare_context_roles.py"
@@ -82,22 +82,21 @@ class PreparationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "trusted base"):
             self.prepare_locally(head, base, directory)
 
-    def test_root_context_and_untracked_hook(self):
+    def test_no_hook(self):
         directory = self.root / "scripts/pr-review"
         directory.mkdir(parents=True)
         self.prepare_locally(self.base, self.base, directory)
-        self.assertEqual((self.root / "work/project-context.md").read_text(),
-                         "Trusted reviewer context.\n")
+        self.assertEqual((self.root / 'work/project-context.md').read_text(), 'Trusted reviewer context.\n')
         hook = directory / "prepare_context_roles.py"
         hook.write_text("raise RuntimeError('must never execute untracked code')\n")
         with self.assertRaisesRegex(ValueError, "trusted base"):
             self.prepare_locally(self.base, self.base, directory)
 
-    def test_context_ignores_dirty_worktree(self):
+    def test_context(self):
         (self.root / "AGENTS.md").write_text("UNTRUSTED changed instructions.\n")
         self.assertEqual(prepare.context_at(self.base, 24000), "Trusted reviewer context.\n")
 
-    def test_stale_generated_context_is_rejected(self):
+    def test_digest(self):
         (self.root / "AGENTS.md").write_text(
             "<!-- generated-by: co-agent · claude-md-sha: 000000000000 -->\n"
             "Context with a stale source hash.\n"
@@ -107,38 +106,36 @@ class PreparationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "stale"):
             prepare.context_at(self.git("rev-parse", "HEAD").strip(), 24000)
 
-    def test_deleted_agents_blocks_with_short_claude(self):
+    def test_missing_agents(self):
         (self.root / "AGENTS.md").unlink()
         self.git("add", ".")
         self.git("commit", "-qm", "delete digest")
         with self.assertRaisesRegex(ValueError, "missing"):
             prepare.context_at(self.git("rev-parse", "HEAD").strip(), 24000)
 
-    def test_wrong_base_blocks_before_io(self):
+    def test_base(self):
         with self.assertRaisesRegex(ValueError, "pinned base"):
             prepare.prepare(self.base, "f" * 40, self.root / "work")
 
-    def test_branch_name_is_not_a_sha(self):
+    def test_shas(self):
         with self.assertRaisesRegex(ValueError, "immutable"):
             prepare.prepare("main", self.base, self.root / "work")
 
-    def test_candidate_context_cap(self):
+    def test_size(self):
         with self.assertRaisesRegex(ValueError, "oversized"):
             prepare.context_at(self.base, 3)
 
-    def test_wrapper_checks_context_cap_first(self):
+    def test_adp_cap(self):
         fake = self.root / "bin"
         fake.mkdir()
         capture = self.root / "context-cap"
         python = fake / "python3"
         python.write_text('#!/bin/sh\nprintf "%s" "$REVIEW_CONTEXT_CAP" > "$CAPTURE"\nexit 2\n')
         python.chmod(0o755)
-        for value, expected in ((None, "12288"), ("8192", "8192"),
-                                ("12289", None), ("0", None), ("invalid", None)):
+        for value, expected in ((None, '12288'), ('8192', '8192'), ('12289', None), ('0', None), ('invalid', None)):
             with self.subTest(value=value):
                 capture.unlink(missing_ok=True)
-                env = dict(os.environ, PATH=str(fake) + os.pathsep + os.environ["PATH"],
-                           CAPTURE=str(capture))
+                env = dict(os.environ, PATH=str(fake) + os.pathsep + os.environ['PATH'], CAPTURE=str(capture))
                 env.pop("REVIEW_CONTEXT_CAP", None)
                 if value is not None:
                     env["REVIEW_CONTEXT_CAP"] = value
@@ -150,7 +147,7 @@ class PreparationTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 2)
                 self.assertEqual(capture.read_text() if capture.exists() else None, expected)
 
-    def test_exclusions_match_directories_not_filenames(self):
+    def test_scope(self):
         policy = self.root / "scripts/pr-review/role-input-scope.json"
         policy.parent.mkdir(parents=True)
         policy.write_text(json.dumps({"schema_version": 1, "directories": ["build", "dist"]}))
@@ -165,7 +162,7 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual(["scripts/build", "dist"], kept)
         self.assertEqual(["build/generated.js", "packages/dist/generated.js"], excluded)
 
-    def test_context_hash_retains_crlf(self):
+    def test_crlf(self):
         self.git("config", "core.autocrlf", "false")
         source = b"Canonical instructions.\r\nPreserve original bytes.\r\n"
         (self.root / "CLAUDE.md").write_bytes(source)
@@ -176,7 +173,7 @@ class PreparationTests(unittest.TestCase):
         self.git("commit", "-qm", "CRLF source")
         self.assertEqual(prepare.context_at(self.git("rev-parse", "HEAD").strip(), 24000), context)
 
-    def test_exclusion_opt_in_binds_base_policy(self):
+    def test_policy(self):
         policy = self.root / "scripts/pr-review/role-input-scope.json"
         policy.parent.mkdir(parents=True)
         (policy.parent / "role_review.py").write_bytes(MODULE.with_name("role_review.py").read_bytes())

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare complete immutable diff data and trusted base context."""
+"""Prepare trusted review inputs."""
 
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ def context_at(revision, cap):
 
 
 def selected_paths(base, paths):
-    """Apply only exclusions committed in the trusted project's scope contract."""
+    """Apply BASE scope exclusions."""
     source = git_file(base, "scripts/pr-review/role-input-scope.json")
     if source is None:
         return paths, [], None
@@ -95,7 +95,7 @@ def prepare(head, base, work, supplied_diff=None):
     ).strip()
     if not re.fullmatch(r"[0-9a-f]{40}", merge_base):
         raise ValueError("GitHub returned an invalid merge base")
-    # Fetch objects as data. Never check out or run PR-head code or hooks.
+    # Fetch data; never execute HEAD.
     subprocess.run(
         ["git", "fetch", "--no-tags", "--depth=1", "origin", merge_base, head],
         check=True, stdout=subprocess.DEVNULL,
@@ -108,7 +108,7 @@ def prepare(head, base, work, supplied_diff=None):
     if policy:
         name = policy["input_adapter"]
         file = DIRECTORY / name
-        # Load only the exact trusted-base adapter, never an untracked replacement.
+        # Reject untracked/replaced adapters.
         expected = git_file(base, f"scripts/pr-review/{name}")
         if file.is_symlink() or expected is None or file.read_bytes().decode("utf-8") != expected:
             raise ValueError("Project adapter differs from the trusted base")
@@ -147,7 +147,7 @@ def prepare(head, base, work, supplied_diff=None):
         expected = git_file(base, "scripts/pr-review/prepare_context_roles.py")
         if expected is None and not file.exists() and not file.is_symlink():
             context = context_at(base, cap)
-            context_at(head, cap)  # Candidate bytes never become instructions.
+            context_at(head, cap)  # Validate; discard.
         else:
             if (file.is_symlink() or not file.is_file() or expected is None
                     or file.read_bytes() != expected.encode("utf-8")):

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute one prepared specialist review without changing its scope."""
+"""Run a prepared specialist."""
 
 from __future__ import annotations
 
@@ -28,6 +28,15 @@ FAILURE = re.compile(
     re.IGNORECASE,
 )
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+ACCOUNT_LIMIT = re.compile(
+    r"MONTHLY_REQUEST_COUNT|UsageLimitReachedError|monthly request limit|"
+    r"insufficient credits|billing hard limit|limit for overages", re.I,
+)
+STDOUT_ACCOUNT_LIMIT = re.compile(
+    r"\A\s*(?:Error:[ \t]*)?(?:You have reached the )?(?:"
+    + ACCOUNT_LIMIT.pattern + r")", re.I,
+)
+QUOTA_ERROR = "\nUsageLimitReachedError"
 AGENT = {
     "name": "inline-review",
     "description": "Review inline data without tools, hooks or external resources.",
@@ -37,7 +46,7 @@ AGENT = {
 
 
 def execute(command, cwd, environment, input_text, timeout):
-    """Keep exit status and kill the whole process group on timeout."""
+    """Bound process lifetime; retain exit status."""
     try:
         process = subprocess.Popen(
             command, cwd=cwd, env=environment, stdin=subprocess.PIPE,
@@ -56,7 +65,7 @@ def execute(command, cwd, environment, input_text, timeout):
 
 
 def codex_response(raw, final_path):
-    """Validate all events, then read the CLI-designated final reply unchanged."""
+    """Validate events; read the CLI's final file."""
     started = completed = failed = False
     has_message = False
     diagnostics = []
@@ -79,8 +88,7 @@ def codex_response(raw, final_path):
         if completed:
             failed = True
         if kind in ("error", "turn.failed"):
-            # Native "error" includes in-turn reconnect notices. A completed
-            # turn may recover; the caller still rejects terminal diagnostics.
+            # Reconnects may recover; terminal diagnostics still block.
             if kind == "turn.failed":
                 failed = True
             error = event.get("error", event)
@@ -113,8 +121,7 @@ def codex_response(raw, final_path):
                 if not isinstance(text, str):
                     failed = True
                 else:
-                    # Progress items are not the final response. Codex owns
-                    # final-message selection; never search for parsable JSON.
+                    # Only the CLI selects its final reply.
                     has_message = True
     if failed or not completed or not has_message:
         diagnostics.append("Codex event stream did not complete with agent output.")
@@ -159,6 +166,9 @@ def preflight(binary, model, cwd, environment, timeout):
          "--no-interactive", "--wrap", "never"],
         cwd, kiro_environment(cwd, environment), "", timeout,
     )
+    error = preserve_stdout_error(output, error)
+    if account_limit(code, output, error):
+        return False, code or 1, error + QUOTA_ERROR
     reply = re.sub(r"(?m)^\s*> ?", "", ANSI.sub("", output)).strip()
     return code == 0 and reply == "NO_TOOLS" and not FAILURE.search(error), code, error
 
@@ -171,7 +181,7 @@ def bounded_setting(name, default, maximum):
 
 
 def scrub(text):
-    """Reuse the repository's control and credential scrubbers before publication."""
+    """Scrub public output."""
     process = subprocess.run(
         ["bash", "-c", 'source "$1"; source "$2"; strip_ansi | scrub_secrets',
          "review-scrub", str(DIRECTORY / "lib.sh"), str(DIRECTORY / "role-controls.sh")],
@@ -183,7 +193,7 @@ def scrub(text):
 
 
 def normalize_transport(text):
-    """Strip terminal controls only; leave JSON values for protocol validation."""
+    """Strip transport controls only."""
     process = subprocess.run(
         ["bash", "-c", 'source "$1" && strip_ansi',
          "review-controls", str(DIRECTORY / "role-controls.sh")],
@@ -192,6 +202,13 @@ def normalize_transport(text):
     if process.returncode:
         raise RuntimeError("Review transport control stripping failed")
     return process.stdout
+
+
+def account_limit(code, output, error=""):
+    """Detect hard account limits."""
+    text = normalize_transport(output) if output else ""
+    return bool(ACCOUNT_LIMIT.search(error) or STDOUT_ACCOUNT_LIMIT.search(text)
+                or (code != 0 and ACCOUNT_LIMIT.search(text)))
 
 
 def preserve_stdout_error(output, error):
@@ -225,7 +242,7 @@ def run(work, tag):
     diff = (work / "roles" / f"{tag}.diff").read_bytes().decode("utf-8")
     start = time.monotonic()
     environment = dict(os.environ)
-    # GitHub writes belong to the publisher. No review process needs this token.
+    # Omit GitHub tokens.
     for name in ("GH_TOKEN", "GITHUB_TOKEN", "GITHUB_PERSONAL_ACCESS_TOKEN"):
         environment.pop(name, None)
     output = ""
@@ -260,6 +277,9 @@ def run(work, tag):
                             command, cwd, kiro_environment(cwd, environment), "", timeout
                         )
                         error = preserve_stdout_error(output, error)
+                        if account_limit(code, output, error):
+                            code, error = code or 1, error + QUOTA_ERROR
+                            break
                         if FAILURE.search(error) or diagnostic_failure(error):
                             code = code or 1
                             break
@@ -273,7 +293,7 @@ def run(work, tag):
                     "-s", "read-only", "--skip-git-repo-check", "--json",
                     "--output-last-message", "", prompt,
                 ]
-                # Keep the trusted base checkout and its configured Bedrock provider.
+                # Retain BASE provider settings.
                 cwd = Path.cwd()
             elif tag == "claude-self":
                 command = [
@@ -285,8 +305,7 @@ def run(work, tag):
             for _ in range(attempts):
                 nonce, framed_prompt, payload = issue_request(work, tag)
                 if tag == "codex":
-                    # The role's mode-0700 temporary directory is independent
-                    # of the trusted base cwd. Each attempt gets a fresh file.
+                    # Fresh final file in the role's private directory.
                     final_output = Path(temporary) / f"codex-final-{nonce}.txt"
                     final_output.unlink(missing_ok=True)
                     command[-2] = str(final_output)
@@ -297,23 +316,26 @@ def run(work, tag):
                     delivered = payload
                 code, output, error = execute(command, cwd, environment, delivered, timeout)
                 error = preserve_stdout_error(output, error)
-                if tag == "codex":
+                hard_limit = account_limit(code, output, error)
+                if tag == "codex" and not hard_limit:
                     output, event_error, complete = codex_response(output, final_output)
+                    hard_limit = account_limit(code, "", event_error)
                     if event_error:
                         error = error + ("\n" if error else "") + event_error
                     if not complete:
                         code = code or 1
+                if hard_limit:
+                    code, error = code or 1, error + QUOTA_ERROR
+                    break
                 if diagnostic_failure(error):
                     code = code or 1
                     break
                 if code == 0 and output.strip():
                     break
-    # Strip display controls without credential scrubbing: record must validate
-    # and preserve JSON source paths before redacting decoded evidence.
+    # Validate scope before decoded redaction.
     error_path = runtime / f"{tag}.err"
     error_path.write_text(scrub(error))
-    # NamedTemporaryFile is mode 0600 and is removed even if recording raises.
-    # Keep it outside the review workspace and its publishable artifact paths.
+    # 0600, outside artifacts; cleanup on errors.
     with tempfile.NamedTemporaryFile(
         mode="w", encoding="utf-8", prefix=f"{tag}-response-", dir=work.parent,
     ) as response:

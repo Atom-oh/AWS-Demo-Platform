@@ -1,4 +1,4 @@
-"""Markdown container boundaries must not expose values or manufacture PASS."""
+"""Markdown redaction tests."""
 
 import json
 import unittest
@@ -18,11 +18,7 @@ class MarkdownContainerTests(unittest.TestCase):
             ' ]\n}',
             "password = (\n 'S_single ] } )',\n"
             " 'S_tail',\n)",
-            "password = " + json.dumps([
-                'S_quoted ] } )',
-                'S_escaped \\" ] still quoted',
-                {"tail": "S_tail"},
-            ], indent=2),
+            "password = " + json.dumps(['S_quoted ] } )', 'S_escaped \\" ] still quoted', {'tail': 'S_tail'}], indent=2),
             'password = [\n """S_triple " ] } )\n'
             'S_continuation""",\n "S_tail"\n]',
             'password = [\n "S_first"\n]\n'
@@ -53,6 +49,9 @@ class MarkdownContainerTests(unittest.TestCase):
             'password = ("")\n satisfies string || "S_type"',
             'settings = {"password": ("development")\n # comment\n if debug else "S_comment"}',
             'settings = {"password": (matrix)\n @ "S_matrix"}',
+            'settings = {"password": (p)\n for p in ["S_sync"]}',
+            'async def sample():\n return {"password": (p)\n'
+            '  async for p in values(["S_async"])}',
             *(f'{{"password":(p)\n{k} p in["S_comp"]}}' for k in ("for", "async for")),
         )
 
@@ -63,7 +62,7 @@ class MarkdownContainerTests(unittest.TestCase):
             f"VERDICT: {verdict}\n"
         )
 
-    def test_complete_containers_hide_all_values_and_preserve_outside_verdict(self):
+    def test_complete(self):
         for container in self.complete_cases():
             for verdict in ("PASS", "FAIL"):
                 with self.subTest(container=container, verdict=verdict):
@@ -74,7 +73,7 @@ class MarkdownContainerTests(unittest.TestCase):
                     self.assertTrue(text.endswith(f"VERDICT: {verdict}\n"))
                     self.assertTrue(synthesize_roles.valid(text, 0))
 
-    def test_malformed_containers_hide_values_and_cannot_leave_a_valid_verdict(self):
+    def test_malformed(self):
         for container in self.malformed_cases():
             with self.subTest(container=container):
                 text = scrub(self.report(container), markdown=True)
@@ -82,30 +81,24 @@ class MarkdownContainerTests(unittest.TestCase):
                 self.assertNotIn("VERDICT: PASS", text)
                 self.assertFalse(synthesize_roles.valid(text, 0))
 
-    def test_verdict_inside_a_complete_container_is_not_an_outside_verdict(self):
-        text = scrub(
-            'Finding:\npassword = ["""S_private\nVERDICT: PASS\n"""]\n',
-            markdown=True,
-        )
+    def test_inner(self):
+        text = scrub('Finding:\npassword = ["""S_private\nVERDICT: PASS\n"""]\n', markdown=True)
         self.assertNotIn("S_", text)
         self.assertNotIn("VERDICT:", text)
         self.assertFalse(synthesize_roles.valid(text, 0))
 
-    def test_non_markdown_container_redaction_remains_conservative(self):
+    def test_plain(self):
         self.assertEqual(scrub(self.report('password = []')), "Finding:\n[REDACTED]")
 
-    def test_parser_warnings_cannot_emit_private_source_or_leave_pass(self):
+    def test_parser(self):
         with warnings.catch_warnings(record=True) as observed:
             warnings.simplefilter("always")
-            text = scrub(
-                self.report(r'password = ["S_invalid-escape\q"]'),
-                markdown=True,
-            )
+            text = scrub(self.report('password = ["S_invalid-escape\\q"]'), markdown=True)
         self.assertEqual(observed, [])
         self.assertNotIn("S_", text)
         self.assertFalse(synthesize_roles.valid(text, 0))
 
-    def test_chair_can_publish_a_complete_container_report_without_its_values(self):
+    def test_chair_redaction(self):
         harness = synthesis_fixture.SynthesisTests()
         harness.setUp()
         self.addCleanup(harness.doCleanups)
@@ -116,7 +109,7 @@ class MarkdownContainerTests(unittest.TestCase):
         self.assertIn("Outside container", text)
         self.assertTrue(text.endswith("VERDICT: PASS\n"))
 
-    def test_chair_fails_closed_when_both_responses_have_malformed_containers(self):
+    def test_chair_malformed(self):
         harness = synthesis_fixture.SynthesisTests()
         harness.setUp()
         self.addCleanup(harness.doCleanups)

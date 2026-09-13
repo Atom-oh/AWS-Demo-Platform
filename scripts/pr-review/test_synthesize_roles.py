@@ -1,4 +1,4 @@
-"""The deterministic path must never start a model."""
+"""Offline chair tests."""
 
 import os
 from pathlib import Path
@@ -32,7 +32,7 @@ class SynthesisTests(unittest.TestCase):
             self.module.synthesize(self.root, self.root / "review.md")
         return invoke.call_count, (self.root / "review.md").read_text()
 
-    def test_markdown_containers_preserve_verdict(self):
+    def test_markdown(self):
         for example in (
             "Checked credentials = []\nExample: secret = {private-value}",
             "-----BEGIN PRIVATE KEY-----\nprivate-value\n-----END PRIVATE KEY-----",
@@ -46,7 +46,7 @@ class SynthesisTests(unittest.TestCase):
                 self.assertIn("proposed behavior", text)
                 self.assertNotIn("private-value", text)
 
-    def test_transient_throttle_uses_configured_fallback(self):
+    def test_throttle(self):
         calls, text = self.run_chair([
             (1, "", "An error occurred (ThrottlingException) invoking the primary model"),
             (0, "Fallback completed the review.\nVERDICT: PASS\n", ""),
@@ -54,9 +54,8 @@ class SynthesisTests(unittest.TestCase):
         self.assertEqual(calls, 2)
         self.assertTrue(text.endswith("VERDICT: PASS\n"))
 
-    def test_account_quota_still_prevents_fallback(self):
-        for error in ("ThrottlingException: MONTHLY_REQUEST_COUNT exhausted",
-                      "You have reached the limit for overages"):
+    def test_account(self):
+        for error in ('ThrottlingException: MONTHLY_REQUEST_COUNT exhausted', 'You have reached the limit for overages'):
             with self.subTest(error=error):
                 calls, text = self.run_chair([
                     (0, "Must not pass.\nVERDICT: PASS\n", error),
@@ -65,7 +64,7 @@ class SynthesisTests(unittest.TestCase):
                 self.assertEqual(calls, 1)
                 self.assertTrue(text.endswith("VERDICT: FAIL\n"))
 
-    def test_plain_overage_message_prevents_fallback(self):
+    def test_overage(self):
         calls, text = self.run_chair([
             (1, "", "You have reached the limit for overages"),
             (0, "Must not be used.\nVERDICT: PASS\n", ""),
@@ -73,7 +72,7 @@ class SynthesisTests(unittest.TestCase):
         self.assertEqual(calls, 1)
         self.assertTrue(text.endswith("VERDICT: FAIL\n"))
 
-    def test_stdout_account_errors_prevent_fallback_and_pass(self):
+    def test_stdout(self):
         for code in (0, 1):
             for message in (
                 "UsageLimitReachedError",
@@ -89,7 +88,7 @@ class SynthesisTests(unittest.TestCase):
                     self.assertEqual(calls, 1)
                     self.assertTrue(text.endswith("VERDICT: FAIL\n"))
 
-    def test_quoted_diagnostics_are_evidence(self):
+    def test_quotes(self):
         report = (
             "Reviewed quota handling for UsageLimitReachedError.\n"
             '- The test covers "Monthly request limit reached".\n'
@@ -100,15 +99,13 @@ class SynthesisTests(unittest.TestCase):
         self.assertEqual(calls, 1)
         self.assertTrue(text.endswith("VERDICT: PASS\n"))
 
-    def test_panel_cap_blocks_before_provider(self):
+    def test_default(self):
         summary = '{"findings":["' + "x" * 200000 + '"]}'
         self.prepare_chair(summary)
         (self.root / "review.md").write_text("Stale review.\nVERDICT: PASS\n")
         with patch.dict(os.environ), \
                 patch.object(self.module, "record_status") as status, \
-                patch.object(self.module, "execute", return_value=(
-                    0, "Provider should not run.\nVERDICT: PASS\n", ""
-                )) as invoke:
+                patch.object(self.module, 'execute', return_value=(0, 'Provider should not run.\nVERDICT: PASS\n', '')) as invoke:
             os.environ.pop("CHAIR_PANEL_TOTAL_CAP", None)
             self.module.synthesize(self.root, self.root / "review.md")
         self.assertEqual(invoke.call_count, 0)
@@ -119,27 +116,23 @@ class SynthesisTests(unittest.TestCase):
         self.assertEqual((self.root / "role-summary.json").read_text(), summary)
         self.assertTrue(status.call_args.kwargs["failed"])
 
-    def test_panel_cap_counts_utf8_bytes(self):
+    def test_utf8(self):
         summary = '{"findings":["' + "한" * 20 + '"]}'
         limit = len(summary)
         self.assertGreater(len(summary.encode("utf-8")), limit)
         with patch.dict(os.environ, {"CHAIR_PANEL_TOTAL_CAP": str(limit)}):
-            calls, text = self.run_chair([
-                (0, "Provider should not run.\nVERDICT: PASS\n", ""),
-            ], summary)
+            calls, text = self.run_chair([(0, 'Provider should not run.\nVERDICT: PASS\n', '')], summary)
         self.assertEqual(calls, 0)
         self.assertTrue(text.endswith("VERDICT: FAIL\n"))
 
-    def test_panel_cap_counts_only_summary(self):
+    def test_boundary(self):
         summary = '{"findings":["한글"]}'
         context = "Trusted base context.\n" * 20
         diff = "Complete diff evidence.\n" * 20
         self.prepare_chair(summary, context, diff)
         limit = len(summary.encode("utf-8"))
         with patch.dict(os.environ, {"CHAIR_PANEL_TOTAL_CAP": str(limit)}), \
-                patch.object(self.module, "execute", return_value=(
-                    0, "All evidence reviewed.\nVERDICT: PASS\n", ""
-                )) as invoke:
+                patch.object(self.module, 'execute', return_value=(0, 'All evidence reviewed.\nVERDICT: PASS\n', '')) as invoke:
             self.module.synthesize(self.root, self.root / "review.md")
         self.assertEqual(invoke.call_count, 1)
         command, _, _, supplied, _ = invoke.call_args.args
@@ -148,7 +141,7 @@ class SynthesisTests(unittest.TestCase):
         self.assertIn(summary, supplied)
         self.assertGreater(len(supplied.encode("utf-8")), limit)
 
-    def test_panel_cap_cannot_be_disabled(self):
+    def test_positive(self):
         self.prepare_chair()
         for limit in ("0", "-1"):
             with self.subTest(limit=limit), \
@@ -160,21 +153,21 @@ class SynthesisTests(unittest.TestCase):
                     self.module.synthesize(self.root, self.root / "review.md")
                 self.assertEqual(invoke.call_count, 0)
 
-    def test_clean_review_skips_chair(self):
+    def test_no_chair(self):
         (self.root / "chair-mode.txt").write_text("deterministic\n")
         (self.root / "deterministic-review.md").write_text("Scope complete.\nVERDICT: PASS\n")
         with patch.object(self.module, "execute", side_effect=AssertionError("Unexpected call")):
             self.module.synthesize(self.root, self.root / "review.md")
         self.assertTrue((self.root / "review.md").read_text().endswith("VERDICT: PASS\n"))
 
-    def test_incomplete_review_blocks_chair(self):
+    def test_blocked(self):
         (self.root / "chair-mode.txt").write_text("blocked\n")
         (self.root / "deterministic-review.md").write_text("Missing required role.\nVERDICT: FAIL\n")
         with patch.object(self.module, "execute", side_effect=AssertionError("Unexpected call")):
             self.module.synthesize(self.root, self.root / "review.md")
         self.assertTrue((self.root / "review.md").read_text().endswith("VERDICT: FAIL\n"))
 
-    def test_verdict_requires_body_and_final_line(self):
+    def test_verdict(self):
         self.assertTrue(self.module.valid("Evidence reviewed.\nVERDICT: PASS\n", 0))
         for output, status in [
             ("VERDICT: PASS", 0),
@@ -189,8 +182,7 @@ class SynthesisTests(unittest.TestCase):
 
 
     def test_generic_budget_overrides(self):
-        limits = {"CHAIR_MAX_TURNS": "8", "CHAIR_FALLBACK_MAX_TURNS": "12",
-                  "CHAIR_FAST_FAIL_S": "5"}
+        limits = {'CHAIR_MAX_TURNS': '8', 'CHAIR_FALLBACK_MAX_TURNS': '12', 'CHAIR_FAST_FAIL_S': '5'}
         with patch.dict(os.environ, limits):
             options = self.module.chair_options({})
         self.assertEqual(options["turns"], (8, 12))
