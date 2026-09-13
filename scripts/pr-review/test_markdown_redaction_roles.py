@@ -47,6 +47,7 @@ class MarkdownContainerTests(unittest.TestCase):
             'password = ("development") \\\n + "synthetic-continuation-private"',
             'password = ("development")\n + "synthetic-next-line-private"',
             'password = ("development")\n\n ["synthetic-next-index-private"]',
+            'password = (String.raw)\n`synthetic-template-private`',
         )
 
     def report(self, container, verdict="PASS"):
