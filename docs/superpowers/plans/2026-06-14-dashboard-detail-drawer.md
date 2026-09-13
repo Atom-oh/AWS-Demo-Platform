@@ -1,9 +1,9 @@
 # Dashboard detail drawer — historical implementation record
 
 **Date:** 2026-06-14. **Original form:** eight-task implementation plan on
-`feat/dashboard-detail-drawer`. **Reconciled:** 2026-09-13; core work exists in
-source. This is no longer an executable checklist. Draft code and commands remain
-in Git history; the [design](../specs/2026-06-14-dashboard-detail-drawer-design.md)
+`feat/dashboard-detail-drawer`. **Reconciled:** 2026-09-13; UI history below runs
+through PR #103. This is no longer an executable checklist. Draft code and commands
+remain in Git history; the [design](../specs/2026-06-14-dashboard-detail-drawer-design.md)
 retains intent and exclusions.
 
 ## Delivery rationale
@@ -18,7 +18,7 @@ unknown-project tests, server construction and task environment. Frontend tasks
 covered matching wire types/client, a null-safe drawer, selection/focus handling,
 links, history refresh after toggles, styling and browser smoke checks.
 
-## Implemented evidence and changes
+## Implementation notes through PR #103
 
 - [History route](../../../dashboard/backend/packages/api/src/routes/history.ts)
   and [tests](../../../dashboard/backend/packages/api/src/__tests__/history.test.ts)
@@ -27,16 +27,17 @@ links, history refresh after toggles, styling and browser smoke checks.
 - [API bootstrap](../../../dashboard/backend/packages/api/src/server.ts) and
   [ECS definitions](../../../infra/dashboard-ecs/main.tf) wire the history client
   and environment. Task-definition changes require an explicitly selected revision.
-- [Drawer](../../../dashboard/frontend/components/DetailDrawer.tsx) and
-  [card](../../../dashboard/frontend/components/ProjectCard.tsx) now use PR #103's
-  native detail button and improved focus/notification behavior. The old embedded
-  component and fixed-width CSS are superseded.
+- PR #103 introduced native detail buttons and improved focus/notification behavior
+  in the [drawer](../../../dashboard/frontend/components/DetailDrawer.tsx) and
+  [cards](../../../dashboard/frontend/components/ProjectCard.tsx), superseding the
+  embedded component and fixed-width CSS.
 - The planned expandable history details did not land. The local dev-server has
   no history client/route; its error display tests layout, not real history access.
   Frontend Vitest now exists, although frontend CI still does not run it.
 
-Use [frontend context](../../../dashboard/frontend/CLAUDE.md) for current checks
-and [release guidance](../../runbooks/review-and-release.md) for producer readiness,
-image publication, explicit rollout and authenticated browser verification.
+PR #107 later added an operating table, selected on/off batches and page-level
+operation guards. Use [frontend context](../../../dashboard/frontend/CLAUDE.md)
+for current behavior and checks, and [release guidance](../../runbooks/review-and-release.md)
+for producer readiness, image publication, rollout and authenticated browser verification.
 The plan's expected test output and sample deploy commands were targets, not
 recorded successful execution.
