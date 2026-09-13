@@ -104,5 +104,4 @@ adjudication after reissue; old attempts never provide current-role coverage.
 The model table targets CI's Bedrock Runtime provider. Local Mantle uses
 `openai.gpt-6-astra` for Astra; provider-specific identifiers are not interchangeable.
 
-React changes retain the operations specialist. Retry archives are digest-bound
-to their issued receipts; missing or modified history blocks reissue and aggregation.
+React edits retain `kiro-sol`; altered or missing receipt-bound history blocks.
