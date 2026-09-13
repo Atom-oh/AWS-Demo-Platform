@@ -212,3 +212,7 @@ handwritten overrides and `.kiro/steering/project-context.md`.
 Known non-issues: the commit hook removes `Co-Authored-By`; task-definition
 replacement does not imply ECS service destruction; visibility-only types have no
 toggle controller; local Agy context support does not imply an Agy CI panel slot.
+
+PR review instructions, guides, related ADRs and review output are English-only.
+This scoped policy supersedes older bilingual review-document templates; product
+localization is a separate contract.

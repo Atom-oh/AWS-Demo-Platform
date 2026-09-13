@@ -1,4 +1,4 @@
-<!-- generated-by: co-agent · source: CLAUDE.md · claude-md-sha: c1461d546556 · generated-at: 2026-09-13 · DO NOT EDIT — edit CLAUDE.md then run /co-agent sync-context -->
+<!-- generated-by: co-agent · source: CLAUDE.md · claude-md-sha: 77c587abbc22 · generated-at: 2026-09-13 · DO NOT EDIT — edit CLAUDE.md then run /co-agent sync-context -->
 > You are an external reviewer for this repo — project context below, distilled from CLAUDE.md. This file is shared verbatim by Kiro, Codex, and Agy (not a per-AI copy).
 
 # AWS Demo Platform review context
@@ -137,3 +137,5 @@ only selected scope. See docs/runbooks/review-and-release.md.
 
 Known non-issues: Co-Authored-By is stripped by the hook; task-definition replacement
 is not ECS service destruction; visibility-only types have no toggle controller.
+
+PR review artifacts, including their ADRs, use English only.
