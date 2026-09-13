@@ -182,6 +182,18 @@ def scrub(text):
     return process.stdout
 
 
+def normalize_transport(text):
+    """Strip terminal controls only; leave JSON values for protocol validation."""
+    process = subprocess.run(
+        ["bash", "-c", 'source "$1" && strip_ansi',
+         "review-controls", str(DIRECTORY / "role-controls.sh")],
+        input=text, text=True, capture_output=True,
+    )
+    if process.returncode:
+        raise RuntimeError("Review transport control stripping failed")
+    return process.stdout
+
+
 def run(work, tag):
     plan = json.loads((work / "role-plan.json").read_text())
     role = plan["roles"][tag]
@@ -283,8 +295,8 @@ def run(work, tag):
                     break
                 if code == 0 and output.strip():
                     break
-    # Diagnostics remain scrubbed. Record must see the original JSON so it can
-    # validate and preserve source paths before scrubbing decoded evidence.
+    # Strip display controls without credential scrubbing: record must validate
+    # and preserve JSON source paths before redacting decoded evidence.
     error_path = runtime / f"{tag}.err"
     error_path.write_text(scrub(error))
     # NamedTemporaryFile is mode 0600 and is removed even if recording raises.
@@ -292,7 +304,7 @@ def run(work, tag):
     with tempfile.NamedTemporaryFile(
         mode="w", encoding="utf-8", prefix=f"{tag}-response-", dir=work.parent,
     ) as response:
-        response.write(output)
+        response.write(normalize_transport(output))
         response.flush()
         result = subprocess.run([
             sys.executable, str(DIRECTORY / "role_review.py"), "record",
