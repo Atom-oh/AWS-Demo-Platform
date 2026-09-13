@@ -17,7 +17,7 @@ import unittest
 ENGINE = Path(__file__).with_name("role_review.py")
 HEAD = "a" * 40
 BASE = "b" * 40
-FRONTEND = "dashboard/frontend/components/Button.tsx"
+FRONTEND = "dashboard/frontend/components/Button.css"
 TAGS = ("codex", "kiro-fable", "kiro-sol", "claude-self")
 
 
@@ -141,6 +141,11 @@ class RoleReviewTests(unittest.TestCase):
                 plan = self.prepare(patch(path, "old policy", "ECS IAM role and recovery"))
                 self.assertTrue(all(role["required"] for role in plan["roles"].values()))
 
+    def test_react_operating_guards_keep_contract_review(self):
+        for path in ("components/ProjectControls.tsx", "components/ScaleControl.jsx"):
+            plan = self.prepare(patch(path, "disabled={blocked}", "disabled={false}"))
+            self.assertTrue(plan["roles"]["kiro-sol"]["required"])
+
     def test_aws_semantics_in_frontend_and_unknown_paths_are_conservative(self):
         for raw in (
             patch(after='import { S3Client } from "@aws-sdk/client-s3";'),
@@ -246,6 +251,9 @@ class RoleReviewTests(unittest.TestCase):
             ('originSecret="origin-private-value"', "origin-private-value"),
             ('mcpToken="mcp-private-value"', "mcp-private-value"),
             ("x-origin-verify: origin-header-private", "origin-header-private"),
+            ("_ghp_" + "A" * 36 + "_", "A" * 36),
+            ('password = ("wrapped-private")', "wrapped-private"),
+            ('{"password": [["nested-private"]]}', "nested-private"),
         ]
         for index, (text, secret) in enumerate(cases):
             with self.subTest(kind=text.split("=", 1)[0][:24]):

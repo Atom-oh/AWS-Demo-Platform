@@ -290,7 +290,8 @@ def routing(paths, diff):
         for p in paths
     )
     aws = bool(AWS_SIGNAL.search(diff))
-    deployment = bool(DEPLOY_SIGNAL.search(diff))
+    deployment = bool(DEPLOY_SIGNAL.search(diff)) or any(
+        Path(p).suffix.lower() in {".tsx", ".jsx"} for p in paths)
     return {
         "codex": (True, "always_required_independent_implementation_review"),
         "claude-self": (True, "always_required_independent_requirements_review"),
@@ -690,7 +691,7 @@ def scrub(value):
     patterns = (
         r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)",
         r"\b(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b",
-        r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b",
+        r"(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})",
         r"\bnpm_[A-Za-z0-9]{20,}\b",
         r"\bsk-[A-Za-z0-9_-]{16,}",
         r"\bxox[abprs]-[A-Za-z0-9-]{10,}",
@@ -704,6 +705,7 @@ def scrub(value):
         r"""(?i:\bx-origin-verify)["']?\s*:\s*["']?[^\s"',;}\]]+""",
         key + r"[|>][-+]?[ \t]*\r?\n(?:[+-]?[ \t]+[^\r\n]*(?:\r?\n|\Z))+",
         r"""(?i:\bname)\s*:\s*["']?""" + identifier + r"""["']?[ \t]*\r?\n[+-]?[ \t]*(?i:value)\s*:[^\r\n]*""",
+        key + r"[\[({].*",  # Conservatively drop nested/malformed container values through end of text.
         key + r"""(?P<quote>["']).*?(?P=quote)""",
         key + r"""[^\s"',;}\]]+""",
     )
