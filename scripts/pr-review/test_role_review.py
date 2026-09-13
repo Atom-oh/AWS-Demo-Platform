@@ -255,6 +255,7 @@ class RoleReviewTests(unittest.TestCase):
             ('password = ("wrapped-private")', "wrapped-private"),
             ('{"password": [["nested-private"]]}', "nested-private"),
         ]
+        cases += [(f"_{text}_", secret) for text, secret in cases]
         for index, (text, secret) in enumerate(cases):
             with self.subTest(kind=text.split("=", 1)[0][:24]):
                 self.work = self.root / f"decoded-pattern-{index}"

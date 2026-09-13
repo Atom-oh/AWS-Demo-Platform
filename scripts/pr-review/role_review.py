@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline review protocol; see README.md and COMMAND --help for its interfaces.
+"""Offline protocol; see README.md and COMMAND --help.
 
 Exit 2 blocks. After aggregate exit 0, chair-mode.txt distinguishes deterministic
 results from adjudication. Use fresh work per complete diff; no chunk coordinator,
@@ -690,19 +690,19 @@ def scrub(value):
     key = identifier + r"""["']?\s*[:=]\s*"""
     patterns = (
         r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)",
-        r"\b(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b",
+        r"(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
         r"(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})",
-        r"\bnpm_[A-Za-z0-9]{20,}\b",
-        r"\bsk-[A-Za-z0-9_-]{16,}",
-        r"\bxox[abprs]-[A-Za-z0-9-]{10,}",
-        r"\bAIza[0-9A-Za-z_-]{30,}",
-        r"\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
-        r"(?i:\bBearer\s+)[A-Za-z0-9_.~+/-]+=*",
-        r"""(?i:\bAuthorization)["']?\s*:\s*["']?(?i:Basic|Bearer)\s+[A-Za-z0-9+/=_.~-]+""",
+        r"npm_[A-Za-z0-9]{20,}",
+        r"sk-[A-Za-z0-9_-]{16,}",
+        r"xox[abprs]-[A-Za-z0-9-]{10,}",
+        r"AIza[0-9A-Za-z_-]{30,}",
+        r"eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
+        r"(?i:Bearer\s+)[A-Za-z0-9_.~+/-]+=*",
+        r"""(?i:Authorization)["']?\s*:\s*["']?(?i:Basic|Bearer)\s+[A-Za-z0-9+/=_.~-]+""",
         r"""[A-Za-z][A-Za-z0-9+.-]*://[^/\s:@"']*:[^@\s/"']+@""",
         r"""https://hooks\.slack\.com/services/[^\s"'<>]+""",
         r"""(?im)^[ \t]*[+-]?[ \t]*(?:set-)?cookie["']?[ \t]*:[^\r\n]*""",
-        r"""(?i:\bx-origin-verify)["']?\s*:\s*["']?[^\s"',;}\]]+""",
+        r"""(?i:x-origin-verify)["']?\s*:\s*["']?[^\s"',;}\]]+""",
         key + r"[|>][-+]?[ \t]*\r?\n(?:[+-]?[ \t]+[^\r\n]*(?:\r?\n|\Z))+",
         r"""(?i:\bname)\s*:\s*["']?""" + identifier + r"""["']?[ \t]*\r?\n[+-]?[ \t]*(?i:value)\s*:[^\r\n]*""",
         key + r"[\[({].*",  # Conservatively drop nested/malformed container values through end of text.
