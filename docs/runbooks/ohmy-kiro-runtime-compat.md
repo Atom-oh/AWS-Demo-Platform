@@ -1,6 +1,9 @@
 # oh-my-cloud-skills Kiro runtime compatibility
 
-**Date: 2026-09-13. Status: temporary bootstrap candidate; rollout requires normal platform review and runtime verification.**
+**Date: 2026-09-13. Status: producer preparation. Consumer integration below is planned until separately reviewed and activated.**
+
+This phase stages the immutable launcher and its tests. The current runner
+startup stays unchanged; the consumer follows verified producer readiness.
 
 The trusted-base review for `Atom-oh/oh-my-cloud-skills` invokes Kiro with legacy
 UI and noninteractive mode. CLI 2.21.4 can select engine v2 for that combination
@@ -44,7 +47,7 @@ reviewed launcher's SHA-256 prefix. The separately reconciled Helm ApplicationSe
 references that exact revision. A launcher change needs a new name and matching
 hardcoded startup digest in the same reviewed change.
 
-Only the [consumer ApplicationSet](../../argocd-apps/system/appset-helm-runner-claude-arm-oh-my-cloud-skills.yaml)
+The planned [consumer ApplicationSet](../../argocd-apps/system/appset-helm-runner-claude-arm-oh-my-cloud-skills.yaml)
 projects only its `kiro-cli` key at `/opt/ohmy-kiro-compat`, read-only and
 non-executable (`0444`). The ConfigMap is required.
 
