@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Restored Grafana through the existing private VPC Origin/internal ALB, with explicit cross-repository ownership and a staged Secrets Manager/ESO administrator credential rollout (PRs #99–101, ADR-018).
 - Added a documentation map and review/release runbook separating code review, plans, producer readiness and public runtime verification.
 
+### Fixed
+
+- PR-review panel: dropped the ignored `--trust-tools=` and v3-only `--mode default` from
+  the Kiro invocation and the runner Dockerfile gate; validate the `inline-review`
+  profile content, run a `NO_TOOLS` canary preflight per Kiro job, discard responses
+  when kiro-cli falls back to the default agent, and stop retrying on monthly quota
+  exhaustion (`MONTHLY_REQUEST_COUNT`) while naming the cause in the review comment.
+  New runbook `docs/runbooks/pr-review-panel.md`.
+
 ### Changed
 - Made the project table the default with attention/name/account ordering, optional cards, selected bulk on/off and fixed confirmation scope (PR #107).
 - Added a queue with up to four concurrent client attempts, per-project lifecycle/scale locks and batch results with failed-item retry. Results and locks survive dashboard refresh and drawer/view changes while the page remains mounted; they are not restored after a browser reload.

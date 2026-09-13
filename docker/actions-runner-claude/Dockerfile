@@ -59,8 +59,8 @@ RUN curl -fsSL https://chatgpt.com/codex/install.sh -o /tmp/codex-install.sh \
  && rm /tmp/codex-install.sh \
  && codex --version
 
-# Kiro CLI. `--v3` routes to a narrower model catalog that rejected gpt-5.5 (ADR-011);
-# run-panel.sh always calls `kiro-cli chat` without --v3.
+# Kiro CLI. `--v3` routes to a narrower model catalog that rejected gpt-5.5 (ADR-011) and
+# ignores an agent's `tools: []`; run-panel.sh always calls `kiro-cli chat` without --v3.
 RUN test "$TARGETARCH" = "arm64" \
  && curl -fsSL "https://prod.download.cli.kiro.dev/stable/latest/kirocli-aarch64-linux.zip" -o /tmp/kirocli.zip \
  && unzip -q /tmp/kirocli.zip -d /tmp/kirocli \
@@ -68,14 +68,23 @@ RUN test "$TARGETARCH" = "arm64" \
  && rm -rf /tmp/kirocli /tmp/kirocli.zip \
  && kiro-cli --version \
  && kiro-cli chat --help > /tmp/kiro-chat-help \
- && grep -F -- "--mode" /tmp/kiro-chat-help \
+ && grep -F -- "--agent" /tmp/kiro-chat-help \
  && grep -F -- "--no-interactive" /tmp/kiro-chat-help \
  && grep -F -- "--wrap" /tmp/kiro-chat-help \
+ && rm /tmp/kiro-chat-help \
  # kiro-cli is an unpinned vendor-latest install (no version/SHA pin possible) that
- # auto-rebuilds weekly, so this exact-wording check is the only guard against a silent
- # semantics change in the fail-closed no-tools assumption run-panel.sh depends on.
- && grep -F -- "trust no tools: '--trust-tools='" /tmp/kiro-chat-help \
- && rm /tmp/kiro-chat-help
+ # auto-rebuilds weekly. The old gate grepped the help text for
+ # "trust no tools: '--trust-tools='", but 2.11.1 still prints that sentence while
+ # ignoring the flag, so wording proves nothing. run-panel.sh's no-tools contract rests on
+ # a `tools: []` agent selected with `--agent`; check that the installed agent schema
+ # still accepts that shape. `agent validate` exits 0 even for invalid JSON, so the gate
+ # is "no Error line", not the exit code. Behavioural proof (NO_TOOLS reply) needs a key
+ # and runs per job as run-panel.sh's preflight.
+ && printf '%s\n' '{"name":"gate-notools","description":"build gate","tools":[],"allowedTools":[],"mcpServers":{},"useLegacyMcpJson":false,"resources":[],"hooks":{}}' > /tmp/gate-notools.json \
+ && kiro-cli agent validate --path /tmp/gate-notools.json > /tmp/gate-validate 2>&1 \
+ && cat /tmp/gate-validate \
+ && ! grep -qi "error" /tmp/gate-validate \
+ && rm -f /tmp/gate-notools.json /tmp/gate-validate
 
 # Codex Bedrock config (global, global.openai.gpt-6-astra via amazon-bedrock-runtime)
 # via the runner node's IAM credentials.

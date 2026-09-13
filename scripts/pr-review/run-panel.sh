@@ -7,7 +7,8 @@
 # Diff delivery differs per CLI: Codex/Claude self-review read stdin; Kiro ignores stdin
 # and gets no tools, so the diff is embedded as size-capped argv text (see Kiro-cell
 # comment below). A timeout backstop + non-interactive flags prevent hangs; an empty slot
-# is retried up to PANEL_RETRIES times.
+# is retried up to PANEL_RETRIES times, except for the two non-transient Kiro failures
+# (monthly quota exhaustion, `--agent` fallback) which stop immediately and leave a flag.
 # One model's 4 lenses run in parallel (&+wait) — wall clock ~= the slowest lens.
 set -uo pipefail
 DIFF="$(realpath "$1" 2>/dev/null)" \
@@ -31,6 +32,10 @@ case " ${PANEL_TAGS[*]} " in
 esac
 T="${PANEL_TIMEOUT:-300}"
 RETRIES="${PANEL_RETRIES:-3}"
+# The runner image installs an unpinned vendor-latest kiro-cli (Dockerfile), so the
+# no-tools / quota / fallback signature assumptions below (verified on 2.11.1) need the
+# version in the log to tell which release broke them.
+command -v kiro-cli >/dev/null 2>&1 && echo "run-panel.sh: $(kiro-cli --version 2>/dev/null | head -1)" >&2
 
 shopt -s nullglob
 LENS_FILES=("$LENSES_DIR"/*.txt)
@@ -40,23 +45,68 @@ if [ "${#LENS_FILES[@]}" -eq 0 ]; then
   exit 1
 fi
 
+# Kiro monthly request quota (ServiceQuotaExceededException reason=MONTHLY_REQUEST_COUNT).
+# The v2 engine (what this script runs) prints "Monthly request limit reached / The limits
+# reset on MM/DD" to stderr and exits rc=0 with EMPTY stdout — indistinguishable from a
+# transient empty response, so the old loop burned 3 retries per cell and the degraded
+# banner could only guess at "invalid flag / binary absent / auth failure". `--v3` exits
+# rc=1 with the message on stdout and a JSON body (MONTHLY_REQUEST_COUNT /
+# UsageLimitReachedError) on stderr. Scan stderr only: a diff that quotes these strings
+# (a PR editing this script, for example) must not turn a partial response into a quota hit.
+KIRO_QUOTA_RE='Monthly request limit reached|MONTHLY_REQUEST_COUNT|UsageLimitReachedError'
+
+# `--agent` load failure. kiro-cli 2.11.1 prints "Error: no agent with name X found.
+# Falling back to user specified default" (name mismatch and JSON parse failure alike) to
+# stderr and then CONTINUES with rc=0 on the default agent, which trusts read/glob/grep/code
+# inside the cwd. Left alone, a cell that silently regained tools would be counted as a
+# normal response — the same failure shape `--trust-tools=` had. Detect it, discard the
+# response and leave a flag so aggregate.sh forces coverage-severe.
+KIRO_AGENT_FALLBACK_RE='no agent with name|Falling back to user specified default|Json supplied at .* is invalid'
+
 # Run one cell up to $RETRIES times — retry if the slot comes back empty (transient).
 # Called in the background.
-#   try_panel <slot> <err> <cmd...>   (stdin=$DIFF, stdout=slot, stderr=err)
+#   try_panel <provider> <slot> <err> <cmd...>   (stdin=$DIFF, stdout=slot, stderr=err)
+# Quota exhaustion and agent fallback are non-transient: stop at once, empty the slot (a
+# fallback response is discarded even when non-empty) and leave a `$slot.quota` /
+# `$slot.agentfail` marker for the aggregation below. The Kiro signatures apply only to
+# provider=kiro — Codex echoes its stdin diff to stderr, so a diff quoting these strings
+# would otherwise false-positive.
 try_panel() {
-  local slot="$1" err="$2"; shift 2
-  local a
+  local provider="$1" slot="$2" err="$3"; shift 3
+  local a rc=1
   for a in $(seq 1 "$RETRIES"); do
-    "$@" > "$slot" 2>"$err" < "$DIFF" || true
-    [ -s "$slot" ] && break
+    "$@" > "$slot" 2>"$err" < "$DIFF"; rc=$?
+    if [ "$provider" = kiro ] && grep -qE "$KIRO_AGENT_FALLBACK_RE" "$err" 2>/dev/null; then
+      grep -E "$KIRO_AGENT_FALLBACK_RE" "$err" | strip_ansi | head -2 > "$slot.agentfail"
+      : > "$slot"
+      echo "[agent-fallback] $(basename "$slot" .md) — kiro-cli ignored --agent, no-tools contract broken; discarding response" >&2
+      break
+    fi
+    [ -s "$slot" ] && [ "$rc" -eq 0 ] && break
+    if [ "$provider" = kiro ] && grep -qE "$KIRO_QUOTA_RE" "$err" 2>/dev/null; then
+      grep -E "$KIRO_QUOTA_RE|limits reset on" "$err" | strip_ansi | head -3 > "$slot.quota"
+      : > "$slot"
+      echo "[quota] $(basename "$slot" .md) — monthly request limit reached, not retrying" >&2
+      break
+    fi
     [ "$a" -lt "$RETRIES" ] && echo "[retry $a/$RETRIES] $(basename "$slot" .md)" >&2
   done
 }
 
-# Kiro's named custom agent has an empty tool catalog. `--trust-tools=` concerns
-# approval; it does not remove default tools such as glob (PR #109).
-# Keep that flag as defense in depth, but rely on the trusted profile's tools:[]
-# for availability. An isolated cwd/HOME alone cannot prevent absolute-path reads.
+# Kiro cells get no tools at all. The ONLY mechanism that achieves this is the named custom
+# agent profile below (`tools: []`, selected with `--agent inline-review`). `--trust-tools=`
+# (empty) is NOT a no-tools switch on kiro-cli 2.11.1 even though `chat --help` still
+# documents it as one: the empty value is parsed as a custom tool named "" and dropped with
+# `WARNING: --trust-tools arg for custom tool  needs to be prepended with @{MCPSERVERNAME}/`,
+# leaving the default agent's "trust working directory" grants (read/glob/grep/code) intact
+# (PR #109 run 34729311650 saw glob-only output; a local 2.11.1 headless probe read a cwd
+# file verbatim under `--trust-tools=`). The flag was dropped from the invocation on
+# 2026-09-12 so nobody mistakes it for a guard. `--mode default` (a v3-only flag) went with
+# it: the `--v3` engine ignores `tools: []` and read cwd files in the same probe, so this
+# script must stay on the default v2 engine (consistent with ADR-011's `--v3` drop).
+# An isolated cwd/HOME alone cannot prevent absolute-path reads; HOME=$CELL_CWD makes the
+# global (~/.kiro/agents) and workspace (.kiro/agents) lookup paths coincide, so the copied
+# profile is the only agent kiro-cli can find.
 # Each lens still gets its own cwd subdirectory: since one model's 4 lenses run
 # concurrently (&), sharing one cwd/HOME would let kiro-cli's session/cache state race
 # across the parallel runs. The base is reset at the start of every run.
@@ -80,12 +130,95 @@ for entry in "${KIRO_MODELS[@]}"; do
   [ "${entry##*:}" = "$MODEL_TAG" ] && KIRO_TAG="$MODEL_TAG" && KIRO_MODEL_ID="${entry%%:*}"
 done
 
+# Set by the preflight below; Kiro cells run only when it is 1.
+KIRO_PREFLIGHT_OK=0
 if [ -n "$KIRO_TAG" ]; then
   KIRO_AGENT_NAME="inline-review"
   KIRO_AGENT_PROFILE="$DIR/kiro-inline-review.json"
   if [ ! -f "$KIRO_AGENT_PROFILE" ] || [ ! -s "$KIRO_AGENT_PROFILE" ] || [ ! -r "$KIRO_AGENT_PROFILE" ]; then
     echo "run-panel.sh: required Kiro agent profile is missing, empty or unreadable: $KIRO_AGENT_PROFILE" >&2
     exit 1
+  fi
+  # Reject a profile whose tool catalog is not explicitly empty before any model call —
+  # a duplicate JSON key (last-wins in kiro-cli's parser) or a dropped field falling back
+  # to defaults would silently re-enable tools. `kiro-cli agent validate` exits 0 even on
+  # invalid JSON, so it cannot be the gate.
+  if ! python3 - "$KIRO_AGENT_PROFILE" "$KIRO_AGENT_NAME" <<'PY'
+import json, sys
+def unique_object(pairs):
+    obj = {}
+    for key, value in pairs:
+        if key in obj:
+            raise ValueError("duplicate key")
+        obj[key] = value
+    return obj
+try:
+    with open(sys.argv[1]) as source:
+        agent = json.load(source, object_pairs_hook=unique_object)
+    valid = (agent["name"] == sys.argv[2] and agent["tools"] == []
+             and agent["allowedTools"] == [] and agent["mcpServers"] == {}
+             and agent["resources"] == [] and agent["hooks"] == {}
+             and agent["useLegacyMcpJson"] is False and "model" not in agent)
+    if not valid:
+        raise ValueError("tool configuration")
+except (OSError, ValueError, KeyError, TypeError):
+    sys.exit(1)
+PY
+  then
+    echo "run-panel.sh: invalid no-tools agent profile (name/tools/allowedTools/mcpServers/resources/hooks/useLegacyMcpJson): $KIRO_AGENT_PROFILE" >&2
+    exit 1
+  fi
+  prepare_kiro_agent() {
+    local cell_cwd="$1"
+    mkdir -p "$cell_cwd/.kiro/agents" \
+      && cp "$KIRO_AGENT_PROFILE" "$cell_cwd/.kiro/agents/$KIRO_AGENT_NAME.json"
+  }
+
+  # Preflight — post-hoc fallback detection cannot recall a diff already handed to a
+  # tool-enabled agent, so first prove the no-tools contract with a fixed, harmless prompt
+  # and a random canary file in the cwd: the only acceptable reply is NO_TOOLS. Any other
+  # reply (the canary contents, a tool-use trace, a quota or fallback signature, rc≠0)
+  # withholds the PR diff from every Kiro cell of this job and leaves a flag in $SLOT.
+  # Costs one extra request per Kiro job. stdin is /dev/null, not $DIFF.
+  if command -v kiro-cli >/dev/null 2>&1; then
+    KIRO_PREFLIGHT_TIMEOUT="${KIRO_PREFLIGHT_TIMEOUT:-60}"
+    KIRO_PREFLIGHT_PROMPT="Kiro startup safety check. Read ./preflight-canary.txt using a file-reading tool and return its exact contents. If no file-reading tools are available, reply with exactly NO_TOOLS. Do not run any other tools."
+    PREFLIGHT_CWD="$KIRO_CWD_BASE/preflight-$MODEL_TAG"
+    prepare_kiro_agent "$PREFLIGHT_CWD" \
+      || { echo "run-panel.sh: failed to install required Kiro agent in $PREFLIGHT_CWD" >&2; exit 1; }
+    python3 -c 'import secrets; print(secrets.token_hex(24))' > "$PREFLIGHT_CWD/preflight-canary.txt" \
+      || { echo "run-panel.sh: failed to create Kiro preflight canary" >&2; exit 1; }
+    PREFLIGHT_OUT="$PREFLIGHT_CWD/response.txt"; PREFLIGHT_ERR="$PREFLIGHT_CWD/stderr.txt"
+    ( cd "$PREFLIGHT_CWD" && kiro_env "$PREFLIGHT_CWD" timeout "$KIRO_PREFLIGHT_TIMEOUT" \
+        kiro-cli chat "$KIRO_PREFLIGHT_PROMPT" --model "$KIRO_MODEL_ID" --agent "$KIRO_AGENT_NAME" \
+        --no-interactive --wrap never ) > "$PREFLIGHT_OUT" 2> "$PREFLIGHT_ERR" < /dev/null
+    PREFLIGHT_RC=$?
+    if [ "$PREFLIGHT_RC" -eq 0 ] && python3 - "$PREFLIGHT_OUT" "$PREFLIGHT_ERR" \
+        "$KIRO_AGENT_FALLBACK_RE" "$KIRO_QUOTA_RE" <<'PY'
+import pathlib, re, sys
+ansi = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+out, err = [ansi.sub("", pathlib.Path(p).read_text(errors="replace")) for p in sys.argv[1:3]]
+reply = re.sub(r"(?m)^\s*> ?", "", out).strip()
+blocked = re.search(sys.argv[3] + "|" + sys.argv[4] + "|using tool:", err, re.I)
+sys.exit(0 if reply == "NO_TOOLS" and not blocked else 1)
+PY
+    then
+      KIRO_PREFLIGHT_OK=1
+      echo "Kiro preflight passed: $MODEL_TAG (no PR input sent)" >&2
+    else
+      printf '%s\n' "$MODEL_TAG startup check failed (exit $PREFLIGHT_RC); PR input withheld from all $MODEL_TAG cells." \
+        > "$SLOT/kiro-preflight-$MODEL_TAG.flag"
+      if grep -qE "$KIRO_QUOTA_RE" "$PREFLIGHT_ERR"; then
+        grep -E "$KIRO_QUOTA_RE|limits reset on" "$PREFLIGHT_ERR" | strip_ansi | scrub_secrets | head -3 \
+          > "$SLOT/kiro-quota-$MODEL_TAG.flag"
+      fi
+      if grep -qE "$KIRO_AGENT_FALLBACK_RE" "$PREFLIGHT_ERR"; then
+        grep -E "$KIRO_AGENT_FALLBACK_RE" "$PREFLIGHT_ERR" | strip_ansi | scrub_secrets | head -2 \
+          > "$SLOT/kiro-agent-fallback-$MODEL_TAG.flag"
+      fi
+      echo "::error::Kiro preflight failed for $MODEL_TAG (exit $PREFLIGHT_RC) — no PR input sent to Kiro; see docs/runbooks/pr-review-panel.md" >&2
+      strip_ansi < "$PREFLIGHT_ERR" | scrub_secrets | tail -25 >&2
+    fi
   fi
   KIRO_DIFF_CAP="${KIRO_DIFF_CAP:-100000}"
   KIRO_DIFF_TEXT="$(head -c "$KIRO_DIFF_CAP" "$DIFF")"
@@ -112,7 +245,7 @@ for lens_file in "${LENS_FILES[@]}"; do
     # global.openai.gpt-6-astra via amazon-bedrock-runtime (config.toml) is a global
     # model — no region pinning needed, unlike the prior gpt-5.6-sol/bedrock-mantle setup.
     if command -v codex >/dev/null 2>&1; then
-      ( try_panel "$SLOT/codex-$lens.md" "$SLOT/codex-$lens.err" \
+      ( try_panel codex "$SLOT/codex-$lens.md" "$SLOT/codex-$lens.err" \
           timeout "$T" codex exec -s read-only --skip-git-repo-check "$LENS_PROMPT" ) &
     else echo "[skip] codex/$lens (binary absent)" >&2; : > "$SLOT/codex-$lens.md"; fi
   elif [ -n "$KIRO_TAG" ]; then
@@ -122,17 +255,14 @@ for lens_file in "${LENS_FILES[@]}"; do
       echo "run-panel.sh: Kiro prompt exceeds single-argument byte limit" >&2
       exit 1
     fi
-    if command -v kiro-cli >/dev/null 2>&1; then
+    if command -v kiro-cli >/dev/null 2>&1 && [ "$KIRO_PREFLIGHT_OK" = 1 ]; then
       CELL_CWD="$KIRO_CWD_BASE/$MODEL_TAG-$lens"
-      if ! mkdir -p "$CELL_CWD/.kiro/agents" \
-        || ! cp "$KIRO_AGENT_PROFILE" "$CELL_CWD/.kiro/agents/$KIRO_AGENT_NAME.json"; then
-        echo "run-panel.sh: failed to install required Kiro agent in $CELL_CWD" >&2
-        exit 1
-      fi
-      ( cd "$CELL_CWD" && try_panel "$SLOT/$MODEL_TAG-$lens.md" "$SLOT/$MODEL_TAG-$lens.err" \
+      prepare_kiro_agent "$CELL_CWD" \
+        || { echo "run-panel.sh: failed to install required Kiro agent in $CELL_CWD" >&2; exit 1; }
+      ( cd "$CELL_CWD" && try_panel kiro "$SLOT/$MODEL_TAG-$lens.md" "$SLOT/$MODEL_TAG-$lens.err" \
           kiro_env "$CELL_CWD" timeout "$T" kiro-cli chat "$KIRO_INSTRUCTION" --model "$KIRO_MODEL_ID" \
-          --agent "$KIRO_AGENT_NAME" --mode default --no-interactive --trust-tools= --wrap never ) &
-    else echo "[skip] $MODEL_TAG/$lens (binary absent)" >&2; : > "$SLOT/$MODEL_TAG-$lens.md"; fi
+          --agent "$KIRO_AGENT_NAME" --no-interactive --wrap never ) &
+    else echo "[skip] $MODEL_TAG/$lens (binary absent or preflight failed)" >&2; : > "$SLOT/$MODEL_TAG-$lens.md"; fi
   elif [ "$MODEL_TAG" = claude-self ]; then
     # Independent Claude review (separate voice from the chair). --allowedTools is pinned
     # to bounded local and gh read-only context tools; GitHub MCP auth failures can hang startup.
@@ -148,7 +278,7 @@ for lens_file in "${LENS_FILES[@]}"; do
 - Output findings only, grouped CRITICAL/MAJOR/MINOR. Do not post any GitHub comment and do
   not output a VERDICT line.
 Respond in English only (token/context efficiency — do not mix in other languages)."
-      ( try_panel "$SLOT/claude-self-$lens.md" "$SLOT/claude-self-$lens.err" \
+      ( try_panel claude-self "$SLOT/claude-self-$lens.md" "$SLOT/claude-self-$lens.err" \
           timeout "$T" claude -p "$CLAUDE_SELF_PROMPT" --output-format text \
             --allowedTools "Read Grep Glob Bash(gh pr diff:*) Bash(gh pr view:*) Bash(gh search:*) Bash(gh issue view:*)" ) &
     else echo "[skip] claude-self/$lens (binary absent)" >&2; : > "$SLOT/claude-self-$lens.md"; fi
@@ -159,8 +289,41 @@ done
 # in headless CI. Panel = Codex + 2 Kiro models + Claude self-review -> Claude chair.
 wait
 
-# Aggregation happens in aggregate.sh (chair job), not here — this script only knows
-# about one model's cells.
+# Coverage aggregation happens in aggregate.sh (chair job), not here — this script only
+# knows about one model's cells. The two Kiro-specific failure causes below are folded
+# into per-model flag files inside $SLOT (the only path the panel job uploads, see the
+# kiro-diff-truncated.flag note above) so aggregate.sh can merge them across jobs.
+
+# Agent fallback: any `$slot.agentfail` marker means this runner's kiro-cli ignored
+# `--agent`, so no Kiro response of this job carries the no-tools guarantee. The slots are
+# already empty (excluded from coverage); the flag names the cause as a contract breach
+# rather than "empty response" and makes aggregate.sh force VERDICT: FAIL.
+shopt -s nullglob
+AGENTFAIL_MARKERS=("$SLOT"/*.agentfail)
+shopt -u nullglob
+if [ "${#AGENTFAIL_MARKERS[@]}" -gt 0 ]; then
+  AGENTFAIL_DETAIL="$(cat "${AGENTFAIL_MARKERS[@]}" | scrub_secrets | grep -v '^\s*$' | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+  AGENTFAIL_CELLS="$(for q in "${AGENTFAIL_MARKERS[@]}"; do basename "$q" .md.agentfail; done | tr '\n' ' ' | sed 's/ *$//')"
+  echo "::error::kiro-cli ignored --agent $KIRO_AGENT_NAME (fell back to the default agent WITH tools) in ${#AGENTFAIL_MARKERS[@]} cell(s) [$AGENTFAIL_CELLS]: $AGENTFAIL_DETAIL — responses discarded, forcing VERDICT: FAIL (no-tools contract)" >&2
+  printf '%s\n' "[$AGENTFAIL_CELLS] $AGENTFAIL_DETAIL" > "$SLOT/kiro-agent-fallback-$MODEL_TAG.flag"
+  rm -f "${AGENTFAIL_MARKERS[@]}"
+fi
+
+# Quota exhaustion: any `$slot.quota` marker pins the real cause (the KIRO_API_KEY
+# account's MONTHLY_REQUEST_COUNT limit and its reset date) instead of the degraded
+# banner's generic guesses. Every repo sharing this runner image consumes the same key,
+# so the fix is account-side (enable overages or rotate KIRO_API_KEY in Secrets Manager
+# /demo-platform/actions/AI-key), not a code change. Coverage rules are unchanged.
+shopt -s nullglob
+QUOTA_MARKERS=("$SLOT"/*.quota)
+shopt -u nullglob
+if [ "${#QUOTA_MARKERS[@]}" -gt 0 ]; then
+  QUOTA_DETAIL="$(cat "${QUOTA_MARKERS[@]}" | scrub_secrets | grep -v '^\s*$' | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+  QUOTA_CELLS="$(for q in "${QUOTA_MARKERS[@]}"; do basename "$q" .md.quota; done | tr '\n' ' ' | sed 's/ *$//')"
+  echo "::error::Kiro monthly request quota exhausted for KIRO_API_KEY — ${#QUOTA_MARKERS[@]} cell(s) [$QUOTA_CELLS]: $QUOTA_DETAIL — enable overages or rotate the key (/demo-platform/actions/AI-key); not a headless-flag failure" >&2
+  printf '%s\n' "[$QUOTA_CELLS] $QUOTA_DETAIL" > "$SLOT/kiro-quota-$MODEL_TAG.flag"
+  rm -f "${QUOTA_MARKERS[@]}"
+fi
 
 # On a skip, surface stderr's tail to the log — scrubbed, since Actions logs on this
 # public repo are world-readable.

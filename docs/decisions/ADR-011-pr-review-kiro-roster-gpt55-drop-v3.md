@@ -22,7 +22,11 @@ not the current roster.
 ## Later amendments
 
 - PR #63 removed Kiro file-read grants after an absolute-path credential-read risk.
-  Kiro now receives an argv-embedded diff with `--trust-tools=` and isolated HOME/cwd.
+  Kiro received an argv-embedded diff with `--trust-tools=` and isolated HOME/cwd;
+  the explicit `inline-review` profile later replaced the flag as the guard
+  ([ADR-016](ADR-016-multi-ai-pr-review-panel.md) amendments 2026-09-13 and
+  2026-09-12). The `--v3` drop recorded here still holds: the v3 engine also
+  ignores an agent's `tools: []`.
 - [ADR-013](ADR-013-pr-review-gpt56-model-bump.md) records the next GPT model change.
 - [ADR-015](ADR-015-pr-review-per-model-parallel-jobs.md) owns the per-model job
   topology and two-Kiro roster structure; [ADR-014](ADR-014-pr-review-opus5-model-bump.md)

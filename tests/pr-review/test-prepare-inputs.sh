@@ -38,8 +38,11 @@ case "$2" in
 esac
 EOF
 # Kiro receives a sanitized environment: record argv in its isolated working directory.
+# The preflight canary prompt must get exactly NO_TOOLS or run-panel.sh withholds the diff.
 cat > "$PREP_TMP/bin/kiro-cli" <<'EOF'
 #!/usr/bin/env bash
+[ "${1:-}" = "--version" ] && { echo "kiro-cli stub"; exit 0; }
+[[ "${2:-}" == 'Kiro startup safety check.'* ]] && { echo "NO_TOOLS"; exit 0; }
 printf '%s\n' "$@" > argv.txt
 printf 'reviewed\n'
 EOF
@@ -77,7 +80,9 @@ for lens in L2 L3 L4 L5; do
   argv="$PREP_TMP/work/kiro-cwd/kiro-fable-$lens/argv.txt"
   check grep -Fq 'Documentation is English; product UI copy may be Korean.' "$argv"
   check grep -Fq UNTRUSTED_HEAD_INSTRUCTION "$argv"
-  check grep -Fxq -- '--trust-tools=' "$argv"
+  check grep -Fxq -- '--agent' "$argv"
+  check grep -Fxq -- 'inline-review' "$argv"
+  check test "$(grep -c -- '--trust-tools' "$argv")" -eq 0
 done
 # Reject the change that would break the next run's base-context budget.
 head -c 12289 /dev/zero | tr '\0' x > "$PREP_TMP/head-context"
