@@ -99,6 +99,7 @@ class SynthesisTests(unittest.TestCase):
         report = (
             "Reviewed quota handling for UsageLimitReachedError.\n"
             '- The test covers "Monthly request limit reached".\n'
+            "Example provider diagnostic:\n```\nUsageLimitReachedError\n```\n"
             "VERDICT: PASS\n"
         )
         calls, text = self.run_chair([(0, report, "")])
