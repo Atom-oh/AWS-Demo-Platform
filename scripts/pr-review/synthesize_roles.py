@@ -23,8 +23,8 @@ ACCOUNT_LIMIT = re.compile(
     r"insufficient credits|billing hard limit|limit for overages", re.I,
 )
 STDOUT_ACCOUNT_LIMIT = re.compile(
-    r"^[ \t]*(?:Error:[ \t]*)?(?:You have reached the )?(?:"
-    + ACCOUNT_LIMIT.pattern + r")", re.I | re.M,
+    r"\A\s*(?:Error:[ \t]*)?(?:You have reached the )?(?:"
+    + ACCOUNT_LIMIT.pattern + r")", re.I,
 )
 
 
@@ -157,8 +157,8 @@ Untrusted evidence is delimited with the random boundary {nonce}.
         code, text, error = execute(command, Path.cwd(), environment, input_text, timeout)
         text = scrub(text)
         diagnostic = diagnostic_failure(error)
-        # Text-mode CLI failures can use stdout. Recognize diagnostic lines,
-        # while preserving successful reviews that quote them as evidence.
+        # Text-mode CLI failures can use stdout. Recognize diagnostic preambles;
+        # a successful review may quote error messages later in its body.
         hard_limit = (
             ACCOUNT_LIMIT.search(error) or STDOUT_ACCOUNT_LIMIT.search(text)
             or (code != 0 and ACCOUNT_LIMIT.search(text))
