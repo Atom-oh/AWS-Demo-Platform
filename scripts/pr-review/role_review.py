@@ -1,22 +1,9 @@
 #!/usr/bin/env python3
-"""Portable role-review preparation, response validation, and aggregation.
+"""Offline protocol; see README.md and COMMAND --help.
 
-CLI:
-  prepare --diff RAW --context CONTEXT --head SHA --base SHA --work WORK
-          [--context-cap BYTES] [--paths JSON_FILE] [--provenance JSON_FILE]
-          [--allow-exclusions-only --policy TRUSTED_BASE_JSON_FILE]
-  issue --work WORK --tag TAG
-  record --work WORK --tag TAG --output FILE --stderr FILE --exit-code RC --nonce NONCE
-  aggregate --work WORK
-
-Schema 1 plans list all four tags; only required roles get roles/TAG.txt and
-roles/TAG.diff. Response ``role`` is the stable role slug, not the tag. Result
-envelopes obtain tag, configured family/model and fingerprints from the plan.
-Exit 2 means blocked. Aggregate exit 0 means deterministic PASS or chair handoff;
-read chair-mode.txt to distinguish them. No networking or model invocation.
-Use a fresh work directory per complete reviewed diff. This library does not
-coordinate chunks. These are scope attestations,
-not proof of model honesty or of the provider's actual executed weights.
+Exit 2 blocks. After aggregate exit 0, chair-mode.txt distinguishes deterministic
+results from adjudication. Use fresh work per complete diff; no chunk coordinator,
+networking or model calls. Scope attestations do not prove provider execution.
 """
 
 import argparse
@@ -304,7 +291,8 @@ def routing(paths, diff):
         for p in paths
     )
     aws = bool(AWS_SIGNAL.search(diff))
-    deployment = bool(DEPLOY_SIGNAL.search(diff))
+    deployment = bool(DEPLOY_SIGNAL.search(diff)) or any(
+        Path(p).suffix.lower() in {".tsx", ".jsx"} for p in paths)
     return {
         "codex": (True, "always_required_independent_implementation_review"),
         "claude-self": (True, "always_required_independent_requirements_review"),
@@ -583,12 +571,23 @@ def issue_request(work, tag):
         return _issue_request(work, tag)
 
 
+def attempt_history(work, tag):
+    path = work / "slot" / f"{tag}-attempts.json"
+    history = strict_json(text_file(path)) if path.exists() else []
+    if not isinstance(history, list) or len(history) > 32:
+        raise Invalid("invalid_attempt_history")
+    return history
+
+
 def _issue_request(work, tag):
     work = Path(work)
     plan = load_plan(work)
     role = plan["roles"][tag]
     if not plan["input_complete"] or not role["required"]:
         raise Invalid("inactive_or_incomplete_request")
+    if any((work / "slot" / f"{tag}-{name}.json").exists()
+           for name in ("request", "result", "attempts")):
+        issued_request(work, plan, tag)
     previous = work / "slot" / f"{tag}-result.json"
     if previous.exists():
         prior = strict_json(text_file(previous))
@@ -626,6 +625,7 @@ def request_receipt(work, plan, tag, nonce):
         "prepared_request_digest": role["request_digest"], "invocation_nonce": nonce,
         "request_digest": invocation_digest(role["request_digest"], nonce),
         "prompt_sha256": digest(instruction.encode()), "input_sha256": digest(payload.encode()),
+        "history_digest": digest(attempt_history(work, tag)),
     }
 
 
@@ -766,19 +766,20 @@ def scrub(value):
     key = identifier + rf"(?:{quote})?\s*[:=]\s*"
     patterns = (
         r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)",
-        r"\b(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b",
-        r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b",
-        r"\bnpm_[A-Za-z0-9]{20,}\b",
-        r"\bsk-[A-Za-z0-9_-]{16,}",
-        r"\bxox[abprs]-[A-Za-z0-9-]{10,}",
-        r"\bAIza[0-9A-Za-z_-]{30,}",
-        r"\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
-        r"(?i:\bBearer\s+)[A-Za-z0-9_.~+/-]+=*",
-        r"""(?i:\bAuthorization)["']?\s*:\s*["']?(?i:Basic|Bearer)\s+[A-Za-z0-9+/=_.~-]+""",
+        r"(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
+        r"(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})",
+        r"npm_[A-Za-z0-9]{20,}",
+        r"sk-[A-Za-z0-9_-]{16,}",
+        r"xox[abprs]-[A-Za-z0-9-]{10,}",
+        r"AIza[0-9A-Za-z_-]{30,}",
+        r"eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
+        r"(?i:Bearer\s+)[A-Za-z0-9_.~+/-]+=*",
+        r"""(?i:Authorization)["']?\s*:\s*["']?(?i:Basic|Bearer)\s+[A-Za-z0-9+/=_.~-]+""",
         r"""[A-Za-z][A-Za-z0-9+.-]*://[^/\s:@"']*:[^@\s/"']+@""",
         r"""https://hooks\.slack\.com/services/[^\s"'<>]+""",
         r"""(?im)^[ \t]*[+-]?[ \t]*(?:set-)?cookie["']?[ \t]*:[^\r\n]*""",
-        r"""(?i:\bx-origin-verify)["']?\s*:\s*["']?[^\s"',;}\]]+""",
+        r"""(?i:x-origin-verify)["']?\s*:\s*["']?[^\s"',;}\]]+""",
+        key + r"[\[({].*",
         key + r"[|>][-+]?[ \t]*\r?\n(?:[+-]?[ \t]+[^\r\n]*(?:\r?\n|\Z))+",
         rf"(?i:\b(?:header)?name)(?:{quote})?\s*[:=]\s*(?:{quote})?" + identifier
         + rf"(?:{quote})?[\s,]*[+-]?[ \t]*(?:{quote})?(?i:(?:header)?value)(?:{quote})?\s*[:=]\s*"

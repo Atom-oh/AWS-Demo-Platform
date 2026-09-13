@@ -17,7 +17,7 @@ import unittest
 ENGINE = Path(__file__).with_name("role_review.py")
 HEAD = "a" * 40
 BASE = "b" * 40
-FRONTEND = "dashboard/frontend/components/Button.tsx"
+FRONTEND = "dashboard/frontend/components/Button.css"
 TAGS = ("codex", "kiro-fable", "kiro-sol", "claude-self")
 
 
@@ -246,7 +246,11 @@ class RoleReviewTests(unittest.TestCase):
             ('originSecret="origin-private-value"', "origin-private-value"),
             ('mcpToken="mcp-private-value"', "mcp-private-value"),
             ("x-origin-verify: origin-header-private", "origin-header-private"),
+            ("_ghp_" + "A" * 36 + "_", "A" * 36),
+            ('password = ("wrapped-private")', "wrapped-private"),
+            ('{"password": [["nested-private"]]}', "nested-private"),
         ]
+        cases += [(f"_{text}_", secret) for text, secret in cases]
         for index, (text, secret) in enumerate(cases):
             with self.subTest(kind=text.split("=", 1)[0][:24]):
                 self.work = self.root / f"decoded-pattern-{index}"
@@ -867,6 +871,13 @@ class RoleReviewTests(unittest.TestCase):
                 self.assertFalse((self.work / "deterministic-review.md").exists())
                 candidates = summary["uncertainties"] if kind == "uncertainty" else summary["findings"]
                 self.assertIn("Historical unresolved condition", json.dumps(candidates))
+                archive = self.work / "slot/codex-attempts.json"
+                if kind == "CRITICAL":
+                    archive.unlink()
+                else:
+                    archive.write_text("[]")
+                self.assert_blocked()
+                self.cli("issue", "--work", self.work, "--tag", "codex", expected=2)
 
 
     def test_corrupt_historical_candidate_cannot_be_silently_dropped(self):
@@ -885,6 +896,12 @@ class RoleReviewTests(unittest.TestCase):
         path.write_text(json.dumps(history))
         self.assert_blocked()
         self.assertIn("invalid_attempt_history:codex", self.read("role-summary.json")["failure_codes"])
+
+
+    def test_react_operating_guards_keep_contract_review(self):
+        for path in ("components/ProjectControls.tsx", "components/ScaleControl.jsx"):
+            plan = self.prepare(patch(path, "disabled={blocked}", "disabled={false}"))
+            self.assertTrue(plan["roles"]["kiro-sol"]["required"])
 
 
 if __name__ == "__main__":
