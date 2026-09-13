@@ -1,26 +1,57 @@
-# k8s/ Module
+# Kubernetes manifests
 
-## Role
-Kustomize manifests for hub components and explicitly targeted spoke infrastructure overlays. The owning Application/ApplicationSet determines the destination; the `k8s/system` path does not imply hub-only deployment. Upstream charts are referenced from `argocd-apps/system/`.
+The owning Application/ApplicationSet in `argocd-apps/system/` determines the
+destination. `k8s/system/` includes hub components and spoke overlays. Upstream
+Helm chart versions are pinned in those Applications; declarations are not proof
+of the installed version.
 
-## Key Directories
-- `system/karpenter-apne2-{mgmt,az-a,az-c}/` — Cluster-specific Karpenter resources. `appset-infra.yaml` maps each path to the matching hub or spoke cluster.
-- `system/atlantis/` — Atlantis deployment, service, ServiceAccount (annotated with `AtlantisIRSARole`), ExternalSecret (`v1`), config. The deployment includes `--write-git-creds` for GitHub App auth.
-- `system/argocd/` — Helm values file for ArgoCD self-managed install (chart `argo/argo-cd` 9.5.15). `configs.cm` contains the HPA-2 cluster-wide `ignoreDifferences`. Tolerations for `node-role=system-critical`.
-- `system/external-secrets-bootstrap/` — One-time bootstrap manifests adopted by ArgoCD (`cluster-secret-store.yaml`, `helm-values.yaml`). Documented in its own README.
-- `system/tempo/` — Grafana Tempo 2.7.2 single-binary (S3 backend, IRSA `production-tempo-ap-northeast-2-mgmt`, bucket from `infra/eks-mgmt` `tempo_storage`). Synced to mgmt only via `appset-tempo`. Uses `-config.expand-env=true`; the appset patches `containers[0].env` with literal `AWS_REGION`/`TEMPO_S3_BUCKET` (the in-manifest `tempo-region-config`/`region-config` refs are `optional` and unused).
-- `system/clickhouse-mgmt/` — Altinity `ClickHouseInstallation` (otel traces/logs schema, gp3 100Gi, `node-pool=platform`) + 3 internal NLBs (`clickhouse-nlb`/`tempo-nlb`/`prometheus-nlb`) for spoke→hub fan-in. Synced to mgmt only via `appset-clickhouse`; operator via `appset-helm-clickhouse-operator`. The NLBs are a documented no-NLB-convention exception — see ADR-007.
-- `system/grafana/` — 11 dashboard ConfigMaps, the `grafana` TargetGroupBinding and an ExternalSecret producing `monitoring/grafana-admin`. The binding resolves `demo-platform-grafana` by name; apply `infra/alb-internal` before merging it. TargetGroupBinding registers Pod IPs from the ClusterIP Service rather than forwarding traffic itself. The Prometheus/Grafana Helm Application consumes the administrator Secret; keep the producer Ready and do not prune it while in use. Public Grafana uses the existing CloudFront distribution and shared VPC Origin; no public LoadBalancer Service is provisioned here.
+## Source map
 
-## Conventions
-Read the component's owning Application/ApplicationSet and verify the explicitly selected context matches its destination cluster/account. Hub components use `mall-apne2-mgmt`; the AZ-specific Karpenter overlays use their corresponding spokes. Pass `--context` on cluster operations rather than relying on the shell's default.
+| Directory under `system/` | Responsibility |
+| --- | --- |
+| `karpenter/` | Shared NodePool/EC2NodeClass manifests; the base is not a hub-only deployment |
+| `karpenter-apne2-{mgmt,az-a,az-c}/` | Cluster-specific selections/patches, mapped by `appset-infra.yaml` |
+| `atlantis/` | Deployment, IRSA ServiceAccount, ExternalSecret, service and binding; preserve `--write-git-creds` |
+| `argocd/` | Self-managed Helm values and bootstrap binding; see its README for ownership limits |
+| `external-secrets-bootstrap/` | Still-referenced Helm values and ClusterSecretStore; retained by current ArgoCD Applications |
+| `actions-runner/`, `runner-scheduler/` | Shared runner identity/secrets and scheduled fleet sizing |
+| `storageclass/` | gp3 StorageClass |
+| `tempo/` | Single-binary Tempo; `appset-tempo.yaml` supplies IRSA, S3 bucket and literal environment values |
+| `clickhouse-mgmt/` | ClickHouseInstallation and three internal observability fan-in NLB Services |
+| `grafana/` | 11 generated dashboard ConfigMaps, TargetGroupBinding and `grafana-admin` ExternalSecret |
 
-Hub nodes carry taints (`workload-type=platform`, `node-role=system-critical`) as a way to keep the hub reserved for system components, so workloads placed here need matching tolerations to actually schedule.
+The unselected `multi-region-comparison.json` is retained source, not a deployed
+dashboard. Tempo's optional ConfigMap references are replaced by its ApplicationSet;
+do not treat those optional maps as required deployment prerequisites.
 
-ExternalSecrets in this directory target `external-secrets.io/v1`, since `v1beta1` is deprecated under the ESO 2.5.0 version this cluster runs.
+## Scheduling
 
-The Atlantis deployment's `--write-git-creds` flag exists because it is what makes GitHub App auth work for Atlantis; removing it breaks that auth path, so it is worth treating as load-bearing rather than incidental.
+Match the destination, node selector and that pool's taint; hub nodes do not all
+carry the same taints.
 
-Before committing a change under `system/<dir>`, it's worth confirming the manifests still render — `kubectl kustomize k8s/system/<dir>` succeeding is the quick signal that the Kustomize tree is still well-formed.
+| Pool | Selector / taint (`NoSchedule`) | Source |
+| --- | --- | --- |
+| Bootstrap system nodes | `role=system` / `node-role=system-critical` | `infra/modules/compute/eks/main.tf` |
+| Karpenter platform | `node-pool=platform` / `workload-type=platform` | `system/karpenter/platform-nodepool.yaml` |
+| General runner pools | Architecture/pool constraints / `workload-type=ci-runner` | `system/karpenter/runner-{arm,x86}-nodepool.yaml` |
+| Docs runner pool | `node-pool=runner-docs-arm` / `workload-type=ci-runner-docs` | `system/karpenter/runner-docs-nodepool.yaml` |
 
-Public traffic reaches the internal ALB's target IPs. TargetGroupBinding (TGB) registers Kubernetes Pod IPs from Service endpoints against Terraform-owned target groups. It is not an additional traffic hop. Ingress resources have no role here; their absence is by design.
+## Operations
+
+Verify the selected context's cluster/account against the Application destination;
+pass `--context` on cluster operations. Render directories with a Kustomization
+using `kubectl kustomize <dir>`; the Karpenter overlays need
+`--load-restrictor LoadRestrictionsNone` for sibling resources, as configured in
+ArgoCD. Helm-values and directory-source folders are not standalone Kustomizations.
+Follow with an appropriate dry-run after prerequisites exist.
+
+ExternalSecrets use `external-secrets.io/v1`; the ESO chart pin is 2.5.0.
+For Grafana, apply its target group before syncing the binding, and verify the
+Secret producer before rolling consumers. See the
+[Grafana runbook](../docs/runbooks/grafana-private-ingress.md).
+
+Public ingress is CloudFront → VPC Origin → internal ALB → Pod IPs. The AWS Load
+Balancer Controller reconciles TargetGroupBinding to register those IPs from
+Services; TGB is not a traffic hop. No Kubernetes Ingress or public Grafana
+LoadBalancer is required. [ADR-007](../docs/decisions/ADR-007-mgmt-observability-internal-nlb-exception.md)
+permits only private spoke-to-hub observability fan-in NLBs.

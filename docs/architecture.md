@@ -29,7 +29,7 @@ See [CLAUDE.md](../CLAUDE.md) for repository rules and the
 | Hub EKS | Owned by `infra/eks-mgmt`, not a duplicate module in the workload repository |
 | ArgoCD | `master-system-root` watches `argocd-apps/system/`; `master-tenants-root` watches tenant roots |
 | Atlantis | PR plan/apply through GitHub App auth, `AtlantisIRSARole` and scoped assume-role |
-| ESO | `ClusterSecretStore aws-secrets-manager`; syncs Atlantis/ArgoCD/runner and Grafana credentials |
+| ESO | `ClusterSecretStore aws-secrets-manager`; syncs declared Atlantis, runner and Grafana ExternalSecrets |
 | Observability | Prometheus/Grafana, ClickHouse and Tempo on the hub; internal fan-in NLBs under ADR-007 |
 
 ### Grafana boundary
@@ -72,7 +72,7 @@ flowchart TB
     Atlantis[Atlantis]
     ArgoCD[ArgoCD]
     Grafana[Grafana]
-    TGB[TargetGroupBinding controllers]
+    LBC[AWS Load Balancer Controller]
     ESO[External Secrets Operator]
   end
 
@@ -81,7 +81,7 @@ flowchart TB
   TG --> Atlantis
   TG --> ArgoCD
   TG --> Grafana
-  TGB -. register Pod IPs from Services .-> TG
+  LBC -. reconcile TargetGroupBinding and register Pod IPs .-> TG
   API --> DDB[(DynamoDB state, jobs and history)]
   API --> SQS[(SQS jobs)]
   SQS --> Worker
@@ -108,27 +108,20 @@ configuration, not just this repository's ArgoCD status.
 
 ## Lifecycle and scale jobs
 
-The `shared` package holds schemas and clients. API routes validate requests and
-state, transition lifecycle actions to `transitioning`, persist jobs and enqueue
-SQS work, returning 202. The worker executes resource controllers idempotently,
-resumes running jobs after restart and uses the queue's three-receive redrive
-policy. See [ADR-001](decisions/ADR-001-sqs-worker-for-async-jobs.md).
+`shared` owns schemas/clients; API routes validate and persist jobs, then enqueue
+SQS work with a 202 response. Lifecycle jobs set `transitioning`; workers resume
+running jobs and use the queue's three-receive redrive policy
+([ADR-001](decisions/ADR-001-sqs-worker-for-async-jobs.md)).
 
-`turn_off` records restoration data by resource-unique `stepKey`; failed
-`turn_on` preserves it for retry. Kubernetes off uses HPA `min=max=1` plus workload
-replicas 1. ArgoCD REST performs the resource changes, with namespaces supplied
-per call ([ADR-002](decisions/ADR-002-argocd-control-via-rest-api.md)).
+Off/on preserves resource-specific restoration data. Kubernetes off pins HPA bounds
+and workload replicas to 1 through ArgoCD REST; failed on retains the saved data
+([ADR-002](decisions/ADR-002-argocd-control-via-rest-api.md)).
 
-`scale` is a separate job operation, leaving project on/off status unchanged.
-Targets persist on the job for restart recovery. Scaling an HPA pins its range;
-a write-once first-observed baseline lets a later off/on cycle restore the original
-bounds. Do not replace that baseline on later scales. Accepted concurrency and
-partial-failure limits remain in
-[ADR-017](decisions/ADR-017-demo-scale-job-operation.md).
-
-The current schema supports toggle controllers for ECS, EC2, RDS and ArgoCD apps;
-several other resource types are intentionally visibility-only. A project entry
-must match the schema and actual controller/ArgoCD owner, not a future design.
+Scale requires `on`, leaves that status unchanged and persists its targets.
+Write-once HPA baselines survive repeated scales for later off/on restoration;
+[ADR-017](decisions/ADR-017-demo-scale-job-operation.md) records accepted races
+and partial failures. See the [project guide](../projects/CLAUDE.md) for supported
+controllers, visibility-only types and schema fields that do not change behavior.
 
 ## Runtime and deployment contracts
 
@@ -136,25 +129,24 @@ must match the schema and actual controller/ArgoCD owner, not a future design.
   and its existing viewer certificate is looked up in `us-east-1`.
 - Terraform initializes API/frontend counts at 1 and worker at 0. Services ignore
   `task_definition` and `desired_count` drift; these values are not live counts.
-- Backend/frontend CI builds and pushes ARM64 images on matching main changes.
-  It does not update running ECS service revisions. Pin a task definition during
-  rollout and verify the running revision, count, health and image architecture.
+- Backend/frontend CI publishes ARM64 images on matching main changes; ECS rollout
+  is explicit. Verify the selected task revision, actual digest/count and health.
 - Backend CI bundles project YAMLs into API/worker images and account configuration
   into the worker. Its current path filters cover `dashboard/backend/**` and its
   workflow file, so project/account-only changes require an explicit build/deploy
   step; merging those files alone does not refresh the running platform metadata.
 - Kubernetes components auto-sync from Git. Provision a target group before merging
   its binding; require a Secret producer Ready before enabling its consumer.
-- Grafana credential values are out-of-band, not Terraform state. Update the
-  persisted database password, synchronize ESO and restart consumers when rotating;
-  changing a Secret alone is insufficient. Reverting the consumer setting is not
-  a password rollback.
+- Hub bootstrap nodes, Karpenter platform pools and runner pools have different
+  selectors/taints. Follow the [manifest map](../k8s/CLAUDE.md), not a blanket
+  hub toleration rule. Only paths selected by Applications are auto-synced.
+- Grafana rotation updates the database, authoritative secret and consumers in order;
+  see its runbook. Secret changes or consumer reverts alone do not rotate/restore
+  the persisted password.
 
-Entry points configured by the infrastructure are `atlantis.atomai.click`,
-`argocd.atomai.click`, `admin-dev.atomai.click`, `admin-api-dev.atomai.click`,
-`grafana-kr.atomai.click` and `grafana.atomai.click`. Resolve current identifiers
-from module outputs and live APIs; validate TLS and health before use. Historical
-IDs in incident logs are not an active inventory.
+Resolve endpoint identifiers from the owning modules/APIs, then validate public TLS,
+login and data access. Historical incident IDs are not an active inventory, and
+checks through private split-horizon DNS do not exercise CloudFront.
 
 ## Terraform modules
 
@@ -174,9 +166,13 @@ Remote-state consumers need their dependencies applied before a meaningful plan.
 | `infra/iam` | Task/execution/operator roles and scoped GitHub OIDC roles |
 | `infra/dynamodb` | Lifecycle state, jobs and history tables |
 | `infra/sqs` | Job queue and DLQ |
-| `infra/ecr` | Runtime/runner image repositories and cache/lifecycle configuration |
+| `infra/ecr` | Three runtime image repositories and optional GHCR cache; existing runner repository is outside this state |
 | `infra/secrets-manager` | Dashboard credential containers plus the Grafana admin container |
 | `infra/modules` | Reusable submodules; not independently applied states |
+
+Use `demo-platform-` for new platform-owned names. Adopted `mall-*` resources,
+existing role names and shared state keys retain their names; the prefix rule
+does not require replacement. See the [infrastructure guide](../infra/CLAUDE.md).
 
 ## Security and review boundaries
 
@@ -189,28 +185,20 @@ Cross-account calls assume the configured role with an ExternalId from Secrets
 Manager. Backend auth fails closed except for the literal development environment;
 verified access-token usernames must be in `ADMIN_USERNAMES`. CI image publication
 uses repository/main-scoped GitHub OIDC, not long-lived AWS keys.
+The worker consumes `accounts.yaml`; Atlantis's standard workflow does not.
+Friend-account Terraform providers and repository registration need explicit
+wiring. Trust conditions do not imply every permission is resource-scoped; review
+the actual [IAM statements](../infra/iam/CLAUDE.md).
 
-The AI workflow's configured panel slots, actual responses and final findings are
-different signals. Its scripts and runner config are authoritative for model IDs.
-Do not infer complete coverage or safe deployment from a green job or PASS label.
-Check current branch rules and use the
-[review/release procedure](runbooks/review-and-release.md). The recovered
-[gate-hardening proposal](superpowers/specs/2026-08-09-pr-review-gate-hardening-design.md)
-remains distinct from implemented enforcement.
+AI roster/configuration, successful model responses and verified findings are
+different evidence. Use [review/release](runbooks/review-and-release.md) for
+current-head coverage and actual branch-rule checks; historical proposals do not
+establish implemented enforcement.
 
-## Key design decisions
-
-- [ADR-001](decisions/ADR-001-sqs-worker-for-async-jobs.md): asynchronous SQS jobs and state recovery.
-- [ADR-002](decisions/ADR-002-argocd-control-via-rest-api.md): ArgoCD REST control.
-- [ADR-003](decisions/ADR-003-gha-oidc-ecr-push.md): GitHub OIDC image publication.
-- [ADR-004](decisions/ADR-004-same-origin-cloudfront-dashboard.md): same-origin dashboard routing.
-- [ADR-005](decisions/ADR-005-cognito-spa-auth-code-pkce.md): Cognito PKCE and accepted token-storage trade-offs.
-- [ADR-006](decisions/ADR-006-arm64-graviton-native-build.md): ARM64 native builds.
-- [ADR-007](decisions/ADR-007-mgmt-observability-internal-nlb-exception.md): private observability fan-in exception.
-- [ADR-012](decisions/ADR-012-ai-trader-web-oidc-plan-apply-split.md): external-repository OIDC privilege split.
-- [ADR-016](decisions/ADR-016-multi-ai-pr-review-panel.md), amended by [ADR-011](decisions/ADR-011-pr-review-kiro-roster-gpt55-drop-v3.md), [ADR-013](decisions/ADR-013-pr-review-gpt56-model-bump.md), [ADR-014](decisions/ADR-014-pr-review-opus5-model-bump.md) and [ADR-015](decisions/ADR-015-pr-review-per-model-parallel-jobs.md): AI review roster/topology history.
-- [ADR-017](decisions/ADR-017-demo-scale-job-operation.md): demo-scale jobs and limitations.
-- [ADR-018](decisions/ADR-018-grafana-private-origin.md): private Grafana restoration, split ownership and credential rollout.
+The [decision records](decisions/) retain rationale and dated exceptions.
+In particular, ADR-007 scopes private fan-in, ADR-012 scopes the external
+ai-trader-web OIDC split, and ADR-018 records Grafana's cross-owner recovery.
+Model roster/endpoint history is not a substitute for current review scripts.
 
 ## Operations
 
@@ -218,5 +206,5 @@ remains distinct from implemented enforcement.
 - [Grafana ingress and credentials](runbooks/grafana-private-ingress.md): resource owners, staged Secret rollout and live checks.
 - [ECS runtime guide](../infra/dashboard-ecs/CLAUDE.md): initial definitions versus actual revisions/counts.
 - [ARM64 migration record](runbooks/arm64-graviton-migration.md): historical migration mechanics, not current service status.
-- [Public dashboard deployment record](runbooks/dashboard-public-deploy-execution.md): historical June 2026 execution plan, not current revisions or rollout approval.
+- [Public dashboard rollout](runbooks/dashboard-public-deploy-execution.md): explicit revision selection and public checks; June 2026 observations are historical.
 - [Developer onboarding](onboarding.md) and [friend-account onboarding](onboarding/friend-account-setup.md).

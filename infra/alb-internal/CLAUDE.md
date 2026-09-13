@@ -9,6 +9,10 @@ The ALB security group allows HTTPS only from the CloudFront VPC Origin service
 security group and `10.0.0.0/8`. Reuse the existing wildcard certificate through
 the ACM data source.
 
+`main.tf` records the CloudFront source SG ID in `local.cf_vpc_origin_sg_id`;
+it is not discovered automatically. Verify the actual VPC Origin ENI/SG and update
+that reference through review if the origin is recreated.
+
 Grafana uses listener priority 140 for `grafana-kr.atomai.click` and
 `grafana.atomai.click`, forwarding to `demo-platform-grafana` on port 3000.
 `k8s/system/grafana/tgb.yaml` binds the existing ClusterIP Service to that target
