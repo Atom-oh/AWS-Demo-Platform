@@ -30,6 +30,7 @@ setup() { # $1 = cell count (default 1), $2 = bytes per cell (default 100)
   PATH="$BIN:$ORIGINAL_PATH"
   export PATH
   echo "diff --git a/foo b/foo" > "$DIFF"
+  echo "Trusted project context from the pinned base." > "$WORK/project-context.md"
   : > "$WORK/responded.txt"
   local n="${1:-1}" size="${2:-100}" i=0
   while [ "$i" -lt "$n" ]; do
@@ -75,6 +76,9 @@ rc=$?
 [ "$rc" -eq 0 ] && ! grep -q "Argument list too long" "$LOG" \
   && pass "synthesize (a) completes without argv overflow" \
   || fail "synthesize (a) completes without argv overflow" "$(tail -5 "$LOG")"
+grep -Fq "Trusted project context from the pinned base." "$WORK/claude-argv.txt" \
+  && pass "synthesize (a) chair receives prepared base context" \
+  || fail "synthesize (a) chair receives prepared base context" "context missing from chair argv"
 [ -s "$WORK/stdin-size.txt" ] \
   && pass "synthesize (a) chair received input via stdin" \
   || fail "synthesize (a) chair received input via stdin" "stdin size file empty/missing"

@@ -237,7 +237,7 @@ jobs:
           fi
           {
             echo "$MARKER"
-            echo "## 🤖 AI Code Review (${chair_used:-Claude Fable 5} chair · lens×model matrix: Codex + Kiro x3 + Claude self-review, L2-L5)"
+            echo "## 🤖 AI Code Review (${chair_used:-Claude Fable 5} chair · lens×model matrix: Codex + Kiro x2 + Claude self-review, L2-L5)"
             echo ""
             echo "_Cells (model/lens): ${panel_responded:-solo}_"
             [ "${panel_truncated:-0}" = "1" ] && echo "_⚠️ diff truncated to first 3000 lines — review is partial._"

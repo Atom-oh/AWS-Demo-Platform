@@ -24,7 +24,10 @@ or every described check are already enforced by automation.
 
 `.github/workflows/pr-review.yml` runs four configured panel slots over L2–L5 and
 publishes the chair's synthesized verdict. Actual model IDs and invocation settings
-live in `scripts/pr-review/`, the workflow and runner configuration.
+live in `scripts/pr-review/`, the workflow and runner configuration. See the
+[current PR review contract](../pr-review.md) for input provenance, slot names and
+implemented coverage limits. Local steering does not load CI Kiro context; the
+preparation script explicitly supplies base-SHA `AGENTS.md`.
 
 Check three separate outcomes: did the model execute successfully, did it actually
 review the required input/lenses, and did its findings survive verification?
@@ -48,6 +51,23 @@ records remaining work such as exit/coverage validation, complete diff handling,
 stale-head/fork behavior and publisher credential separation. A merged proposal
 is not an implemented safeguard. Keep AI review supplemental until the intended
 gate is implemented, tested and enforced alongside deterministic checks.
+
+## Complete a PR
+
+1. Read AI findings and inline comments for the latest HEAD; distinguish verified
+   defects from assumptions about missing diff context, partially superseded ADRs
+   or pre-existing limitations. Record the scope of any rejected finding.
+2. Fix genuine Critical/Major issues, run relevant required checks, commit/push,
+   and repeat review on the new HEAD. Minor/Info alone need not stop this loop.
+3. Missing/failed reviews, model errors or insufficient required coverage are not
+   a clean review. Repair/retry what is possible; preserve unresolved external
+   blockers and report their concrete cause. Do not disable or bypass checks.
+4. Immediately before merge verify reviewed SHA equals current HEAD, actual branch
+   requirements are satisfied, and base branch/prerequisite PRs match the intended
+   integration path. A changed HEAD restarts review. With standing authorization
+   and these conditions met, merge without requesting redundant confirmation.
+5. Report corrections, test results, PR link and merge result. Deployment health
+   remains a separate check when rollout is in scope.
 
 ## Apply and cut over
 

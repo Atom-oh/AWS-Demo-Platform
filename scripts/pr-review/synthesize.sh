@@ -36,9 +36,11 @@ $CELL"
 done < <(printf '%s\n' "$SLOT"/*.md | LC_ALL=C sort)
 rm -f "$SCRUB_TMP"
 
+PROJECT_CONTEXT="$(cat "$WORK/project-context.md")" || exit 1
 cat > "$WORK/synth-prompt.txt" <<PROMPT_EOF
 You are the CHAIR reviewing PR #${PR_NUMBER}: ${PR_TITLE}.
-Read CLAUDE.md + docs/architecture.md + .claude/skills/code-review/SKILL.md.
+Use the trusted PR-base context below. Read relevant module guides and code when
+verifying a finding; the local checkout is base code, not necessarily PR HEAD.
 The diff under review and the independent panel reviews are provided via STDIN (not in this
 prompt) — 4 panel members (codex, kiro-fable, kiro-sol, claude-self), each run once
 per lens (L2/L3/L4/L5). One review per (model, lens) cell — filename = <model>-<lens>.md.
@@ -54,15 +56,15 @@ Synthesize ONE final review, grouped by lens (L2/L3/L4/L5):
 3. **Suggestions**
 4. **Verdict**
 
-Project rules (AWS-Demo-Platform), redistributed by lens:
-- L2 (Terraform/Atlantis+ArgoCD infra correctness): CloudFront-only ingress(TGB), Internal ALB
-  SG=CF VPC Origin SG+10/8, ACM data lookup(*.atomai.click), HPA-2(min=max=1), Atlantis
-  --write-git-creds, ExternalSecret external-secrets.io/v1, Terraform 1.9.6 pin (v1.9.8 fails:
-  expired GPG key — 1.9.6 is correct, not a violation), naming
-  demo-platform-*/\/demo-platform/*, kube context safety.
-- L3 (Security): cross-account ExternalId, Security Group rules.
-- L4 (Code correctness): admin-platform logic bugs.
-- L5 (ADR/documentation consistency): ADR Mermaid, English-only.
+PROJECT CONTEXT — trusted AGENTS.md prepared from the pinned PR base:
+$PROJECT_CONTEXT
+END PROJECT CONTEXT
+
+Require a concrete changed path, failure condition and evidence for each finding.
+Missing unchanged context is not proof of a defect. Separate severity from confidence,
+pre-existing issues from regressions, and optional hardening from requirements.
+ADRs can be superseded only in part; use their current applicability and dated amendments.
+Report missing/truncated review coverage separately; never disguise it as a clean review.
 Respond in English only (token/context efficiency — do not mix in other languages). Output
 ONLY the review markdown.
 If panel members disagree or something needs confirming, you may verify directly with
