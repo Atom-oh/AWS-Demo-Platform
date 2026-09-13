@@ -15,6 +15,7 @@ running the latest image.
 | [Review and release](runbooks/review-and-release.md) | Evidence required around review, deployment and removal |
 | [ai-trader review runner](runbooks/ai-trader-review-runner.md) | Dedicated CLI compatibility pin, retained image evidence and recovery |
 | [PR-review panel](runbooks/pr-review-panel.md) | Kiro preflight, quota exhaustion and ignored-agent failure modes |
+| [oh-my-cloud-skills Kiro bridge](runbooks/ohmy-kiro-runtime-compat.md) | Immutable launcher producer, separate consumer activation, revision retention and recovery |
 | [Grafana operations](runbooks/grafana-private-ingress.md) | Private ingress and managed administrator lifecycle |
 | [Dashboard rollout](runbooks/dashboard-public-deploy-execution.md) | Current rollout and verification procedure, with a dated initial-deployment record |
 | [FSI registration](runbooks/aws-fsi-demo-registration.md) | External management, metadata scope and guarded rollout |
