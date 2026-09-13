@@ -1,81 +1,34 @@
 ---
-description: Deploy AWS Demo Platform changes (Atlantis for Terraform, ArgoCD for K8s)
+description: Deploy authorized changes through the owning Terraform, GitOps or ECS path
 allowed-tools: Read, Bash(git status:*), Bash(git push:*), Bash(argocd app sync:*), Bash(argocd app list:*), Glob
 ---
 
 # Deploy
 
-Deploy AWS Demo Platform changes. Deployment is split: Terraform → Atlantis, K8s → ArgoCD.
+Follow `docs/runbooks/review-and-release.md` and the affected module guide/runbook.
+Confirm target commit, account, region, cluster and resource/state ownership.
+Preserve unrelated working changes; do not stash, switch branches or delete live
+resources as generic error recovery. Run relevant checks and inspect actual plans.
 
-## Step 1: Pre-Deploy Checks
+- Terraform: open/review the feature PR, request `atlantis plan -d infra/<module>`,
+  inspect the plan, then apply within the authorized scope. Dependencies must exist
+  before planning remote-state consumers or merging dependent manifests.
+- Kubernetes: merge reviewed changes through the normal PR path. ArgoCD follows
+  each owning Application's revision and destination. Validate render/dry-run,
+  synchronization and affected runtime behavior with explicit kube context.
+- ECS: image publication does not roll services. Select the intended task-definition
+  revision and verify running revision/count, health, authentication and data access.
+- Project/account metadata: bundled into images; metadata-only edits miss backend
+  CI filters. Arrange an explicit build/rollout. They are not ArgoCD workload manifests.
 
-1. Verify working tree is clean: `git status`
-2. Verify current branch is `main` (or warn)
-3. Run `bash tests/run-all.sh`
-4. Check if a relevant runbook exists: `ls docs/runbooks/`
+For shared ingress or credential changes, deploy and verify producer/replacement
+readiness before consumer/cutover, then verify public TLS/login/data. A generic
+health endpoint or ArgoCD Healthy is not sufficient evidence for the whole path.
 
-## Step 2: Decide Deployment Path
+Investigate sync failures using the owning Application, prerequisites and schema.
+For SharedResourceWarning, resolve both owners before changing tracking annotations
+or pruning. Do not delete an alleged orphan without a consumer inventory.
 
-**If only `infra/**/*.tf` changed:**
-- Push to a feature branch, open a PR
-- In the PR, comment `atlantis plan -d infra/<module>`
-- Review the plan
-- Comment `atlantis apply -d infra/<module>` to apply
-- Merge after apply succeeds
-
-**If only `k8s/**`, `argocd-apps/**`, or `projects/**` changed:**
-- Push to `main` (or merge PR into `main`)
-- ArgoCD on hub picks up changes via `targetRevision: main`
-- Verify with `argocd app list` and `argocd app get <name>`
-- Force sync if needed: `argocd app sync <name>`
-
-**If both changed:**
-- Land Terraform changes first via Atlantis
-- Then land K8s changes (so manifests reference the new infra)
-
-## Step 3: Verify
-
-After deployment:
-- Atlantis: check the PR comment for the `apply` output and final state
-- ArgoCD: `argocd app list` — all apps should be `Synced` and `Healthy`
-- End-to-end health:
-  - `curl -sf https://atlantis.atomai.click/healthz` → 200
-  - `curl -sf https://argocd.atomai.click/healthz` → 200
-
-## Step 4: Summary
-
-Display:
-- What was deployed and where (Terraform module / ArgoCD Application)
-- Deployment path used (Atlantis / ArgoCD)
-- Verification results
-- Suggest writing a runbook if this was a novel operation
-
-## Error Recovery
-
-### If pre-deploy checks fail (Step 1)
-```bash
-git stash
-git checkout main
-git pull --ff-only
-```
-
-### If Atlantis plan errors
-- Read the Atlantis output in the PR comment
-- Common causes: state lock (other apply in progress), backend access denied, IAM role drift
-- Resolve and re-comment `atlantis plan`
-
-### If ArgoCD sync fails
-- `argocd app get <name>` shows the failed resource
-- Common causes: SharedResourceWarning (old manifest in cluster), schema mismatch (CRD version), namespace finalizer stuck
-- For SharedResourceWarning: add the new owner annotation or delete the orphaned resource
-- For schema mismatch: check ArgoCD version supports the CRD spec
-
-### Rollback
-**Terraform:**
-- Revert the PR (`git revert <sha>`), open new PR, atlantis apply
-- Never use `terraform destroy` for rollback — write a forward fix
-
-**K8s:**
-- Revert the commit on `main`
-- ArgoCD auto-syncs back to the previous state
-- For self-managed ArgoCD: manual `helm rollback argocd <revision>` may be needed
+Rollback follows the owning runbook and reviewed plan. A Git revert does not
+restore database credentials or Terraform state. Prefer a forward fix; never use
+`terraform destroy` as generic rollback. Report deployed commit, scope and evidence.

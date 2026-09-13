@@ -1,6 +1,11 @@
+---
+name: refactor
+description: Refactor existing project code or infrastructure while preserving behavior and resource ownership.
+---
+
 # Refactor Skill
 
-Refactor existing code to improve quality without changing behavior. Applies to Terraform modules, Kustomize overlays, ArgoCD Application manifests, and (when added) dashboard TypeScript code.
+Refactor existing code to improve quality without changing behavior. Applies to Terraform modules, Kustomize overlays, ArgoCD Application manifests, and the implemented dashboard TypeScript code.
 
 ## Principles
 - Improve structure without changing infrastructure state (Terraform plan should show zero diff after refactor)
@@ -19,14 +24,14 @@ Refactor existing code to improve quality without changing behavior. Applies to 
 ### 2. Plan
 Present the refactoring plan to the user:
 - What will change (file structure, module extraction, variable rename)
-- What will NOT change (`terraform plan` zero-diff target; `kubectl kustomize` byte-identical target)
+- Expected plan and rendered-manifest equivalence, distinguishing formatting from semantic changes
 - Risk assessment (low/medium/high) — moving Terraform resources between state files is high
 
 ### 3. Execute
 - Make changes in small, verifiable steps
 - After each Terraform change: `terraform fmt && terraform validate && terraform plan`
 - After each Kustomize change: `kubectl kustomize <path> | diff - <captured-baseline>`
-- Use `terraform state mv` for refactors that need state surgery
+- Prefer reviewed `moved` blocks within an owning state; any cross-state move needs an explicit ownership/cutover plan
 - Keep commits atomic (one logical change per commit)
 
 ### 4. Verify

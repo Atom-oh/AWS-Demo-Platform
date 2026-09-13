@@ -17,10 +17,10 @@ Determine the scope of review:
 
 ## Step 2: Review
 
-For each changed file, apply the code-review skill criteria:
-- Project guidelines compliance (from CLAUDE.md): naming, ingress pattern, HPA-2, kube-context, ACM cert reuse
-- Bug detection: hardcoded ARNs, missing tolerations, deprecated CRD versions, public LB introduction
-- Code quality: duplication across modules, manifest drift across azs
+Read `CLAUDE.md`, the nearest module guide and `.claude/skills/code-review/SKILL.md`.
+Use `docs/pr-review.md` for reviewer context and ADR applicability. Identify
+introduced defects with code evidence; do not infer missing guards from a partial
+diff or impose proposed controls as existing requirements.
 
 ## Step 3: Score and Filter
 
@@ -29,7 +29,7 @@ Rate each issue 0-100. Only report issues with confidence >= 75.
 ## Step 4: Output
 
 Present findings in structured format with file paths, line numbers, and fix suggestions.
-If no high-confidence issues, confirm code meets standards.
+State the reviewed scope and remaining uncertainty if no findings survive verification.
 
 ## Error Recovery
 

@@ -1,34 +1,23 @@
-# Release Skill
+---
+name: release
+description: Prepare versioned releases using the project's review and deployment contracts.
+---
 
-Automate the release process for AWS Demo Platform.
+# Release
 
-## Procedure
+Follow `docs/runbooks/review-and-release.md` and affected module/runbook commands.
+A tag records a release; it does not automatically deploy production.
 
-### 1. Pre-release Checks
-- Verify working tree is clean: `git status`
-- Verify ArgoCD has no `OutOfSync` Applications on hub
-- Verify Atlantis has no pending plans
-- Run harness tests: `bash tests/run-all.sh`
-
-### 2. Determine Version
-- Review changes since last tag: `git log $(git describe --tags --abbrev=0)..HEAD --oneline`
-- Apply semver rules:
-  - MAJOR: Breaking changes (e.g., cross-account role contract change, accounts.yaml schema change)
-  - MINOR: New features, backward compatible (new infra module, new project onboarded)
-  - PATCH: Bug fixes only (hotfix manifests, IAM policy tweaks)
-
-### 3. Update CHANGELOG.md
-- Move entries from `[Unreleased]` to a new version section
-- Categorize: Added / Changed / Deprecated / Removed / Fixed / Security
-- Include both English and Korean sections (per template)
-- Update reference links at bottom of each section
-
-### 4. Create Release
-- Create git tag: `git tag -a vX.Y.Z -m "Release vX.Y.Z — <one-line summary>"`
-- Push tag: `git push origin vX.Y.Z`
-- ArgoCD picks up changes via `targetRevision: main` (no per-tag deploy)
-
-### 5. Summary
-- Display version bump
-- List key changes from the new section
-- Show next steps (push tag, write retrospective if a Stage milestone)
+1. Identify the intended commit, changes since the previous tag and affected
+   services. Preserve unrelated work and inspect actual required branch checks.
+2. Run relevant deterministic checks, then resolve Critical/Major findings and
+   verify AI review on the latest HEAD. Honor existing authorization for the
+   correction/push/merge loop; do not bypass failed checks or missing coverage.
+3. Choose semver from compatibility impact. Move relevant `[Unreleased]` entries
+   into the release section in English only and maintain comparison links.
+4. When release publication is authorized, create/push the annotated `vX.Y.Z` tag.
+   Report its commit and result. ArgoCD follows configured Git revisions; ECS
+   needs an explicit selected task-definition rollout. Neither follows a tag
+   merely because it exists.
+5. Validate affected runtime behavior when deployment is in scope. A global list
+   of unrelated OutOfSync Applications is not by itself a release blocker.
