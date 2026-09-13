@@ -20,11 +20,26 @@ runner credentials to test a workflow change.
 
 Local `.kiro/steering/project-context.md` points to `AGENTS.md`. CI Kiro uses an
 isolated cwd/HOME and no read tools, so that bridge alone cannot deliver context.
-Kiro gets context plus capped diff in argv with `--trust-tools=`; other cells get
-the prepared context and diff through their existing prompt/stdin paths. An assembled
-Kiro argument of 131,072 bytes or more fails explicitly instead of being truncated.
-Context
-retrieval does not grant Kiro tools or GitHub credentials. Codex uses a read-only
+Each fresh cell receives the trusted
+[`kiro-inline-review.json`](../scripts/pr-review/kiro-inline-review.json) as
+`.kiro/agents/inline-review.json`; the command explicitly selects `--agent inline-review`.
+The profile sets `tools: []` and `allowedTools: []`, with no MCP servers, resources
+or hooks. Directory preparation, profile readiness and copying must succeed before
+the affected Kiro call; failures stop execution rather than reusing stale state
+or falling back to default tools.
+
+The [Kiro configuration reference](https://kiro.dev/docs/custom-agents/configuration-reference/)
+distinguishes available `tools` from approval-free `allowedTools`. PR #109 run
+`34729311650` (head `2d47015`, `kiro-fable/L2`) produced only glob-search output
+under `--trust-tools=` alone: an empty approval grant did not
+remove the default catalog. That flag remains as defense in depth; the named
+profile now defines availability. Offline profile validation checks configuration,
+not successful model execution or meaningful review coverage.
+
+Kiro gets context plus capped diff in argv; other cells get the prepared context
+and diff through their existing prompt/stdin paths. An assembled Kiro argument of
+131,072 bytes or more fails explicitly instead of being truncated. Context
+retrieval does not grant tools or GitHub credentials. Codex uses a read-only
 sandbox; Claude self-review/chair have bounded read tools. Read-only tools are
 not proof of zero data-exfiltration risk; preserve credential minimization.
 
@@ -103,7 +118,10 @@ gates to obtain a pass.
 ## Verification
 
 `bash tests/run-all.sh` includes mocked review pipeline tests. They verify input
-provenance, Kiro context delivery/tool denial, argument limits, artifact aggregation,
-scrubbing and chair failure behavior; they do not prove model judgment quality.
+provenance, Kiro context delivery, explicit empty-tool profile selection, failure
+before default-agent fallback, argument limits, artifact aggregation, scrubbing and
+chair failure behavior. They do not prove the installed CLI's model behavior or
+judgment quality. Reverify profile compatibility and actual review output after
+CLI upgrades; a nonempty tool log is still not a completed review.
 For a script-changing PR, assess supplemental review at the exact head with trusted
 inputs and read-only model access, alongside native CI's base-version results.

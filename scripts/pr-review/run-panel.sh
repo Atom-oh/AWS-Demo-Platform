@@ -53,18 +53,19 @@ try_panel() {
   done
 }
 
-# Kiro cells get no tools at all (`--trust-tools=`, below) and the diff via argv instead
-# of `fs_read`: the diff is untrusted PR content, and an isolated cwd/HOME does not block
-# an absolute-path read (Kiro will follow a prompt-injected "read ~/.aws/credentials"
-# even from an isolated cwd) — with no tools granted, there's no read path to exploit.
-# `--trust-tools=` (empty value) = "no tools", per `kiro-cli chat --help` (kiro-cli
-# 2.11.1); re-verify this assumption if kiro-cli changes that semantic.
+# Kiro's named custom agent has an empty tool catalog. `--trust-tools=` concerns
+# approval; it does not remove default tools such as glob (PR #109).
+# Keep that flag as defense in depth, but rely on the trusted profile's tools:[]
+# for availability. An isolated cwd/HOME alone cannot prevent absolute-path reads.
 # Each lens still gets its own cwd subdirectory: since one model's 4 lenses run
 # concurrently (&), sharing one cwd/HOME would let kiro-cli's session/cache state race
 # across the parallel runs. The base is reset at the start of every run.
 KIRO_CWD_BASE="$WORK/kiro-cwd"
 [ -L "$KIRO_CWD_BASE" ] && { echo "run-panel.sh: \$KIRO_CWD_BASE is a symlink, refusing (TOCTOU guard)" >&2; exit 1; }
-rm -rf "$KIRO_CWD_BASE"; mkdir -p "$KIRO_CWD_BASE"
+if ! rm -rf "$KIRO_CWD_BASE" || ! mkdir -p "$KIRO_CWD_BASE"; then
+  echo "run-panel.sh: failed to prepare fresh Kiro cell directories" >&2
+  exit 1
+fi
 kiro_env() {
   local cell_cwd="$1"; shift
   env -i PATH="$PATH" HOME="$cell_cwd" LANG="${LANG:-}" LC_ALL="${LC_ALL:-}" TMPDIR="${TMPDIR:-/tmp}" \
@@ -80,6 +81,12 @@ for entry in "${KIRO_MODELS[@]}"; do
 done
 
 if [ -n "$KIRO_TAG" ]; then
+  KIRO_AGENT_NAME="inline-review"
+  KIRO_AGENT_PROFILE="$DIR/kiro-inline-review.json"
+  if [ ! -f "$KIRO_AGENT_PROFILE" ] || [ ! -s "$KIRO_AGENT_PROFILE" ] || [ ! -r "$KIRO_AGENT_PROFILE" ]; then
+    echo "run-panel.sh: required Kiro agent profile is missing, empty or unreadable: $KIRO_AGENT_PROFILE" >&2
+    exit 1
+  fi
   KIRO_DIFF_CAP="${KIRO_DIFF_CAP:-100000}"
   KIRO_DIFF_TEXT="$(head -c "$KIRO_DIFF_CAP" "$DIFF")"
   # Flag the truncation so synthesize.sh can call it out explicitly, rather than letting
@@ -116,10 +123,15 @@ for lens_file in "${LENS_FILES[@]}"; do
       exit 1
     fi
     if command -v kiro-cli >/dev/null 2>&1; then
-      CELL_CWD="$KIRO_CWD_BASE/$MODEL_TAG-$lens"; mkdir -p "$CELL_CWD"
+      CELL_CWD="$KIRO_CWD_BASE/$MODEL_TAG-$lens"
+      if ! mkdir -p "$CELL_CWD/.kiro/agents" \
+        || ! cp "$KIRO_AGENT_PROFILE" "$CELL_CWD/.kiro/agents/$KIRO_AGENT_NAME.json"; then
+        echo "run-panel.sh: failed to install required Kiro agent in $CELL_CWD" >&2
+        exit 1
+      fi
       ( cd "$CELL_CWD" && try_panel "$SLOT/$MODEL_TAG-$lens.md" "$SLOT/$MODEL_TAG-$lens.err" \
           kiro_env "$CELL_CWD" timeout "$T" kiro-cli chat "$KIRO_INSTRUCTION" --model "$KIRO_MODEL_ID" \
-          --mode default --no-interactive --trust-tools= --wrap never ) &
+          --agent "$KIRO_AGENT_NAME" --mode default --no-interactive --trust-tools= --wrap never ) &
     else echo "[skip] $MODEL_TAG/$lens (binary absent)" >&2; : > "$SLOT/$MODEL_TAG-$lens.md"; fi
   elif [ "$MODEL_TAG" = claude-self ]; then
     # Independent Claude review (separate voice from the chair). --allowedTools is pinned
