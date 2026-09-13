@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import patch
 
 import run_role
+import role_review
 import test_role_review as fixture
 
 
@@ -150,6 +151,27 @@ class RoleExecutionTests(unittest.TestCase):
         self.assertEqual(output, '{"review":"complete"}\n')
         self.assertIn("Reconnecting", error)
 
+    def test_existing_control_stripper_preserves_json_values_and_utf8(self):
+        plain = json.dumps({
+            "path": "fixtures/이한-password=abcdefghijklmnop.txt",
+            "value": "escaped control \x1b and newline\n",
+            "token": "ghp_" + "A" * 36,
+        }, ensure_ascii=False) + "\n"
+        for prefix, suffix in (
+            ("\x1b[32m", "\x1b[0m"),
+            ("\x9b32m", "\x9b0m"),
+            ("\x1b]8;;https://example.invalid\x07", "\x1b]8;;\x07"),
+        ):
+            with self.subTest(prefix=repr(prefix)):
+                result = subprocess.run(
+                    ["bash", "-c", 'source "$1" && strip_ansi', "control-test",
+                     str(MODULE.with_name("role-controls.sh"))],
+                    input=prefix + plain + suffix, capture_output=True, text=True,
+                    timeout=5,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads(result.stdout), json.loads(plain))
+
 
 class RoleRecordingTests(unittest.TestCase):
     def setUp(self):
@@ -182,7 +204,7 @@ class RoleRecordingTests(unittest.TestCase):
         return (0, "\n".join(json.dumps(event) for event in events),
                 "Fixture diagnostic password=synthetic_diagnostic_value")
 
-    def run_recording(self, record_error=None, record_code=None):
+    def run_recording(self, record_error=None, record_code=None, tag="codex", execute=None):
         real_run = subprocess.run
 
         def observe_record(command, **kwargs):
@@ -198,9 +220,9 @@ class RoleRecordingTests(unittest.TestCase):
                     return subprocess.CompletedProcess(command, record_code)
             return real_run(command, **kwargs)
 
-        with patch.object(run_role, "execute", side_effect=self.fake_codex), \
+        with patch.object(run_role, "execute", side_effect=execute or self.fake_codex), \
                 patch.object(run_role.subprocess, "run", side_effect=observe_record):
-            run_role.run(self.harness.work, "codex")
+            run_role.run(self.harness.work, tag)
 
     def assert_private_response_removed(self):
         self.assertEqual(len(self.raw_paths), 1)
@@ -230,6 +252,32 @@ class RoleRecordingTests(unittest.TestCase):
     def test_private_response_is_removed_when_recorder_returns_an_error(self):
         with self.assertRaisesRegex(RuntimeError, "recording failed"):
             self.run_recording(record_code=7)
+        self.assert_private_response_removed()
+
+    def test_colored_kiro_response_records_without_scrubbing_valid_paths(self):
+        self.path = "fixtures/이한-password=abcdefghijklmnop.txt"
+        self.harness.prepare(fixture.patch(self.path))
+        report = self.harness.response("kiro-sol", findings=[{
+            "severity": "MINOR", "path": self.path, "condition": "On change",
+            "evidence": f"password={self.private_value}",
+        }], checks=[{"path": self.path, "evidence": "이한 escaped control \x1b"}])
+        payload = json.dumps(report, ensure_ascii=False) + "\n"
+        calls = []
+
+        def kiro(command, cwd, environment, input_text, timeout):
+            self.assertEqual(command[1], "chat")
+            calls.append(command)
+            if "preflight-canary.txt" in command[2]:
+                return 0, "\x1b[32m> NO_TOOLS\x1b[0m\n", ""
+            return 0, "\x1b[32m> \x1b[0m" + payload + "\x1b[0m", ""
+
+        self.run_recording(tag="kiro-sol", execute=kiro)
+        result = self.harness.read("slot/kiro-sol-result.json")
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(result["valid"], result["failure_codes"])
+        self.assertEqual(result["response"]["reviewed_paths"], [self.path])
+        self.assertEqual(role_review.parse_response(self.recorded_bytes[0].decode()), report)
+        self.assertNotIn(self.private_value, json.dumps(result))
         self.assert_private_response_removed()
 
 
