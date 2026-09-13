@@ -47,6 +47,12 @@ class MarkdownContainerTests(unittest.TestCase):
             'password = ("development") \\\n + "synthetic-continuation-private"',
             'password = ("development")\n + "synthetic-next-line-private"',
             'password = ("development")\n\n ["synthetic-next-index-private"]',
+            'password = (String.raw)\n`synthetic-template-private`',
+            'password = (null)\n instanceof Object ? "synthetic-true-private" : "synthetic-false-private"',
+            'password = ("")\n as string || "synthetic-cast-private"',
+            'password = ("")\n satisfies string || "synthetic-type-private"',
+            'settings = {"password": ("development")\n # comment\n if debug else "synthetic-comment-private"}',
+            'settings = {"password": (matrix)\n @ "synthetic-matrix-private"}',
         )
 
     def report(self, container, verdict="PASS"):

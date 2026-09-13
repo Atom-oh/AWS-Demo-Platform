@@ -79,6 +79,33 @@ class SynthesisTests(unittest.TestCase):
         self.assertEqual(calls, 1)
         self.assertTrue(text.endswith("VERDICT: FAIL\n"))
 
+    def test_stdout_account_errors_prevent_fallback_and_pass(self):
+        for code in (0, 1):
+            for message in (
+                "UsageLimitReachedError",
+                "Monthly request limit reached",
+                "Error: insufficient credits",
+                "You have reached the limit for overages",
+            ):
+                with self.subTest(code=code, message=message):
+                    calls, text = self.run_chair([
+                        (code, message + "\nVERDICT: PASS\n", ""),
+                        (0, "Must not run.\nVERDICT: PASS\n", ""),
+                    ])
+                    self.assertEqual(calls, 1)
+                    self.assertTrue(text.endswith("VERDICT: FAIL\n"))
+
+    def test_quoted_account_diagnostics_are_review_evidence(self):
+        report = (
+            "Reviewed quota handling for UsageLimitReachedError.\n"
+            '- The test covers "Monthly request limit reached".\n'
+            "Example provider diagnostic:\n```\nUsageLimitReachedError\n```\n"
+            "VERDICT: PASS\n"
+        )
+        calls, text = self.run_chair([(0, report, "")])
+        self.assertEqual(calls, 1)
+        self.assertTrue(text.endswith("VERDICT: PASS\n"))
+
     def test_default_panel_byte_cap_blocks_before_any_provider_call(self):
         summary = '{"findings":["' + "x" * 200000 + '"]}'
         self.prepare_chair(summary)

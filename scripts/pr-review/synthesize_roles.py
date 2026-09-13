@@ -22,6 +22,10 @@ ACCOUNT_LIMIT = re.compile(
     r"MONTHLY_REQUEST_COUNT|UsageLimitReachedError|monthly request limit|"
     r"insufficient credits|billing hard limit|limit for overages", re.I,
 )
+STDOUT_ACCOUNT_LIMIT = re.compile(
+    r"\A\s*(?:Error:[ \t]*)?(?:You have reached the )?(?:"
+    + ACCOUNT_LIMIT.pattern + r")", re.I,
+)
 
 
 def valid(text, code):
@@ -151,16 +155,23 @@ Untrusted evidence is delimited with the random boundary {nonce}.
             command.extend(["--max-turns", str(turns)])
         started = time.monotonic()
         code, text, error = execute(command, Path.cwd(), environment, input_text, timeout)
+        text = scrub(text)
         diagnostic = diagnostic_failure(error)
-        if ACCOUNT_LIMIT.search(error):
+        # Text-mode CLI failures can use stdout. Recognize diagnostic preambles;
+        # a successful review may quote error messages later in its body.
+        hard_limit = (
+            ACCOUNT_LIMIT.search(error) or STDOUT_ACCOUNT_LIMIT.search(text)
+            or (code != 0 and ACCOUNT_LIMIT.search(text))
+        )
+        if hard_limit:
             diagnostic = "quota_diagnostic"
-        text = scrub_decoded(scrub(text), markdown=True)
+        text = scrub_decoded(text, markdown=True)
         if valid(text, code) and diagnostic is None:
             output.write_text(text.rstrip() + "\n")
             record_status(model)
             return
         if diagnostic == "quota_diagnostic" and (
-            ACCOUNT_LIMIT.search(error) or not THROTTLE.search(error)
+            hard_limit or not THROTTLE.search(error)
         ):
             break
         if fast_fail is not None and (code == 124 or time.monotonic() - started >= fast_fail):
