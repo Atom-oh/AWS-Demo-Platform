@@ -47,6 +47,7 @@ PR-head documentation stays diff data. See [PR review](docs/pr-review.md).
 | `k8s/system/` | Hub components and explicitly targeted spoke overlays |
 | `argocd-apps/` | GitOps roots, system Applications/ApplicationSets, tenant roots |
 | `scripts/pr-review/` | Review inputs, panel invocation, aggregation and synthesis |
+| `scripts/`, `tests/` | Setup/hooks, operational helpers and local harness checks |
 | `docs/` | Current guides, decisions, runbooks and historical design summaries |
 
 `infra/eks-mgmt` owns the hub at state key
@@ -96,7 +97,9 @@ in Korea `shared/`. Never manage a resource from two states.
 performs resource operations. Lifecycle requests return 202 after transitioning
 state and persisting a job. State/job/queue writes are separate, not a transaction.
 Retries/resume and a three-receive SQS redrive policy exist; do not claim exactly-once
-execution. See [dashboard guide](dashboard/CLAUDE.md) and ADR-001.
+execution. Lifecycle targets come from schema-validated `projects/` resources;
+`always_on` resources are skipped. See [dashboard guide](dashboard/CLAUDE.md) and
+[ADR-001](docs/decisions/ADR-001-sqs-worker-for-async-jobs.md).
 
 `turn_off` captures restoration data per resource-unique `stepKey`. Failed
 `turn_on` preserves it through `markError`. Kubernetes off pins HPA min/max and
@@ -143,6 +146,20 @@ assume a primary checkout's `.git/hooks`; linked worktrees need that limitation
 reported separately. `scripts/setup.sh` installs local hooks.
 
 ## Review and Release
+
+Four panel slots (Codex, two Kiro slots, Claude self-review) cover L2-L5, followed
+by a chair. `KIRO_MODELS` in `scripts/pr-review/lib.sh` maps compatibility tags to
+catalog IDs: `kiro-fable` is the legacy Opus slot; `kiro-opus` is its historical tag.
+The configured IDs live in that script and the [review map](docs/pr-review.md).
+Kiro catalog aliases and Bedrock profile IDs are distinct. CI Kiro has isolated
+HOME/cwd and no read tools, so its local steering bridge cannot load CI context.
+ADR-015 changes topology and roster structure; ADR-011/013/014 amend CLI/models.
+Current aggregation counts non-empty output, warns for one/two empty model rows,
+and fails for three empty rows or any empty lens. Truncation and error-shaped
+output remain coverage limitations; slot count does not establish independent vendors.
+Preparation validates both base and candidate digest size (1..12,288 bytes) but
+supplies only base content to reviewers. Candidate bytes are checked as data and
+discarded, so an oversized edit is rejected on its own PR before it becomes base.
 
 Review current HEAD and verify claims against changed code, scoped contracts and
 relevant unchanged context. Report concrete failure conditions; distinguish impact

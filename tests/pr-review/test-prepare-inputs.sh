@@ -12,6 +12,7 @@ cat > "$PREP_TMP/context" <<'EOF'
 # Trusted base context
 Documentation is English; product UI copy may be Korean.
 EOF
+printf 'HEAD_CONTEXT_IS_UNTRUSTED_DATA\n' > "$PREP_TMP/head-context"
 cat > "$PREP_TMP/diff" <<'EOF'
 diff --git a/AGENTS.md b/AGENTS.md
 --- a/AGENTS.md
@@ -28,6 +29,10 @@ case "$2" in
   'repos/example/platform/contents/AGENTS.md?ref=BASE')
     [ ! -f "$PREP_TMP/fail-context" ] || exit 1
     base64 < "$PREP_TMP/context"
+    ;;
+  'repos/example/platform/contents/AGENTS.md?ref=HEAD')
+    [ ! -f "$PREP_TMP/fail-head-context" ] || exit 1
+    base64 < "$PREP_TMP/head-context"
     ;;
   *) exit 2 ;;
 esac
@@ -61,6 +66,11 @@ if grep -Fq UNTRUSTED_HEAD_INSTRUCTION "$PREP_TMP/work/lenses/L2.txt"; then
   printf '  FAIL PR head content was promoted to context\n' >&2
   prep_fail=1
 fi
+if grep -Fq HEAD_CONTEXT_IS_UNTRUSTED_DATA "$PREP_TMP/work/lenses/L2.txt"; then
+  printf '  FAIL candidate digest was promoted to trusted context\n' >&2
+  prep_fail=1
+fi
+check grep -Fq 'contents/AGENTS.md?ref=HEAD' "$PREP_TMP/requests"
 bash "$PREP_ROOT/scripts/pr-review/run-panel.sh" "$PREP_TMP/work/pr-diff-truncated.txt" \
   "$PREP_TMP/work/lenses" "$PREP_TMP/work" kiro-fable >/dev/null
 for lens in L2 L3 L4 L5; do
@@ -69,6 +79,24 @@ for lens in L2 L3 L4 L5; do
   check grep -Fq UNTRUSTED_HEAD_INSTRUCTION "$argv"
   check grep -Fxq -- '--trust-tools=' "$argv"
 done
+# Reject the change that would break the next run's base-context budget.
+head -c 12289 /dev/zero | tr '\0' x > "$PREP_TMP/head-context"
+if bash "$PREP_ROOT/scripts/pr-review/prepare-inputs.sh" HEAD BASE "$PREP_TMP/head-oversized" >/dev/null 2>&1; then
+  printf '  FAIL oversized candidate context accepted\n' >&2
+  prep_fail=1
+fi
+: > "$PREP_TMP/head-context"
+if bash "$PREP_ROOT/scripts/pr-review/prepare-inputs.sh" HEAD BASE "$PREP_TMP/head-empty" >/dev/null 2>&1; then
+  printf '  FAIL empty candidate context accepted\n' >&2
+  prep_fail=1
+fi
+printf 'HEAD_CONTEXT_IS_UNTRUSTED_DATA\n' > "$PREP_TMP/head-context"
+touch "$PREP_TMP/fail-head-context"
+if bash "$PREP_ROOT/scripts/pr-review/prepare-inputs.sh" HEAD BASE "$PREP_TMP/head-missing" >/dev/null 2>&1; then
+  printf '  FAIL unavailable candidate context accepted\n' >&2
+  prep_fail=1
+fi
+rm "$PREP_TMP/fail-head-context"
 # The largest supported digest and normal Kiro diff cap still fit one argument.
 head -c 12288 /dev/zero | tr '\0' x > "$PREP_TMP/context"
 head -c 100001 /dev/zero | tr '\0' y > "$PREP_TMP/diff"

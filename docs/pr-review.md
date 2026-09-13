@@ -9,16 +9,21 @@ owns panel/chair design and runner-image ownership; later ADRs amend specific to
 
 `pull_request_target` runs trusted base code for same-repository PRs targeting
 `main`. Each panel/chair job prepares the same three-dot diff using event base/head
-SHAs. `prepare-inputs.sh` also retrieves `AGENTS.md` at that exact **base SHA** and
-embeds it in every lens and the chair prompt. Empty, unavailable or >12 KiB context
-fails preparation. Head documentation remains untrusted diff data; edits to review
+SHAs. `prepare-inputs.sh` also retrieves `AGENTS.md` at that exact **base SHA**,
+embeds it in each lens and saves it for the chair prompt. Empty, unavailable or
+>12 KiB base context fails preparation. Candidate `AGENTS.md` bytes are separately
+size-checked and discarded, preventing an oversized edit from breaking subsequent
+runs; candidate content never becomes reviewer instructions.
+Head documentation remains untrusted diff data; edits to review
 scripts first affect native CI after merge. Do not run head scripts with trusted
 runner credentials to test a workflow change.
 
 Local `.kiro/steering/project-context.md` points to `AGENTS.md`. CI Kiro uses an
 isolated cwd/HOME and no read tools, so that bridge alone cannot deliver context.
 Kiro gets context plus capped diff in argv with `--trust-tools=`; other cells get
-the prepared context and diff through their existing prompt/stdin paths. Context
+the prepared context and diff through their existing prompt/stdin paths. An assembled
+Kiro argument of 131,072 bytes or more fails explicitly instead of being truncated.
+Context
 retrieval does not grant Kiro tools or GitHub credentials. Codex uses a read-only
 sandbox; Claude self-review/chair have bounded read tools. Read-only tools are
 not proof of zero data-exfiltration risk; preserve credential minimization.

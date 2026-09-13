@@ -15,12 +15,22 @@ WORK="$(realpath "$WORK")"
 # Kiro runs outside the checkout with no read tools, so its steering bridge cannot
 # load AGENTS.md. Fetch the trusted PR BASE version explicitly for every reviewer.
 # Never promote PR-head documentation to reviewer instructions.
-gh api "repos/${GH_REPO:?}/contents/AGENTS.md?ref=${BASE_SHA}" --jq '.content' \
+gh api "repos/${GH_REPO:?}/contents/AGENTS.md?ref=${BASE_SHA}" --jq '.content // empty' \
   | base64 --decode > "$WORK/project-context.md"
-CONTEXT_BYTES="$(wc -c < "$WORK/project-context.md")"
-if [ "$CONTEXT_BYTES" -eq 0 ] || [ "$CONTEXT_BYTES" -gt 12288 ]; then
-  echo "prepare-inputs.sh: base AGENTS.md must be 1..12288 bytes; distill it before review" >&2
-  exit 1
+check_context_size() {
+  if [ "$2" -eq 0 ] || [ "$2" -gt 12288 ]; then
+    echo "prepare-inputs.sh: $1 AGENTS.md must be 1..12288 bytes; distill it before review" >&2
+    exit 1
+  fi
+}
+check_context_size base "$(wc -c < "$WORK/project-context.md")"
+# Validate candidate bytes without retaining, executing or using them as instructions.
+# Otherwise an oversized digest could pass its own base-driven review and break
+# preparation for every subsequent PR after it merges.
+if [ "$HEAD_SHA" != "$BASE_SHA" ]; then
+  CANDIDATE_CONTEXT_BYTES="$(gh api "repos/${GH_REPO}/contents/AGENTS.md?ref=${HEAD_SHA}" \
+    --jq '.content // empty' | base64 --decode | wc -c)"
+  check_context_size candidate "$CANDIDATE_CONTEXT_BYTES"
 fi
 
 # Three-dot compare (merge-base based) — same result as `gh pr diff`, pinned to SHAs.

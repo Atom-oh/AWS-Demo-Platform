@@ -21,8 +21,8 @@ Historical names, cost estimates and catalog probes are not current guarantees.
 | [012](ADR-012-ai-trader-web-oidc-plan-apply-split.md) | External ai-trader-web plan/apply trust split | This repo owns IAM; external workflow/protections need verification |
 | [013](ADR-013-pr-review-gpt56-model-bump.md) | Independent Codex/Kiro access paths | Original model IDs superseded; see PR review map |
 | [014](ADR-014-pr-review-opus5-model-bump.md) | Anthropic selections and catalog recovery | Dated updates; Kiro aliases differ from Bedrock IDs |
-| [015](ADR-015-pr-review-per-model-parallel-jobs.md) | Per-model jobs, artifacts and coverage floor | Supersedes 016's topology, not its ownership decision |
-| [016](ADR-016-multi-ai-pr-review-panel.md) | Panel/chair architecture and runner-image ownership | Partially amended; retains scoped compatibility exceptions |
+| [015](ADR-015-pr-review-per-model-parallel-jobs.md) | Per-model jobs, roster structure, artifacts and coverage floor | Supersedes 016's topology/roster, not its ownership decision |
+| [016](ADR-016-multi-ai-pr-review-panel.md) | Panel/chair architecture, shared context and runner-image ownership | Partially amended; retains context-delivery and compatibility updates |
 | [017](ADR-017-demo-scale-job-operation.md) | Async scale and HPA restoration | Accepted partial-failure limits; inspect before next off cycle |
 | [018](ADR-018-grafana-private-origin.md) | Grafana private path and credential rollout | Split repo/state ownership and producer-first readiness |
 

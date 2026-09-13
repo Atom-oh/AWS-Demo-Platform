@@ -26,17 +26,20 @@ Edit root `CLAUDE.md` first when repository-wide context changes. Then invoke
 `/co-agent:sync-context` to distill the same rules into root `AGENTS.md`. Only the
 co-agent-marked generated file is replaced. The marker records the source SHA and
 generation date; the installed co-agent `check_ai_context.py` checks freshness,
-size and possible secrets. The CI delivery cap is 12 KiB, stricter than the
-generator's 32 KiB cap. It does not check semantic completeness, so review the
-summary against the source too.
+size and possible secrets. The validator does not check semantic completeness,
+so review the summary against the source too. CI validates both base and candidate
+digests against a 12-KiB delivery cap, stricter than the generator's 32-KiB cap;
+only base content is supplied to reviewers. The harness checks the tracked digest.
 The marker is the first 12 hexadecimal characters of SHA-256 over the UTF-8
 `CLAUDE.md` text, so freshness can also be checked without an installed plugin.
 
 Local Kiro steering points at `AGENTS.md`; CI Kiro runs in an isolated directory
 without read tools. `prepare-inputs.sh` explicitly fetches the digest at the event's
 base SHA and embeds it for every lens and the chair. PR-head instructions remain
-untrusted diff data. The local bridge alone cannot supply CI context. Keep generated guidance concise and point to module guides
-rather than duplicating every implementation detail. Never include credential
+untrusted diff data. The local bridge alone cannot supply CI context.
+
+Keep generated guidance concise and point to module guides rather than duplicating
+every implementation detail. Never include credential
 values or temporary machine/session state in shared agent context.
 
 The generator's marker uses the mode form `/co-agent sync-context`; the standalone

@@ -182,6 +182,8 @@ all lenses and the chair. Kiro's isolated cwd and no-tool mode prevent the local
 steering bridge from loading that file. Bound context to 12 KiB, fail preparation
 if it is missing/oversized, and preserve PR-head instructions as untrusted diff.
 The repository harness checks the tracked digest against that stricter budget.
+Preparation also size-checks candidate digest bytes as untrusted data, then
+discards them; an oversized edit fails its own PR instead of breaking later runs.
 This reconciles project conventions without expanding tool permissions or relaxing
 severity/coverage gates. Regression tests exercise delivery through isolated Kiro;
 model judgment and complete-diff review remain separate evidence.

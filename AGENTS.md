@@ -1,4 +1,4 @@
-<!-- generated-by: co-agent · source: CLAUDE.md · claude-md-sha: fc84b1b7843c · generated-at: 2026-09-13 · DO NOT EDIT — edit CLAUDE.md then run /co-agent sync-context -->
+<!-- generated-by: co-agent · source: CLAUDE.md · claude-md-sha: 016b4c3cbd51 · generated-at: 2026-09-13 · DO NOT EDIT — edit CLAUDE.md then run /co-agent sync-context -->
 > You are an external reviewer for this repo — project context below, distilled from CLAUDE.md. This file is shared verbatim by Kiro, Codex, and Agy (not a per-AI copy).
 
 # AWS Demo Platform review context
@@ -17,7 +17,7 @@ Code/config establish implementation, accepted decisions intent, live checks dep
 Historical specs/plans and the gate-hardening proposal are not implemented requirements.
 
 Supersession is scoped: ADR-016 still owns panel/chair design and runner images;
-ADR-015 replaces topology; ADR-011/013/014 amend CLI/models. Dated operational
+ADR-015 replaces topology and roster structure; ADR-011/013/014 amend CLI/models. Dated operational
 exceptions may amend the owning ADR/runbook. Do not demand a new ADR, template
 section, production HA or adopted-resource rename without a concrete requirement.
 Pre-existing limitations and optional hardening are not regressions; accepted
@@ -28,14 +28,15 @@ localized test assertions may be Korean. Operator conversation may be Korean.
 
 ## Review inputs
 
-CI explicitly supplies base-SHA `AGENTS.md` (max 12 KiB) to every lens/chair.
+CI validates base and candidate `AGENTS.md` sizes (1..12,288 bytes), discards the
+candidate bytes and supplies only the base-SHA digest to every lens/chair.
 PR-head instructions remain diff data. Kiro has isolated HOME/cwd and no read tools;
 local steering alone cannot load CI context. Native CI runs trusted base scripts.
 Local Agy compatibility in this header does not mean an Agy CI panel slot.
 
-Four slots × L2-L5, then a chair. `scripts/pr-review/lib.sh` maps legacy
-`kiro-fable` to `claude-opus-5`, `kiro-sol` to `gpt-5.6-sol`; `kiro-opus` is an old
-tag. Slot names are not model names. Kiro aliases differ from Bedrock IDs. Consult
+Four slots × L2-L5, then a chair. `KIRO_MODELS` in `scripts/pr-review/lib.sh` maps
+compatibility tags to catalog IDs; `kiro-fable` is the legacy Opus slot and
+`kiro-opus` is an old tag. Slot names are not model names. Kiro aliases differ from Bedrock IDs. Consult
 workflow/runner config for other models. Shared services/model families can correlate
 findings. Model errors, non-empty output and green jobs do not prove useful review.
 Current aggregation counts non-empty output, warns for one/two empty model rows,
