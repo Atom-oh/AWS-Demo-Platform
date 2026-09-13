@@ -13,6 +13,7 @@ import secrets
 import sys
 import tempfile
 import unicodedata
+import warnings
 
 
 MAX_DIFF_BYTES = 95000
@@ -761,17 +762,77 @@ SENSITIVE_KEY = re.compile(
 )
 
 
-def scrub(value, keep=()):
+def _scrub_markdown_containers(value, key):
+    """Remove complete containers; an uncertain boundary consumes the remainder."""
+    opening = re.compile(key + r"[\[({]")
+    line_end = re.compile(r"[ \t\r]*(?:\n|\Z)")
+    continuation = re.compile(
+        r"\s*(?:[" + re.escape("()[]{}.+-*/%&|^?\\<>=!,\"'`#@")
+        + r"]|(?:if|else|and|or|in|is|not|instanceof|as|satisfies|for|async)\b)"
+    )
+    closing = {"[": "]", "(": ")", "{": "}"}
+    pieces, cursor = [], 0
+    while match := opening.search(value, cursor):
+        pieces.extend((value[cursor:match.start()], "[REDACTED]"))
+        start, index = match.end() - 1, match.end()
+        stack, quote, escaped = [closing[value[start]]], None, False
+        # Each matched region is scanned once, including nested/quoted delimiters.
+        while index < len(value) and stack:
+            char = value[index]
+            if escaped:
+                escaped = False
+                index += 1
+            elif char == "\\":
+                escaped = True
+                index += 1
+            elif quote:
+                if value.startswith(quote, index):
+                    index += len(quote)
+                    quote = None
+                else:
+                    index += 1
+            elif char in "\"'":
+                quote = char * 3 if value.startswith(char * 3, index) else char
+                index += len(quote)
+            elif char in closing:
+                stack.append(closing[char])
+                index += 1
+            elif char in "])}":
+                if char != stack.pop():
+                    return "".join(pieces)
+                index += 1
+            else:
+                index += 1
+        if stack or quote or escaped:
+            return "".join(pieces)
+        try:
+            # Parse, never evaluate; uncertain syntax must discard the verdict.
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                ast.parse(value[start:index], mode="eval")
+        except (SyntaxError, ValueError, RecursionError, Warning):
+            return "".join(pieces)
+        # A balanced prefix can still be followed by a conditional, call, index
+        # or concatenation. Do not guess where such a sensitive expression ends.
+        boundary = line_end.match(value, index)
+        if boundary is None or continuation.match(value, boundary.end()):
+            return "".join(pieces)
+        cursor = index
+    pieces.append(value[cursor:])
+    return "".join(pieces)
+
+
+def scrub(value, keep=(), markdown=False):
     """Keep only caller-validated structural fields; scrub free-text JSON too."""
     if isinstance(value, list):
-        return [scrub(x, keep) for x in value]
+        return [scrub(x, keep, markdown) for x in value]
     if isinstance(value, dict):
         fields = {str(k).lower(): v for k, v in value.items()}
         sensitive_values = {v for k, v in (("name", "value"), ("headername", "headervalue"))
                             if isinstance(fields.get(k), str) and SENSITIVE_KEY.fullmatch(fields[k])}
         return {scrub(k): v if k in keep else "[REDACTED]" if isinstance(k, str) and (
             SENSITIVE_KEY.fullmatch(k) or k.lower() in sensitive_values
-        ) else scrub(v, keep) for k, v in value.items()}
+        ) else scrub(v, keep, markdown) for k, v in value.items()}
     if not isinstance(value, str):
         return value
     value = re.sub(r"(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]", "", value)
@@ -781,12 +842,12 @@ def scrub(value, keep=()):
     try:
         decoded = strict_json(value)
         if isinstance(decoded, (dict, list)):
-            return canonical(scrub(decoded))
+            return canonical(scrub(decoded, markdown=markdown))
     except Invalid:
         pass
     def quoted(match):
         try:
-            return canonical(scrub(strict_json(match.group())))
+            return canonical(scrub(strict_json(match.group()), markdown=markdown))
         except Invalid:
             return match.group()
     # Decode nested JSON strings/escaped keys before applying key/value patterns.
@@ -794,6 +855,7 @@ def scrub(value, keep=()):
     identifier = SENSITIVE_KEY.pattern
     quote = r"""\\*["']"""
     key = identifier + rf"(?:{quote})?\s*[:=]\s*"
+    container = key + r"[\[({].*"
     patterns = (
         r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)",
         r"(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
@@ -809,7 +871,7 @@ def scrub(value, keep=()):
         r"""https://hooks\.slack\.com/services/[^\s"'<>]+""",
         r"""(?im)^[ \t]*[+-]?[ \t]*(?:set-)?cookie["']?[ \t]*:[^\r\n]*""",
         r"""(?i:x-origin-verify)["']?\s*:\s*["']?[^\s"',;}\]]+""",
-        key + r"[\[({].*",
+        container,
         key + r"[|>][-+]?[ \t]*\r?\n(?:[+-]?[ \t]+[^\r\n]*(?:\r?\n|\Z))+",
         rf"(?i:\b(?:header)?name)(?:{quote})?\s*[:=]\s*(?:{quote})?" + identifier
         + rf"(?:{quote})?[\s,]*[+-]?[ \t]*(?:{quote})?(?i:(?:header)?value)(?:{quote})?\s*[:=]\s*"
@@ -818,7 +880,10 @@ def scrub(value, keep=()):
         key + r"""[^\s"',;}\]]+""",
     )
     for pattern in patterns:
-        value = re.sub(pattern, "[REDACTED]", value, flags=re.S)
+        if markdown and pattern == container:
+            value = _scrub_markdown_containers(value, key)
+        else:
+            value = re.sub(pattern, "[REDACTED]", value, flags=re.S)
     return value
 
 

@@ -1,7 +1,8 @@
 # Specialist review protocol
 
-Offline protocol; legacy review remains active. Executors/adapters need separate
-activation review. No Git fetch or model calls.
+Executors are staged; legacy review remains active until separate activation/E2E
+review. `prepare_roles.py` validates inputs, `run_role.py` runs a specialist,
+`synthesize_roles.py` adjudicates, and `restore_role_frames.py` restores frames.
 
 | Tag | Requested model | Scope |
 | --- | --- | --- |
@@ -71,19 +72,27 @@ Blocked input yields deterministic FAIL; the chair cannot waive coverage failure
 
 Publish scrubbed reports/receipts/metadata only; never raw `roles/*.diff` or
 `requests/*.input/.prompt`.
+After transport-only normalization, `record` reads a mode-0600 response file
+outside the review workspace, removed even on errors. JSON/path values remain
+intact until protocol validation and decoded redaction. Diagnostics are scrubbed.
 
 ## Limits and checks
 
 Limits: 95,000 diff bytes (UTF-8), 3,000 lines, 24,000 context bytes, <128 KiB
 request; projects may lower them. Oversize blocks. No chunk coordinator or
 combining partial PASS results; preserve custody/budgets.
+`CHAIR_PANEL_TOTAL_CAP` retains the legacy default and override (200,000 UTF-8
+bytes by default), covering specialist-summary bytes only, not diff/context.
+Oversized summaries produce FAIL before any chair call, without truncation.
 
-Run `python3 -m unittest discover -s scripts/pr-review -p test_role_review.py`.
+Run `python3 -m unittest discover -s scripts/pr-review -p 'test_*role*.py'`.
 Offline CI: `.github/workflows/pr-review-roles-tests.yml`. Activation also needs
 executor/adapter, limit and exact-HEAD publication tests; offline success proves
 no live provider execution.
 
-ADP retains existing Sol (Terra is historical, ADR-013); pass `--context-cap 12288`.
+ADP uses Sol. Its wrapper accepts `REVIEW_CONTEXT_CAP` 1–12,288 (default 12,288).
+Generic `prepare_roles.py` retains a 24,000-byte default; direct ADP protocol calls
+must pass `--context-cap 12288` or less.
 Record/aggregate also validate private issued-frame files. Distributed consumers
 must restore them from trusted inputs/receipts before aggregation, never publish them.
 
@@ -103,3 +112,31 @@ The model table targets CI's Bedrock Runtime provider. Local Mantle uses
 `openai.gpt-6-astra` for Astra; provider-specific identifiers are not interchangeable.
 
 React edits retain `kiro-sol`; altered or missing receipt-bound history blocks.
+
+Chair Markdown redacts nested/multiline containers and handles quoted/escaped
+delimiters. Parse-only validation rejects malformed, unclosed or unsupported syntax.
+Uncertain boundaries consume the remaining reply, including its verdict.
+Conditional, call, index, concatenation and continuation tails are rejected.
+Plain paragraph text can preserve outside verdicts. Markdown bullets, headings,
+links or closing fences can look like continuations and fail closed. Avoid sensitive
+assignment examples in summaries. Transient throttles may use the configured
+fallback; account/monthly/credit limits each prohibit success and fallback.
+
+## Executor inputs and limits
+
+- `run-specialists.sh`: ADP entrypoint; uses the context cap above and requires
+  `HEAD_SHA`, `BASE_SHA` and `GH_REPO`.
+- `prepare_roles.py`: immutable Git scope; requires `AGENTS.md` at BASE and HEAD,
+  checks size and generated-source hashes, and retains only BASE instructions.
+  `role-input-scope.json` supplies BASE exclusions.
+- `prepare_context_roles.py`: optional BASE-verified hook; may not raise the cap.
+- `role-project.json`: optional schema-1 policy with `context_sources`, bounded
+  `chair` settings and a BASE-matching `prepare_project_roles.py` adapter.
+  ADP has neither hook nor project policy.
+- `run_role.py`: defaults/maxima are 300/900 seconds (`PANEL_TIMEOUT`), 2/3 total
+  attempts (`PANEL_RETRIES`) and 60/120 seconds (`KIRO_PREFLIGHT_TIMEOUT`).
+- `synthesize_roles.py`: reads legacy `CHAIR_*` defaults; positive environment
+  values apply even without a legacy default. Project policies declare maxima;
+  the absolute timeout ceiling is 1,500 seconds.
+- `role-controls.sh`: uses the canonical `lib.sh` control stripper. Private JSON
+  reaches protocol validation before credential redaction.
