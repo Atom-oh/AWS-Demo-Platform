@@ -52,6 +52,7 @@ class MarkdownContainerTests(unittest.TestCase):
             'settings = {"password": (p)\n for p in ["S_sync"]}',
             'async def sample():\n return {"password": (p)\n'
             '  async for p in values(["S_async"])}',
+            *(f'{{"password":(p)\n{k} p in["S_comp"]}}' for k in ("for", "async for")),
         )
 
     def report(self, container, verdict="PASS"):
