@@ -14,7 +14,8 @@ of the installed version.
 | `atlantis/` | Deployment, IRSA ServiceAccount, ExternalSecret, service and binding; preserve `--write-git-creds` |
 | `argocd/` | Self-managed Helm values and bootstrap binding; see its README for ownership limits |
 | `external-secrets-bootstrap/` | Still-referenced Helm values and ClusterSecretStore; retained by current ArgoCD Applications |
-| `actions-runner/`, `runner-scheduler/` | Shared runner identity/secrets and scheduled fleet sizing |
+| `actions-runner/` | Shared runner identity/secrets and staged immutable Kiro launcher data for oh-my-cloud-skills; see the [runbook](../docs/runbooks/ohmy-kiro-runtime-compat.md) |
+| `runner-scheduler/` | Scheduled fleet sizing |
 | `storageclass/` | gp3 StorageClass |
 | `tempo/` | Single-binary Tempo; `appset-tempo.yaml` supplies IRSA, S3 bucket and literal environment values |
 | `clickhouse-mgmt/` | ClickHouseInstallation and three internal observability fan-in NLB Services |

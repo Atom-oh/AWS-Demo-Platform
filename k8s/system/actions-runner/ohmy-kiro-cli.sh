@@ -13,7 +13,7 @@ ohmy_kiro_compat() {
                 --) option_end=$index; break ;;
                 --legacy-ui|--classic) legacy=1 ;;
                 --no-interactive) headless=1 ;;
-                --agent-engine|--agent-engine=*|--v2|--v3) explicit_engine=1 ;;
+                --agent-engine|--agent-engine=*|--v1|--v2|--v3) explicit_engine=1 ;;
             esac
         done
         if ((legacy && headless && !explicit_engine)); then

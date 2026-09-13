@@ -1,4 +1,5 @@
-"""Exercise the real launcher with a local vendor boundary; never invoke Kiro."""
+"""Check producer packaging and the real launcher; never invoke Kiro."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -7,6 +8,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -112,7 +115,7 @@ class KiroCompat(unittest.TestCase):
             ["--agent-engine", "v1"], ["--agent-engine", "v2"],
             ["--agent-engine", "v3"], ["--agent-engine=v1"],
             ["--agent-engine=v2"], ["--agent-engine=v3"],
-            ["--agent-engine="], ["--agent-engine"], ["--v2"], ["--v3"],
+            ["--agent-engine="], ["--agent-engine"], ["--v1"], ["--v2"], ["--v3"],
         ]:
             args = ["chat", "prompt", "--legacy-ui", "--no-interactive", *selection]
             with self.subTest(selection=selection):
@@ -156,6 +159,27 @@ class KiroCompat(unittest.TestCase):
         exported = {name: f"caller value for {name}" for name in WORKING_NAMES}
         args = ["chat", "prompt", "--legacy-ui", "--no-interactive"]
         self.assertEqual(self.invoke(args, extra_env=exported), args + ["--agent-engine", "v1"])
+
+
+class ProducerPackaging(unittest.TestCase):
+    def test_generator_pins_one_immutable_launcher_revision(self):
+        config = yaml.safe_load(
+            (ROOT / "k8s/system/actions-runner/kustomization.yaml").read_text()
+        )
+        mapping = "kiro-cli=ohmy-kiro-cli.sh"
+        generators = [
+            item for item in config.get("configMapGenerator", [])
+            if mapping in item.get("files", [])
+        ]
+        self.assertEqual(len(generators), 1, "Exactly one generator must package the current launcher")
+        generator = generators[0]
+        digest = hashlib.sha256(LAUNCHER.read_bytes()).hexdigest()
+        self.assertEqual(generator["name"], f"demo-platform-ohmy-kiro-compat-{digest[:12]}")
+        self.assertEqual(generator["files"], [mapping])
+        for other_source in ("literals", "envs", "env"):
+            self.assertFalse(generator.get(other_source), "The launcher must be the only data source")
+        self.assertIs(generator["options"].get("immutable"), True)
+        self.assertIs(generator["options"].get("disableNameSuffixHash"), True)
 
 
 if __name__ == "__main__":

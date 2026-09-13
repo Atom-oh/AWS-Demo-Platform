@@ -12,7 +12,7 @@ own review still executes the prior trusted-base script. The retained September 
 image containing Kiro 2.21.2 also reproduced the conflict; do not roll it out as
 this recovery.
 
-This bridge changes only the `oh-my-cloud-skills-claude-arm` runner fleet. It
+The planned consumer activation changes only the `oh-my-cloud-skills-claude-arm` runner fleet. It
 keeps the shared `latest` image and original vendor binary. It does not change
 reviewed branches, model selection, credentials, roles, resource requests,
 preflight requirements, coverage, retries or budgets.
@@ -25,10 +25,13 @@ executable and enters PATH. It adds `--agent-engine v1` only when:
 
 - The first argument is `chat`, matching the consumer's trusted CI invocation.
 - `--legacy-ui` or `--classic`, and `--no-interactive`, occur before the first `--`.
-- No `--agent-engine`, `--agent-engine=...`, `--v2` or `--v3` occurs before that delimiter.
+- No `--agent-engine`, `--agent-engine=...`, `--v1`, `--v2` or `--v3` occurs before that delimiter.
 
-An explicit engine selection is preserved even if it is invalid or conflicts
-with other options; the vendor reports its own error. Arguments after `--` are
+Those explicit engine spellings pass through even if invalid or conflicting;
+the vendor reports its own error. Recognizing `--v1` does not promise that the
+installed vendor supports that shorthand; PR #228 uses `--agent-engine v1`.
+Only the exact legacy/headless tokens listed above activate the bridge, not
+value-attached variants such as `--legacy-ui=true`. Arguments after `--` are
 opaque. Added options precede that delimiter. Other commands, including version,
 help and agent validation, pass through.
 
@@ -43,9 +46,17 @@ The existing `actions-runner-secrets` ArgoCD Application reconciles
 [`k8s/system/actions-runner`](../../k8s/system/actions-runner/kustomization.yaml).
 Its Kustomize generator produces an immutable ConfigMap in
 `actions-runner-system`. The `demo-platform-ohmy-kiro-compat-` name ends with the
-reviewed launcher's SHA-256 prefix. The separately reconciled Helm ApplicationSet
-references that exact revision. A launcher change needs a new name and matching
-hardcoded startup digest in the same reviewed change.
+reviewed launcher's first 12 SHA-256 characters. The planned, separately reconciled
+Helm ApplicationSet must reference that exact revision and hardcode its full digest.
+
+Current prepared revision:
+
+- ConfigMap: `demo-platform-ohmy-kiro-compat-f96ae62f9c7c`
+- Launcher SHA-256: `f96ae62f9c7c5df74b8f17f176acfd8be76b15d4b9bbe36c9d7e9beded5c848c`
+
+A launcher update needs a new producer revision before the consumer's name and
+digest change. Retain every still-used old revision; follow the update sequence
+below rather than replacing its immutable payload in place.
 
 The planned [consumer ApplicationSet](../../argocd-apps/system/appset-helm-runner-claude-arm-oh-my-cloud-skills.yaml)
 projects only its `kiro-cli` key at `/opt/ohmy-kiro-compat`, read-only and
@@ -69,27 +80,41 @@ shared identity/secret manifests remain unchanged.
 ## Local validation
 
 ```bash
-TMPDIR=/var/tmp bash tests/run-all.sh ohmy-kiro
+TMPDIR=/var/tmp bash tests/run-all.sh ohmy-kiro-compat
 bash -n k8s/system/actions-runner/ohmy-kiro-cli.sh
 kustomize build k8s/system/actions-runner
 ```
 
-The tests require Python 3 and PyYAML, already used by the platform's Kubernetes
-checks. Use standalone Kustomize for local rendering. Also render the pinned
-`gha-runner-scale-set` chart with the ApplicationSet's actual `valuesObject`.
-Check that the required immutable/versioned ConfigMap, single-key read-only data
-mount, hardcoded digest and private-copy startup reach the AutoscalingRunnerSet.
-Compare base and candidate renders:
-existing producer objects, Helm roles/bindings, runner image, credentials,
-scheduling and resources must remain identical. The chart's derived
-`actions.github.com/values-hash` annotation changes with the new values.
+Producer prerequisites are Python 3 with PyYAML, Bash 4.4 or newer, and a writable
+temporary directory that permits execution of fixture files. `TMPDIR=/var/tmp`
+selects that directory when suitable. Missing Python/PyYAML or a `noexec` temporary
+filesystem is a test failure to resolve, not a reason to skip required tests.
+Standalone Kustomize performs the local rendering role of the repository's
+`kubectl kustomize` convention without requiring cluster access.
 
-Producer tests cover launcher argv/process behavior; consumer tests add startup
-integrity checks. The local tests intercept the final vendor/runner exec boundaries and map the
-projected source path into a disposable fixture. They check mismatched/missing
-bytes, checksum-tool PATH shadowing, private ownership/modes and projection
-changes after registration alongside argv/stream/exit behavior. They do not
-invoke a provider or certify live model behavior. Before rollout, independently
+The producer suite has eight launcher behavior tests and one packaging test.
+It intercepts only the final vendor exec boundary and checks argv, streams,
+exit/signal status, cwd and caller environment. The packaging test uses PyYAML
+and SHA-256 to bind the current file to exactly one immutable generator with the
+expected name, single-file data mapping and disabled automatic name suffix.
+It does not read or test planned consumer startup. Compare the producer render
+with base: existing identity/ExternalSecret objects must remain identical.
+
+The separate consumer stage adds startup integrity tests. After that stage is
+present, `TMPDIR=/var/tmp bash tests/run-all.sh ohmy-kiro` includes both suites.
+Consumer tests additionally require GNU coreutils at the startup's absolute paths:
+`/usr/bin/mktemp`, `/usr/bin/install`, `/usr/bin/sha256sum`, `/usr/bin/chmod` and
+`/usr/bin/rm`. Their disposable projected-path and runner/vendor fixtures test
+missing/mismatched bytes, checksum-tool PATH shadowing, private ownership/modes
+and projection changes after registration. These checks do not ship in the
+producer-only phase.
+
+For the consumer stage, also render the pinned `gha-runner-scale-set` chart with
+its actual `valuesObject`. Verify the required single-key data mount, full digest
+and private-copy startup reach the AutoscalingRunnerSet. Existing Helm
+roles/bindings, image, credentials, scheduling and resources must remain identical;
+the chart-derived `actions.github.com/values-hash` annotation changes with values.
+Neither suite invokes a provider or certifies live model behavior. Before rollout, independently
 verify the packaged launcher with both configured models: exact `NO_TOOLS`
 preflights first, then small synthetic reviews, with no fallback, diagnostic,
 tool use or canary disclosure. Record outcomes without credential or prompt dumps.
@@ -116,6 +141,21 @@ Skip this bootstrap rollout if PR #228 has already landed and fresh trusted-base
 reviews complete without it. Local rendering, a healthy ArgoCD Application and
 successful probes are separate from a complete substantive PR review.
 
+### Updating a deployed launcher revision
+
+The producer Application prunes resources removed from its desired state. Before
+adding a new launcher revision, inventory current consumer references and active
+runners. Keep each still-used old ConfigMap in the Kustomization with its original
+bytes, using a separate versioned source file when the current launcher changes.
+Do not point an old immutable name at the new launcher file.
+
+Add and verify the new producer revision first, then update the separately reviewed
+consumer's exact ConfigMap name and full digest. Keep old revisions until every
+consumer reference has moved and its old runners have drained. Only then remove
+the old generator and source file through a later reviewed producer change. The
+private copy protects running processes; it does not make early pruning safe for
+pending or replacement Pods that still reference the old ConfigMap.
+
 ## Removal and recovery
 
 Once PR #228 is merged, verify that the actual trusted base passes explicit v1
@@ -128,6 +168,22 @@ Require a new unwrapped runner and a complete normal review before removing the
 ConfigMap generator and launcher. Confirm that no remaining runner still uses
 the mount before retiring the producer. Do not delete the existing shared secret
 or service-account resources.
+
+### Immutable-update failure in the shared producer Application
+
+`actions-runner-secrets` also reconciles the shared ExternalSecret and ServiceAccount.
+An immutable-data update rejection leaves that shared Application's sync incomplete;
+do not assume its other pending manifest changes completed. Stop consumer rollout
+and retain the failed sync evidence. Check the desired revision/name/digest against
+the reviewed producer source and the existing ConfigMap, without printing secrets.
+
+Recover through a reviewed Git correction: restore the original payload under any
+still-used immutable name, retain it, and publish changed bytes under their new
+digest name. Resume normal synchronization after that correction. Do not force
+replace the shared Application, delete a still-used ConfigMap to retry the same
+name, or delete/recreate the shared Secret or ServiceAccount. Verify the producer
+sync, retained/new payload digests, ExternalSecret readiness and ServiceAccount
+state before resuming consumer rollout.
 
 If the bridge itself fails, retain failed checks and diagnose the exact argv,
 mount and vendor version through the approved operator process. A reviewed
