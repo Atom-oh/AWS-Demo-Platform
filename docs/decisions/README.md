@@ -26,6 +26,7 @@ Historical names, cost estimates and catalog probes are not current guarantees.
 | [017](ADR-017-demo-scale-job-operation.md) | Async scale and HPA restoration | Accepted partial-failure limits; inspect before next off cycle |
 | [018](ADR-018-grafana-private-origin.md) | Grafana private path and credential rollout | Split repo/state ownership and producer-first readiness |
 | [019](ADR-019-externally-managed-projects.md) | Registration without resource control | External management enforced by API, worker and UI |
+| [020](ADR-020-specialist-review-protocol.md) | Staged specialist review protocol library | [Module contract](../../scripts/pr-review/README.md); legacy workflow remains active until separate activation |
 
 | [020](ADR-020-specialist-review-protocol.md) | Specialist responsibilities, strict coverage and conditional chair | Supersedes repeated lens matrix and permissive dropout floor |
 

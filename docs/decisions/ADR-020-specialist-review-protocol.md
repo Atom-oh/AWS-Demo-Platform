@@ -40,3 +40,6 @@ complete bounded review under the repository's approved chunking contract.
 See [specialist review](../pr-review-specialists.md) for current limits, model
 aliases, artifact validation and verification commands. Legacy entrypoints are
 retained for regression fixtures and are not the workflow's selected protocol.
+
+Sol intentionally replaces the legacy Terra review slot for fleet consistency;
+application inference model configuration remains unchanged.
