@@ -4,3 +4,11 @@ namespace: actions-runner-system
 resources:
   - ai-keys-externalsecret.yaml
   - claude-runner-sa.yaml
+configMapGenerator:
+  - name: demo-platform-ohmy-kiro-compat-f96ae62f9c7c
+    files:
+      - kiro-cli=ohmy-kiro-cli.sh
+    options:
+      # Bind the separately reconciled consumer to this reviewed payload revision.
+      disableNameSuffixHash: true
+      immutable: true
