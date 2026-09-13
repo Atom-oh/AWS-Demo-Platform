@@ -282,7 +282,9 @@ class RoleReviewTests(unittest.TestCase):
         metadata = self.root / "source.json"
         source = {"head_sha": HEAD, "base_sha": BASE,
                   "diff_sha256": hashlib.sha256(patch().encode()).hexdigest(),
-                  "metadata": [{"aws_secret_access_key": "collector-" + "private"}],
+                  "metadata": [{"aws_secret_access_key": "collector-" + "private",
+                                "Authorization": "Basic collector-" + "private",
+                                "x-origin-verify": "collector-" + "private"}],
                   "note": "password=collector-private"}
         metadata.write_text(json.dumps(source))
         self.prepare(extra=("--provenance", metadata))
@@ -516,6 +518,12 @@ class RoleReviewTests(unittest.TestCase):
                 self.assertFalse((self.work / "deterministic-review.md").exists())
                 candidates = summary["uncertainties"] if kind == "uncertainty" else summary["findings"]
                 self.assertIn("Historical unresolved condition", json.dumps(candidates))
+                archive = self.work / "slot/codex-attempts.json"
+                if kind == "CRITICAL":
+                    archive.unlink()
+                else:
+                    archive.write_text("[]")
+                self.assert_blocked()
 
     def test_corrupt_historical_candidate_cannot_be_silently_dropped(self):
         self.prepare()

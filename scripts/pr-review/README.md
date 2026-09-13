@@ -75,6 +75,7 @@ result and block; finish all writers before aggregation.
 
 Reissue archives up to 32 results in `slot/TAG-attempts.json`. Model-selection,
 fallback, quota and agent-preflight failures stay blocking until new preparation.
+Receipts bind the history digest; omitted or shortened archives block validation.
 Summaries retain history. All work-tree `*.flag` files block except the engine's
 root `coverage-severe.flag`. `failure_codes` is canonical (`failures` is an alias).
 Valid historical Critical/Major candidates and uncertainties are revalidated and

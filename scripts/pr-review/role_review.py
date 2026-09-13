@@ -1,21 +1,9 @@
 #!/usr/bin/env python3
-"""Portable role-review preparation, response validation, and aggregation.
+"""Offline review protocol; see README.md and COMMAND --help for its interfaces.
 
-CLI:
-  prepare --diff RAW --context CONTEXT --head SHA --base SHA --work WORK
-          [--context-cap BYTES] [--paths JSON_FILE] [--provenance JSON_FILE]
-  issue --work WORK --tag TAG
-  record --work WORK --tag TAG --output FILE --stderr FILE --exit-code RC --nonce NONCE
-  aggregate --work WORK
-
-Schema 1 plans list all four tags; only required roles get roles/TAG.txt and
-roles/TAG.diff. Response ``role`` is the stable role slug, not the tag. Result
-envelopes obtain tag, configured family/model and fingerprints from the plan.
-Exit 2 means blocked. Aggregate exit 0 means deterministic PASS or chair handoff;
-read chair-mode.txt to distinguish them. No networking or model invocation.
-Use a fresh work directory per complete reviewed diff. This library does not
-coordinate chunks. These are scope attestations,
-not proof of model honesty or of the provider's actual executed weights.
+Exit 2 blocks. After aggregate exit 0, chair-mode.txt distinguishes deterministic
+results from adjudication. Use fresh work per complete diff; no chunk coordinator,
+networking or model calls. Scope attestations do not prove provider execution.
 """
 
 import argparse
@@ -525,6 +513,14 @@ def load_plan(work):
     return plan
 
 
+def attempt_history(work, tag):
+    path = work / "slot" / f"{tag}-attempts.json"
+    history = strict_json(text_file(path)) if path.exists() else []
+    if not isinstance(history, list) or len(history) > 32:
+        raise Invalid("invalid_attempt_history")
+    return history
+
+
 def issue_request(work, tag):
     work = Path(work)
     plan = load_plan(work)
@@ -554,6 +550,7 @@ def issue_request(work, tag):
         terminal = TERMINAL_CODES.intersection(prior.get("failure_codes", []))
         if terminal:
             write(work / "slot" / f"role-{tag}-terminal.flag", "\n".join(sorted(terminal)) + "\n")
+    receipt["history_digest"] = digest(attempt_history(work, tag))
     remove(previous)
     remove(work / "slot" / f"{tag}.record-claim")
     remove(work / "slot" / f"{tag}-duplicate.flag")
@@ -578,6 +575,7 @@ def issued_request(work, plan, tag):
             "prepared_request_digest": role["request_digest"], "invocation_nonce": nonce,
             "request_digest": invocation_digest(role["request_digest"], nonce),
             "prompt_sha256": digest(instruction.encode()), "input_sha256": digest(payload.encode()),
+            "history_digest": digest(attempt_history(work, tag)),
         }
         if (receipt != expected
                 or (work / "requests" / f"{tag}.prompt").read_bytes() != instruction.encode()
@@ -672,7 +670,7 @@ def scrub(value):
     """Scrub decoded strings too: raw-JSON sanitizers miss escaped credentials."""
     identifier = (
         r"(?i:(?<![A-Za-z0-9])[A-Za-z0-9_-]*(?:password|passwd|api[_-]?key|"
-        r"secret|token|credential|passphrase|private[_-]?key|cookie|AccessKeyId|access[_-]?key[_-]?id|external[_-]?id)[A-Za-z0-9_-]*)"
+        r"secret|token|credential|passphrase|private[_-]?key|cookie|AccessKeyId|access[_-]?key[_-]?id|external[_-]?id|authorization|x[-_]?origin[-_]?verify)[A-Za-z0-9_-]*)"
     )
     if isinstance(value, list):
         return [scrub(x) for x in value]
@@ -834,9 +832,7 @@ def aggregate(args):
         path = work / "slot" / f"{tag}-attempts.json"
         if path.exists():
             try:
-                attempts = strict_json(text_file(path))
-                if not isinstance(attempts, list) or len(attempts) > 32:
-                    raise Invalid("invalid_attempt_history")
+                attempts = attempt_history(work, tag)
                 history[tag] = scrub(attempts)
                 for number, prior in enumerate(attempts, 1):
                     if not isinstance(prior, dict):
