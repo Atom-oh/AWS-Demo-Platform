@@ -1,7 +1,8 @@
 # infra/dynamodb
 
-Lifecycle Controller state store (Stage 2, dev). Three PAY_PER_REQUEST tables:
-`demo-platform-state-dev`, `-jobs-dev` (GSI1 `gsi1pk`/`gsi1sk`, TTL), `-history-dev` (TTL).
+Lifecycle state store for dev. Three PAY_PER_REQUEST tables:
+`demo-platform-state-dev`, `demo-platform-jobs-dev` (index `gsi1` on
+`gsi1pk`/`gsi1sk`, TTL) and `demo-platform-history-dev` (TTL).
 
 - **State key**: `production/aws-demo-platform/dynamodb/terraform.tfstate`
 - **Outputs**: `{state,jobs,history}_table_{name,arn}`

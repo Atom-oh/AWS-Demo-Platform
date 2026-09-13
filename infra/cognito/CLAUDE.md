@@ -1,6 +1,6 @@
 # infra/cognito
 
-Admin auth (Stage 2 Phase 4, dev). User Pool `atomoh-demo-platform-dev`
+Dashboard admin auth for dev. User Pool `atomoh-demo-platform-dev`
 (self sign-up disabled, optional TOTP MFA) + public SPA client `dashboard-dev`
 + hosted-UI domain `atomoh-demo-platform-dev`.
 
@@ -13,3 +13,7 @@ Admin auth (Stage 2 Phase 4, dev). User Pool `atomoh-demo-platform-dev`
   uses them for JWT verification. Create/populate them before starting that runtime;
   empty containers alone are insufficient. These IDs are public configuration, not
   a client secret or administrator password.
+- `main.tf` allows callbacks at `admin-dev.atomai.click/auth/callback` and
+  `localhost:3000/auth/callback`; tokenless local development on port 3001 is a
+  separate mode. The SPA uses Authorization Code + PKCE and sends access tokens.
+  Successful Cognito login still requires the API's `ADMIN_USERNAMES` allowlist.

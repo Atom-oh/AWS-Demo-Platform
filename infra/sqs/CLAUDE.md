@@ -1,8 +1,8 @@
 # infra/sqs
 
-Lifecycle Controller job queue (Stage 2, dev). `demo-platform-jobs-dev`
+Lifecycle job queue for dev. `demo-platform-jobs-dev`
 (visibility 300s, retention 1d, long-poll 20s) + `demo-platform-jobs-dlq-dev`
-(maxReceiveCount 3).
+(14-day retention; jobs redrive after `maxReceiveCount = 3`).
 
 - **State key**: `production/aws-demo-platform/sqs/terraform.tfstate`
 - **Outputs**: `queue_url`, `queue_arn`, `dlq_arn`

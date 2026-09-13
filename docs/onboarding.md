@@ -24,6 +24,10 @@ cluster. Pass `--context` on cluster operations. A sandbox can block instance
 metadata and make existing instance credentials appear absent; verify the permitted
 network path before replacing credentials.
 
+`scripts/setup.sh` has an older 1.9.8 warning; `atlantis.yaml`'s 1.9.6 pin is
+authoritative. Its hook installer expects a normal `.git/` directory and is skipped
+in a linked worktree. Do not mistake that skip for hook installation.
+
 Use an existing authorized ArgoCD session or interactive login. Do not put passwords
 in command arguments or print tokens from Secrets Manager into logs. Verify TLS
 before authenticating. The [Grafana runbook](runbooks/grafana-private-ingress.md)
@@ -42,20 +46,24 @@ with `/co-agent:sync-context` and validate its marker, source hash, size and sec
 
 ## Local development and checks
 
-From `dashboard/backend`, install dependencies, start LocalStack with `pnpm stack:up`
+From `dashboard/backend`, run `pnpm install --frozen-lockfile`, start LocalStack with `pnpm stack:up`
 when running integration tests, then run `pnpm -r build`, `pnpm -r lint` and
 `pnpm -r test`. Compilation is the real TypeScript gate. For the simulated local
 worker path, run `PORT=8087 node packages/api/dist/dev-server.js` after building.
 
-From `dashboard/frontend`, install dependencies and run
+From `dashboard/frontend`, run `pnpm install --frozen-lockfile`, then
 `NEXT_PUBLIC_AUTH_ENABLED=false API_ORIGIN=http://localhost:8087 PORT=3001 pnpm dev`.
 The explicit flag is required for tokenless local use; unset means auth enabled.
 Alternatively copy `.env.local.example` to `.env.local`. This bypass is for the
 simulated local API, not the deployed JWT-protected API. Validate with `pnpm typecheck`,
 `pnpm lint`, `pnpm test` and `pnpm build`. The local API has simulated resource state;
 it is not a health probe for deployed AWS resources.
+For real local Cognito login, use the allowed `localhost:3000` callback/logout URLs;
+the tokenless port-3001 example does not add a Cognito callback.
 
-Run `bash tests/run-all.sh` for the local harness. Terraform verification is per
+Run `bash tests/run-all.sh` for the local harness. The structure checks also expect
+`.git/hooks`, so linked worktrees can fail those checks despite a shared hook;
+report that limitation without modifying shared Git state. Terraform verification is per
 module: initialization, format, validation and a real plan against the correct
 backend. Render Kubernetes with `kubectl kustomize`; client/server dry-runs may
 need credentials and already-created dependencies even though they do not deploy.
@@ -74,6 +82,8 @@ commit messages. Keep the source, documentation and generated context aligned.
 - Project/account metadata: images bundle these files. Current backend CI filters
   do not trigger on project/account-only changes, so arrange a build and rollout.
   ArgoCD tenant coverage is needed only when this hub actually owns those workloads.
+  Validate against the [project/account contracts](../projects/CLAUDE.md);
+  account registration does not automatically configure Atlantis.
 
 For independently operated projects, use `management: external` instead of a
 dummy controller or hub ArgoCD target. The platform exposes metadata/links and
@@ -85,16 +95,32 @@ for its account, ownership and image-rollout boundaries.
 - Add optional `briefing` text to schema-valid project YAML; the detail drawer
   provides an expansion control for longer notes.
 - Cards and the drawer expose GitHub links and configured URLs.
+- The operating table is the default view; cards remain available. Sort by attention,
+  name or account. Attention order is error, unknown, transitioning, off, on, then external;
+  attention/account ties use project name.
 - Use the operating table to select projects and confirm bulk on/off. Start accepts
   off/error; stop accepts on. Up to four run concurrently, with per-project results
   and failed-item retry. Keep the page open for queued items to dispatch. Search
   and filter changes clear selection; they do not change an already started batch.
-- Demo scale supports ECS desired counts and ArgoCD workload/HPA replicas without
+- The result panel tracks queued/running/succeeded/failed/skipped targets. Retry
+  selects only failed items and checks eligibility again; an ineligible retry
+  retains the earlier failure and explains why no new request was sent.
+- A page-level per-project guard coordinates single actions and scale as well as
+  bulk work. Closing/reopening the drawer keeps that guard; another tab/client
+  has no shared lock. Individual actions and scale are blocked during a bulk run.
+- The Refresh button reloads project state while preserving active batch/results.
+  A full reload or navigation that unmounts the page loses the local queue/results
+  and does not resume job polling. Submitted backend jobs continue; a timeout or
+  failed UI result needs state verification before retry.
+- Demo scale requires project status `on` and supports ECS desired counts and ArgoCD workload/HPA replicas without
   changing the project's on/off status. HPA min/max are pinned by scale; the first
   saved baseline lets a later off/on cycle restore them. A first partial failure
   can leave the baseline unrecorded, so inspect the current bounds after failure. See
   [ADR-017](decisions/ADR-017-demo-scale-job-operation.md) for accepted races and
   partial-failure limitations.
+
+See the [frontend guide](../dashboard/frontend/CLAUDE.md) for current controls and
+operation-tracking limits.
 
 ## Troubleshooting without losing context
 

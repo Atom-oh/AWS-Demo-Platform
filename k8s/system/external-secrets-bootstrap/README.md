@@ -1,41 +1,44 @@
-# External Secrets Operator — Bootstrap Manifests
+# External Secrets Operator
 
-Bootstrap files for ESO on `mall-apne2-mgmt` hub cluster during Stage 1.
+These files remain active inputs for the hub, despite the `bootstrap` directory
+name. [`external-secrets.yaml`](../../../argocd-apps/system/external-secrets.yaml)
+pins chart 2.5.0 and reads `helm-values.yaml`.
+[`cluster-secret-store.yaml`](../../../argocd-apps/system/cluster-secret-store.yaml)
+selects only this directory's store manifest. Both Applications use
+`prune: false`. The historical proposal to move/delete this directory is not
+implemented; deleting it would break these consumers.
 
-**Per spec**, ESO is a shared agent that should live in `multi-region-architecture/k8s/infra/external-secrets/` and be deployed via the tenant App-of-Apps (Task 19 in the Stage 1 plan).
+- `helm-values.yaml` installs CRDs and applies
+  `workload-type=platform:NoSchedule` tolerations to ESO, webhook and certificate
+  controller.
+- `cluster-secret-store.yaml` defines `external-secrets.io/v1`
+  `ClusterSecretStore aws-secrets-manager` in `ap-northeast-2`, using JWT from
+  ServiceAccount `external-secrets/external-secrets`.
+- The historical `ExternalSecretsIRSARole` and ServiceAccount annotation were
+  provisioned out-of-band. This checkout has no Terraform definition or Helm
+  annotation for that role. Verify the actual trust/permissions and annotation
+  before relying on a fresh install.
 
-These bootstrap files were applied directly via `kubectl` / `helm` during Stage 1 because Atlantis and ArgoCD weren't yet operational. **They will be migrated to multi-region-architecture in Task 19**, after which this directory is removed.
-
-## What's here
-
-- `helm-values.yaml` — helm chart values with `workload-type=platform` tolerations
-- `cluster-secret-store.yaml` — `ClusterSecretStore` named `aws-secrets-manager` using IRSA via `ExternalSecretsIRSARole`
-
-## How it was installed (Stage 1 Task 7 bootstrap)
+For an absent installation, after verifying AWS identity and the
+`mall-apne2-mgmt` kube context, run from the repository root:
 
 ```bash
-# 1. Install ESO
 helm repo add external-secrets https://charts.external-secrets.io
 helm install external-secrets external-secrets/external-secrets \
-  -n external-secrets --create-namespace \
-  -f helm-values.yaml --wait
-
-# 2. IRSA role created via AWS CLI (out of band — to be migrated to Terraform)
-#    Role: ExternalSecretsIRSARole
-#    Trust: oidc.eks.ap-northeast-2.../sub: system:serviceaccount:external-secrets:external-secrets
-#    Perms: secretsmanager:GetSecretValue|DescribeSecret|ListSecrets on /demo-platform/*
-
-# 3. Annotate SA
-kubectl annotate serviceaccount external-secrets -n external-secrets \
-  eks.amazonaws.com/role-arn=arn:aws:iam::180294183052:role/ExternalSecretsIRSARole --overwrite
-
-# 4. Create ClusterSecretStore
-kubectl apply -f cluster-secret-store.yaml
+  --kube-context mall-apne2-mgmt -n external-secrets --create-namespace \
+  --version 2.5.0 \
+  -f k8s/system/external-secrets-bootstrap/helm-values.yaml --wait
+kubectl --context mall-apne2-mgmt annotate serviceaccount external-secrets \
+  -n external-secrets \
+  eks.amazonaws.com/role-arn=arn:aws:iam::180294183052:role/ExternalSecretsIRSARole \
+  --overwrite
+kubectl --context mall-apne2-mgmt apply \
+  -f k8s/system/external-secrets-bootstrap/cluster-secret-store.yaml
+kubectl --context mall-apne2-mgmt wait --for=condition=Ready \
+  clustersecretstore/aws-secrets-manager --timeout=90s
 ```
 
-## TODO (Stage 1 Task 19)
-
-- [ ] Move helm-values.yaml + cluster-secret-store.yaml to `multi-region-architecture/k8s/infra/external-secrets/`
-- [ ] Move `ExternalSecretsIRSARole` definition to Terraform (e.g., `infra/iam/external-secrets-irsa.tf`)
-- [ ] Register as ArgoCD Application (shared-agents-hub.yaml)
-- [ ] Delete this directory
+The annotation assumes the verified role already exists; it does not create IAM.
+For an existing installation, use its ArgoCD owner and current chart pin. Verify
+each consumer ExternalSecret is Ready and synchronized before rolling consumers,
+including [Grafana](../../../docs/runbooks/grafana-private-ingress.md).

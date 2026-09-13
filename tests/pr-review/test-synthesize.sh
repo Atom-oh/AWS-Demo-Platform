@@ -330,6 +330,35 @@ else
   fail "synthesize (f) chair argv uses bounded read-only tools" "expected allowedTools missing"
 fi
 
+# (g) Kiro cause banners: the merged WORK-level flags from aggregate.sh each render a banner
+# above the chair output. With coverage-severe.flag the VERDICT is forced FAIL and the
+# severe banner sits on top; quota alone (no severe flag) keeps the chair's PASS.
+setup; mkclaude
+echo "kiro-sol startup check failed (exit 1); PR input withheld." > "$WORK/kiro-preflight.flag"
+echo "[kiro-fable-L2] Error: no agent with name inline-review found" > "$WORK/kiro-agent-fallback.flag"
+: > "$WORK/coverage-severe.flag"
+"$SCRIPT" "$DIFF" "$WORK" 1 "test pr" "$WORK/review.md" >"$WORK/synth.log" 2>&1
+if grep -q '^🛑 \*\*Kiro preflight failed\*\*: kiro-sol startup check failed' "$WORK/review.md" \
+  && grep -q '^🔓 \*\*Kiro no-tools contract broken\*\*: kiro-cli ignored `--agent inline-review`.*no agent with name' "$WORK/review.md" \
+  && head -1 "$WORK/review.md" | grep -q '^🛑 \*\*Forced FAIL\*\*: the Kiro no-tools contract could not be upheld' \
+  && [ "$(awk 'NF{last=$0} END{print last}' "$WORK/review.md")" = "VERDICT: FAIL" ] \
+  && [ "$(grep -c '^VERDICT:' "$WORK/review.md")" -eq 1 ] \
+  && ! grep -q 'Kiro monthly request quota' "$WORK/review.md"; then
+  pass "synthesize (g) preflight + agent-fallback banners render and FAIL is forced"
+else
+  fail "synthesize (g) preflight + agent-fallback banners render and FAIL is forced" "$(head -6 "$WORK/review.md" | cut -c1-80 | tr '\n' '|')"
+fi
+setup; mkclaude
+echo "[kiro-fable-L2 kiro-fable-L3] Monthly request limit reached The limits reset on 10/01." > "$WORK/kiro-quota.flag"
+"$SCRIPT" "$DIFF" "$WORK" 1 "test pr" "$WORK/review.md" >"$WORK/synth.log" 2>&1
+if grep -q '^🚫 \*\*Kiro monthly request quota exhausted\*\*: .*reset on 10/01.*/demo-platform/actions/AI-key' "$WORK/review.md" \
+  && [ "$(awk 'NF{last=$0} END{print last}' "$WORK/review.md")" = "VERDICT: PASS" ] \
+  && ! grep -Eq 'preflight failed|contract broken' "$WORK/review.md"; then
+  pass "synthesize (g) quota banner names the cause and reset date without forcing FAIL by itself"
+else
+  fail "synthesize (g) quota banner names the cause and reset date without forcing FAIL by itself" "$(head -3 "$WORK/review.md" | cut -c1-80 | tr '\n' '|')"
+fi
+
 cleanup
 unset STDIN_SIZE_FILE ARGV_FILE CLAUDE_STUB_MODE STDERR_PAYLOAD_FILE STDOUT_PAYLOAD_FILE
 unset CHAIR_PRIMARY_MODEL CHAIR_FALLBACK_MODEL

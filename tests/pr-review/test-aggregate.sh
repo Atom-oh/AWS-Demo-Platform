@@ -96,6 +96,79 @@ rc=$?
   && pass "aggregate (g) missing slot dir -> coverage-severe (all models degraded)" \
   || fail "aggregate (g) missing slot dir -> coverage-severe (all models degraded)" "flag not set"
 
+# (h) Per-model Kiro flags written by run-panel.sh into the uploaded slot are merged into
+# one WORK-level flag each. Preflight failure and agent fallback force coverage-severe even
+# though 3/4 models still responded; quota alone does not (coverage floors decide).
+for kflag in preflight agent-fallback quota; do
+  setup "L2"
+  for m in codex kiro-fable claude-self; do fill "$m" L2 "finding"; done
+  fill kiro-sol L2 ""
+  printf 'kiro-sol detail one\n' > "$WORK/slot/kiro-$kflag-kiro-sol.flag"
+  "$SCRIPT" "$LENSES" "$WORK" >/dev/null 2>"$WORK/agg.err"
+  rc=$?
+  merged="$WORK/kiro-$kflag.flag"
+  if [ "$kflag" = quota ]; then want_severe=0; else want_severe=1; fi
+  have_severe=0; [ -f "$WORK/coverage-severe.flag" ] && have_severe=1
+  if [ "$rc" -eq 0 ] && [ -s "$merged" ] && grep -q 'kiro-sol detail one' "$merged" \
+    && [ "$have_severe" = "$want_severe" ] && grep -q "^::error::" "$WORK/agg.err"; then
+    pass "aggregate (h) kiro-$kflag-<tag>.flag merged into kiro-$kflag.flag (severe=$want_severe)"
+  else
+    fail "aggregate (h) kiro-$kflag-<tag>.flag merged into kiro-$kflag.flag (severe=$want_severe)" \
+      "rc=$rc merged=$([ -s "$merged" ] && echo yes || echo no) severe=$have_severe"
+  fi
+done
+
+# (i) Two Kiro jobs both flag quota: both details end up in the merged flag; stale merged
+# flags from a previous chair run on a reused $WORK are reset when no slot flag exists.
+setup "L2"
+for m in codex claude-self; do fill "$m" L2 "finding"; done
+fill kiro-fable L2 ""; fill kiro-sol L2 ""
+echo "fable reset on 10/01" > "$WORK/slot/kiro-quota-kiro-fable.flag"
+echo "sol reset on 10/01" > "$WORK/slot/kiro-quota-kiro-sol.flag"
+echo "stale" > "$WORK/kiro-agent-fallback.flag"
+"$SCRIPT" "$LENSES" "$WORK" >/dev/null 2>&1
+if grep -q 'fable reset' "$WORK/kiro-quota.flag" && grep -q 'sol reset' "$WORK/kiro-quota.flag" \
+  && [ ! -f "$WORK/kiro-agent-fallback.flag" ] && [ ! -f "$WORK/coverage-severe.flag" ]; then
+  pass "aggregate (i) quota flags from both Kiro jobs merge; stale merged flags are reset; 2/4 dead stays warn-only"
+else
+  fail "aggregate (i) quota flags from both Kiro jobs merge; stale merged flags are reset; 2/4 dead stays warn-only" \
+    "quota=$(cat "$WORK/kiro-quota.flag" 2>/dev/null | tr '\n' '|') stale=$([ -f "$WORK/kiro-agent-fallback.flag" ] && echo present) severe=$([ -f "$WORK/coverage-severe.flag" ] && echo yes)"
+fi
+
+# (j) Quota at preflight for both Kiro jobs (no preflight flag written by run-panel.sh in
+# that case): both Kiro rows empty -> warn-only degraded, quota named, NOT severe. The
+# other two vendors still cross-check every lens.
+setup "L2 L3"
+for m in codex claude-self; do for l in L2 L3; do fill "$m" "$l" "finding"; done; done
+for m in kiro-fable kiro-sol; do for l in L2 L3; do fill "$m" "$l" ""; done; done
+echo "[preflight kiro-fable] Monthly request limit reached The limits reset on 10/01." > "$WORK/slot/kiro-quota-kiro-fable.flag"
+echo "[preflight kiro-sol] Monthly request limit reached The limits reset on 10/01." > "$WORK/slot/kiro-quota-kiro-sol.flag"
+"$SCRIPT" "$LENSES" "$WORK" >/dev/null 2>"$WORK/agg.err"
+if [ ! -f "$WORK/coverage-severe.flag" ] && [ -s "$WORK/kiro-quota.flag" ] \
+  && [ "$(grep -c '' "$WORK/degraded-models.txt")" -eq 2 ] && [ ! -s "$WORK/degraded-lenses.txt" ] \
+  && grep -q '::error::Kiro monthly request quota exhausted' "$WORK/agg.err"; then
+  pass "aggregate (j) month-long quota outage on both Kiro jobs stays warn-only, never forced FAIL"
+else
+  fail "aggregate (j) month-long quota outage on both Kiro jobs stays warn-only, never forced FAIL" \
+    "severe=$([ -f "$WORK/coverage-severe.flag" ] && echo yes || echo no) degraded=$(tr '\n' ',' < "$WORK/degraded-models.txt")"
+fi
+
+# (k) An exhausted fallback request is still a no-tools breach. Keep both causes
+# when the same Kiro job reports them, even with every other model present.
+setup "L2"
+for m in codex kiro-fable claude-self; do fill "$m" L2 "finding"; done
+fill kiro-sol L2 ""
+echo "startup check failed" > "$WORK/slot/kiro-preflight-kiro-sol.flag"
+echo "Falling back to user specified default" > "$WORK/slot/kiro-agent-fallback-kiro-sol.flag"
+echo "Monthly request limit reached" > "$WORK/slot/kiro-quota-kiro-sol.flag"
+"$SCRIPT" "$LENSES" "$WORK" >/dev/null 2>"$WORK/agg.err"
+if [ -s "$WORK/kiro-preflight.flag" ] && [ -s "$WORK/kiro-agent-fallback.flag" ] \
+  && [ -s "$WORK/kiro-quota.flag" ] && [ -f "$WORK/coverage-severe.flag" ]; then
+  pass "aggregate (k) simultaneous fallback and quota retains both causes and forces severe"
+else
+  fail "aggregate (k) simultaneous fallback and quota retains both causes and forces severe" "missing cause or severe flag"
+fi
+
 if [ "${_t_fail+set}" = set ]; then
   [ "$_t_fail" = 0 ] && echo "PASS: test-aggregate" || exit 1
 fi
