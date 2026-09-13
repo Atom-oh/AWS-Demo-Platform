@@ -149,7 +149,7 @@ def prepare(head, base, work, supplied_diff=None):
         expected = git_file(base, "scripts/pr-review/prepare_context_roles.py")
         if expected is None and not file.exists() and not file.is_symlink():
             context = context_at(base, cap)
-            context_at(head, cap)  # Size check only.
+            context_at(head, cap)  # Validate; discard.
         else:
             if (file.is_symlink() or not file.is_file() or expected is None
                     or file.read_bytes() != expected.encode("utf-8")):

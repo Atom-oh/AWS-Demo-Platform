@@ -230,7 +230,7 @@ def run(work, tag):
     diff = (work / "roles" / f"{tag}.diff").read_bytes().decode("utf-8")
     start = time.monotonic()
     environment = dict(os.environ)
-    # Reviewer processes cannot publish.
+    # Omit GitHub tokens.
     for name in ("GH_TOKEN", "GITHUB_TOKEN", "GITHUB_PERSONAL_ACCESS_TOKEN"):
         environment.pop(name, None)
     output = ""
