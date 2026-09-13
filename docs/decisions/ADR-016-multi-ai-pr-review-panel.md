@@ -87,3 +87,13 @@ discards them; an oversized edit fails its own PR instead of breaking later runs
 This reconciles project conventions without expanding tool permissions or relaxing
 severity/coverage gates. Regression tests exercise delivery through isolated Kiro;
 model judgment and complete-diff review remain separate evidence.
+
+**Tool-catalog clarification (2026-09-13):** PR #109 run `34729311650`
+(head `2d47015`, `kiro-fable/L2`) returned only glob-search output despite
+`--trust-tools=`. That flag controls approval, not tool availability.
+Each fresh Kiro cell now receives the trusted `inline-review` custom agent with
+empty tools/approval lists, MCP servers, resources and hooks, selected explicitly
+with `--agent`. Missing profiles or failed installation block the call. The
+approval flag, model selection, limits and environment isolation remain unchanged.
+See the [review contract](../pr-review.md) and its static profile. Offline schema
+validation and mocked invocation tests do not establish successful model review.
