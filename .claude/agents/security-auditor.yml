@@ -47,7 +47,7 @@ color: red
 #
 #  IAM / Trust:
 #    - Configured cross-account application roles require ExternalId; OIDC/IRSA use claim conditions
-#    - Inspect AtlantisIRSA trust and grants against infra/iam; verify each wildcard and condition in scope
+#    - Inspect Atlantis IRSA trust and grants in infra/atlantis-bootstrap/main.tf; verify each wildcard and condition in scope
 #    - DemoPlatformTerraformer scoped to required services only
 #    - No IAM user access keys in code (only roles)
 #
