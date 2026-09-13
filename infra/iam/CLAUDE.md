@@ -1,15 +1,38 @@
-# infra/iam
+# Dashboard and CI IAM
 
-Stage 2 dashboard IAM (dev) + GitHub Actions OIDC roles:
-- `DashboardEcsTaskRole-dev` — ECS task identity; assumes Operator, reads DDB/SQS/Secrets/logs, `eks:DescribeCluster`.
-- `DashboardEcsExecutionRole-dev` — ECS agent (ECR pull + CW logs via managed policy).
-- `DemoPlatformOperator` — narrow cross-account toggle role; trusts the task role + ExternalId (from `/demo-platform/external-ids/atomoh-main/operator`).
-- `demo-platform-gha-ecr-push` — GitHub Actions OIDC role (Phase 3); trust restricted to `repo:Atom-oh/AWS-Demo-Platform:ref:refs/heads/main`; ECR push perms on `demo-platform/{api,worker,frontend}` + `actions-runner-claude`, and `ghcr/actions/*` pull-through-cache import (`BatchImportUpstreamImage`/`CreateRepository`) for the runner-image base. Used by `backend-ci.yml` (api/worker), `frontend-ci.yml` (frontend), and `runner-image.yml` (actions-runner-claude) push jobs.
-- `ai-trader-web-terraform-plan` / `ai-trader-web-terraform-admin` — GitHub Actions OIDC role pair for the `Atom-oh/ai-trader-web` repo's `terraform.yml` ([ADR-012](../../docs/decisions/ADR-012-ai-trader-web-oidc-plan-apply-split.md)). The design goal is that `terraform plan` runs PR-branch-controlled code, so **plan** is kept read-only and is explicitly denied access to demo-platform's own sensitive stores (tfstate, Lifecycle Controller DynamoDB/SQS/CloudWatch/ECR/secrets), which would otherwise be exposed through the `ReadOnlyAccess` policy it holds — ai-trader-web's own `ai-trader-*`-named resources stay readable. **admin** = `AdministratorAccess`, with trust restricted to `ref:refs/heads/main` only, since branch protection can't be enforced on this repo's plan and admin trust is therefore the only gate available — an accepted trade-off, see ADR-012 Consequences. See ADR-012 for the full enumerated Deny list, the `sub`-based branch-gate mechanics, and the `environment:prod` exclusion rationale. Both roles live in `ai-trader-web-gha-roles.tf`, reusing the shared `github` OIDC provider data source. The `ai-trader-web-*` naming (rather than `demo-platform-*`) reflects that these are external-repo roles.
-- `ai-trader-web-gha-deploy` — a pre-existing out-of-band PowerUser role that trusted `repo:Atom-oh/ai-trader-web:*` (a wildcard that included `pull_request`, which amounted to a PR-plan PowerUser bypass of the split above). It was adopted via `terraform import` into `ai-trader-web-gha-roles.tf` and its trust was tightened to `ref:refs/heads/main` only, so PR-plan code can no longer reach PowerUser through it — the trust scope covers pushes to main and excludes `pull_request`, with the PowerUser role and its inline IAM policy otherwise preserved. It stays in place until ai-trader-web migrates to the plan/admin pair (its PR plan job moves to the read-only plan role), at which point it retires (ADR-012).
+State key: `production/aws-demo-platform/iam/terraform.tfstate`; Atlantis project:
+`iam`. Role ARNs are exported by `outputs.tf`.
 
-- **State key**: `production/aws-demo-platform/iam/terraform.tfstate`
-- **Outputs**: `task_role_arn`, `exec_role_arn`, `operator_role_arn`, `gha_ecr_push_role_arn`, `ai_trader_web_terraform_plan_role_arn`, `ai_trader_web_terraform_admin_role_arn`
-- Table/queue ARNs are constructed from `account_id` + fixed names (no cross-module state dependency). Region hardcoded `ap-northeast-2` — except the shared Terraform state lock table (`multi-region-mall-terraform-locks`), which lives in `us-east-1` per `backend.tf` and is pinned there in the plan-role Deny.
-- Runs as `AtlantisIRSARole` (has `iam:*`). Atlantis project `iam`.
-- Friend accounts get their own `DemoPlatformOperator` copies in Stage 4.
+| Role / source | Implemented boundary |
+| --- | --- |
+| `DashboardEcsTaskRole-dev` / `dashboard-ecs-task-role.tf` | Application identity; assumes `DemoPlatformOperator`, accesses platform DDB/SQS/Secrets/logs and describes EKS |
+| `DashboardEcsExecutionRole-dev` / `dashboard-ecs-exec-role.tf` | ECS agent image pull/logging plus `GetSecretValue` for task-definition secret injection |
+| `DemoPlatformOperator` / `demo-platform-operator.tf` | Trusts the task role with the configured ExternalId; ECS/EC2/RDS controls and secret/visibility actions |
+| `demo-platform-gha-ecr-push` / `gha-ecr-push-role.tf` | GitHub OIDC restricted to `repo:Atom-oh/AWS-Demo-Platform:ref:refs/heads/main`; runtime/runner image push and `ghcr/actions/*` cache import |
+
+The operator action set is limited, but current permission statements use
+`Resource: "*"`. Do not describe it as resource-scoped or copy it as a least-privilege
+template without review. `locals.tf` reads the main-account operator ExternalId
+from Secrets Manager; protect plans/state and never print its value. Existing
+role names are not subject to a retroactive prefix rename.
+
+`ai-trader-web-gha-roles.tf` defines external-repository identities:
+
+- `ai-trader-web-terraform-plan`: PR/main OIDC trust, ReadOnlyAccess and explicit
+  platform-store denies, including the shared state/lock table, runtime data,
+  secret values, image pulls and configured Cognito pool.
+- `ai-trader-web-terraform-admin`: AdministratorAccess with main-only OIDC trust.
+- `ai-trader-web-gha-deploy`: retained PowerUser/inline IAM role, adopted through
+  declarative `import` blocks and constrained to main-only trust. Inventory the
+  external repository's consumers before retirement; this checkout cannot prove
+  its workflow migration is complete.
+
+The main-branch trust is implemented. GitHub branch/environment protection is a
+separate live setting; the limitations recorded in
+[ADR-012](../../docs/decisions/ADR-012-ai-trader-web-oidc-plan-apply-split.md)
+are historical evidence, not a current protection check.
+
+Table/queue ARNs use fixed names in `ap-northeast-2`; the shared state bucket and
+lock table are in `us-east-1`. Apply prerequisite Atlantis permissions first.
+For another account, use the [friend-account procedure](../../docs/onboarding/friend-account-setup.md);
+editing `accounts.yaml` alone creates neither IAM roles nor Terraform provider wiring.

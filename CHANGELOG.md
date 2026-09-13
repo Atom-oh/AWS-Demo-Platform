@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Corrected auth documentation: the access-token `username` claim maps to the plugin's internal `cognito:username` field before the admin allowlist check.
 - Qualified lifecycle replay, partial-off outcomes, detached readiness polling and HPA persistence limits. A failed first scale needs inspection before the next off/scale can preserve already-pinned bounds.
 - Corrected frontend documentation for manually mirrored 1–20 limits, resource exclusion text, missing local simulated history and Vitest's absence from frontend CI.
+- PR-review panel (ADR-016 amendment 2026-09-13): dropped the ignored `--trust-tools=`
+  and v3-only `--mode default` from the Kiro invocation and the runner Dockerfile gate;
+  validate the `inline-review` profile content, run a `NO_TOOLS` canary preflight per
+  Kiro job, discard responses when kiro-cli falls back to the default agent (both force
+  FAIL), and stop retrying on monthly quota exhaustion (`MONTHLY_REQUEST_COUNT`) while
+  naming the cause in the review comment without forcing FAIL. New runbook
+  `docs/runbooks/pr-review-panel.md`.
 
 ## [0.1.1] - 2026-05-26
 

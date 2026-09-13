@@ -14,7 +14,7 @@ SLOT="$WORK/slot"
 # below never runs and the job just ends red with no explanation (PR#88 review MAJOR).
 mkdir -p "$SLOT"
 RESP="$WORK/responded.txt"; : > "$RESP"
-rm -f "$WORK/coverage-severe.flag"
+rm -f "$WORK/coverage-severe.flag" "$WORK/kiro-preflight.flag" "$WORK/kiro-agent-fallback.flag" "$WORK/kiro-quota.flag"
 
 shopt -s nullglob
 LENS_FILES=("$LENSES_DIR"/*.txt)
@@ -90,3 +90,30 @@ for lens_file in "${LENS_FILES[@]}"; do
     : > "$WORK/coverage-severe.flag"
   fi
 done
+
+# Kiro-specific causes written per model job by run-panel.sh into $SLOT (the only uploaded
+# path) as kiro-{preflight,agent-fallback,quota}-<tag>.flag. Merge them into one WORK-level
+# flag each for synthesize.sh's banners. Preflight failure and agent fallback are no-tools
+# contract breaches: the PR diff either never reached Kiro or reached a tool-enabled agent,
+# so they force VERDICT: FAIL regardless of how many other vendors responded. Quota
+# exhaustion is an account-side outage and only names the cause; the coverage floors
+# above still decide its severity (two dead Kiro rows out of four stay warn-only).
+merge_kiro_flags() { # $1 flag stem, $2 severe(1|0), $3 log prefix
+  local stem="$1" severe="$2" label="$3" f
+  shopt -s nullglob
+  local files=("$SLOT/kiro-$stem-"*.flag)
+  shopt -u nullglob
+  [ "${#files[@]}" -gt 0 ] || return 0
+  for f in "${files[@]}"; do
+    strip_ansi < "$f" | scrub_secrets | grep -v '^[[:space:]]*$'
+  done > "$WORK/kiro-$stem.flag"
+  if [ "$severe" = 1 ]; then
+    echo "::error::$label in ${#files[@]} Kiro job(s): $(tr '\n' ' ' < "$WORK/kiro-$stem.flag" | sed 's/ *$//') — forcing VERDICT: FAIL" >&2
+    : > "$WORK/coverage-severe.flag"
+  else
+    echo "::error::$label in ${#files[@]} Kiro job(s): $(tr '\n' ' ' < "$WORK/kiro-$stem.flag" | sed 's/ *$//')" >&2
+  fi
+}
+merge_kiro_flags preflight 1 "Kiro preflight failed (no PR input sent to Kiro)"
+merge_kiro_flags agent-fallback 1 "kiro-cli ignored --agent inline-review (no-tools contract broken, responses discarded)"
+merge_kiro_flags quota 0 "Kiro monthly request quota exhausted for KIRO_API_KEY (restore access under the account budget policy; /demo-platform/actions/AI-key)"
