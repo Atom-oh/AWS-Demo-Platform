@@ -141,8 +141,15 @@ class EndToEndRoleTests(unittest.TestCase):
         calls = self.root / "calls.jsonl"
         return [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
 
-    def test_frontend_uses_two_reviews_and_no_chair(self):
-        calls = self.run_pipeline("frontend/components/Button.tsx")
+    def test_react_change_retains_the_operations_specialist(self):
+        calls = self.run_pipeline("frontend/components/ProjectControls.tsx")
+        self.assertEqual(sorted(c["name"] for c in calls), ["claude", "codex", "kiro-cli", "kiro-cli"])
+        kiro = [c for c in calls if c["name"] == "kiro-cli"]
+        self.assertTrue(all(c["args"][c["args"].index("--model") + 1] == "gpt-5.6-sol" for c in kiro))
+        self.assertEqual(json.loads((self.work / "role-summary.json").read_text())["mode"], "deterministic")
+
+    def test_static_frontend_uses_two_reviews_and_no_chair(self):
+        calls = self.run_pipeline("frontend/components/Button.css")
         self.assertEqual(sorted(call["name"] for call in calls), ["claude", "codex"])
         self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: PASS\n"))
 
@@ -154,53 +161,53 @@ class EndToEndRoleTests(unittest.TestCase):
 
     def test_nonzero_output_blocks_without_chair_override(self):
         (self.root / "failure").touch()
-        calls = self.run_pipeline("frontend/components/Button.tsx")
+        calls = self.run_pipeline("frontend/components/Button.css")
         self.assertEqual(len(calls), 2)
         self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: FAIL\n"))
 
     def test_major_candidate_adds_exactly_one_chair_call(self):
         (self.root / "major").touch()
-        calls = self.run_pipeline("frontend/components/Button.tsx")
+        calls = self.run_pipeline("frontend/components/Button.css")
         self.assertEqual(len(calls), 3)
         self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: FAIL\n"))
 
     def test_codex_tool_echo_does_not_block_complete_review(self):
         (self.root / "tool-echo").touch()
-        calls = self.run_pipeline("frontend/components/Button.tsx")
+        calls = self.run_pipeline("frontend/components/Button.css")
         self.assertEqual(len(calls), 2)
         self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: PASS\n"))
 
     def test_codex_native_error_blocks_otherwise_valid_review(self):
         (self.root / "native-error").touch()
-        calls = self.run_pipeline("frontend/components/Button.tsx")
+        calls = self.run_pipeline("frontend/components/Button.css")
         self.assertEqual(len(calls), 2)
         self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: FAIL\n"))
 
     def test_codex_recovered_stream_error_keeps_complete_review(self):
         (self.root / "recovered-error").touch()
-        calls = self.run_pipeline("frontend/components/Button.tsx")
+        calls = self.run_pipeline("frontend/components/Button.css")
         self.assertEqual(len(calls), 2)
         self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: PASS\n"))
 
     def test_codex_inner_json_validation_remains_strict(self):
         (self.root / "invalid-inner").touch()
-        self.run_pipeline("frontend/components/Button.tsx")
+        self.run_pipeline("frontend/components/Button.css")
         self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: FAIL\n"))
 
     def test_codex_progress_does_not_contaminate_cli_designated_final_reply(self):
         (self.root / "progress").touch()
-        calls = self.run_pipeline("frontend/components/Button.tsx")
+        calls = self.run_pipeline("frontend/components/Button.css")
         self.assertEqual(len(calls), 2)
         self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: PASS\n"))
 
     def test_duplicate_json_inside_codex_final_reply_remains_invalid(self):
         (self.root / "duplicate-final").touch()
-        self.run_pipeline("frontend/components/Button.tsx")
+        self.run_pipeline("frontend/components/Button.css")
         self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: FAIL\n"))
 
     def test_trailing_prose_inside_codex_final_reply_remains_invalid(self):
         (self.root / "trailing-final").touch()
-        self.run_pipeline("frontend/components/Button.tsx")
+        self.run_pipeline("frontend/components/Button.css")
         self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: FAIL\n"))
 
     def test_approved_asset_only_scope_skips_models_without_losing_provenance(self):
