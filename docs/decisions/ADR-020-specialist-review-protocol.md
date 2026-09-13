@@ -41,5 +41,12 @@ See [specialist review](../pr-review-specialists.md) for current limits, model
 aliases, artifact validation and verification commands. Legacy entrypoints are
 retained for regression fixtures and are not the workflow's selected protocol.
 
-Sol intentionally replaces the legacy Terra review slot for fleet consistency;
-application inference model configuration remains unchanged.
+The active protocol retains the existing Sol slot; Terra is historical (ADR-013).
+Application inference model configuration remains unchanged.
+
+A scope containing only files excluded by the existing, base-approved project
+input policy may complete as NOT_APPLICABLE with a PASS gate result. The trusted
+collector must account for every path and record the policy hash; the report
+identifies excluded paths and claims no model review. Any reviewable source,
+unknown exclusion, source omission or failed collector remains blocking. New
+exclusions require their own reviewed policy change.

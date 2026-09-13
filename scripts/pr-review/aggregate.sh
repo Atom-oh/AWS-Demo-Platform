@@ -7,6 +7,7 @@ set -uo pipefail
 if [ "${ROLE_REVIEW:-0}" = 1 ]; then
   ROLE_DIR="$(cd "$(dirname "$0")" && pwd)"
   ROLE_STATUS=0
+  python3 "$ROLE_DIR/restore_role_frames.py" --work "$2" || : > "$2/role-frame-restore.flag"
   python3 "$ROLE_DIR/role_review.py" aggregate --work "$2" || ROLE_STATUS=$?
   if [ "$ROLE_STATUS" -eq 0 ] || [ "$ROLE_STATUS" -eq 2 ]; then exit 0; fi
   exit "$ROLE_STATUS"

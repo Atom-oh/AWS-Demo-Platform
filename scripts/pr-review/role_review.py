@@ -52,7 +52,7 @@ FRONTEND_PATH = re.compile(
 AWS_SIGNAL = re.compile(
     r"\b(?:aws|amazon|iam|vpc|subnet|cloudfront|cloudformation|terraform|"
     r"bedrock|cognito|dynamodb|ecs|eks|ec2|sqs|sns|s3|rds|kms|"
-    r"lambda|kubernetes|k8s|argocd|karpenter|helm|AssumeRole|SecurityGroup|"
+    r"lambda|kubernetes|k8s|argocd|karpenter|helm|AssumeRole|ExternalId|external_id|SecurityGroup|"
     r"alb|nlb|acm|atlantis|kustomize|nodepool|targetgroup|route53|cloudwatch)\b|"
     r"arn:|\baws_|amazonaws\.com|cloudfront\.net|\b[a-z]{2}(?:-[a-z]+){1,2}-[0-9]\b",
     re.I,
@@ -432,10 +432,15 @@ def prepare(args):
                     or provenance.get("diff_sha256") != digest(raw)):
                 raise Invalid("invalid_input_provenance")
             declared = provenance.get("input_failures", [])
-            if not isinstance(declared, list) or any(not isinstance(x, str) for x in declared):
+            if not isinstance(declared, list) or any(
+                not isinstance(x, str) or not re.fullmatch(r"[a-z][a-z0-9_:.-]{0,63}", x)
+                for x in declared
+            ):
                 raise Invalid("invalid_input_provenance")
             failures.extend(declared)
+            provenance = scrub(provenance)
         except Invalid:
+            provenance = {}
             failures.append("invalid_input_provenance")
     plan = {
         "schema_version": 1, "head_sha": args.head, "base_sha": args.base,
@@ -574,7 +579,9 @@ def issued_request(work, plan, tag):
             "request_digest": invocation_digest(role["request_digest"], nonce),
             "prompt_sha256": digest(instruction.encode()), "input_sha256": digest(payload.encode()),
         }
-        if receipt != expected:
+        if (receipt != expected
+                or (work / "requests" / f"{tag}.prompt").read_bytes() != instruction.encode()
+                or (work / "requests" / f"{tag}.input").read_bytes() != payload.encode()):
             raise Invalid("invalid_issued_request")
         return receipt
     except (KeyError, TypeError, OSError):
@@ -675,13 +682,14 @@ def scrub(value):
     value = "".join(c for c in value if c in "\n\r\t" or unicodedata.category(c) not in ("Cc", "Cf", "Zl", "Zp"))
     identifier = (
         r"(?i:(?<![A-Za-z0-9])[A-Za-z0-9_-]*(?:password|passwd|api[_-]?key|"
-        r"secret|token|credential|passphrase|private[_-]?key|cookie|AccessKeyId|access[_-]?key[_-]?id)[A-Za-z0-9_-]*)"
+        r"secret|token|credential|passphrase|private[_-]?key|cookie|AccessKeyId|access[_-]?key[_-]?id|external[_-]?id)[A-Za-z0-9_-]*)"
     )
     key = identifier + r"""["']?\s*[:=]\s*"""
     patterns = (
         r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)",
         r"\b(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}\b",
         r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b",
+        r"\bnpm_[A-Za-z0-9]{20,}\b",
         r"\bsk-[A-Za-z0-9_-]{16,}",
         r"\bxox[abprs]-[A-Za-z0-9-]{10,}",
         r"\bAIza[0-9A-Za-z_-]{30,}",
@@ -690,10 +698,10 @@ def scrub(value):
         r"""(?i:\bAuthorization)["']?\s*:\s*["']?(?i:Basic|Bearer)\s+[A-Za-z0-9+/=_.~-]+""",
         r"""[A-Za-z][A-Za-z0-9+.-]*://[^/\s:@"']*:[^@\s/"']+@""",
         r"""https://hooks\.slack\.com/services/[^\s"'<>]+""",
-        r"""(?im)^[ \t]*(?:set-)?cookie["']?[ \t]*:[^\r\n]*""",
+        r"""(?im)^[ \t]*[+-]?[ \t]*(?:set-)?cookie["']?[ \t]*:[^\r\n]*""",
         r"""(?i:\bx-origin-verify)["']?\s*:\s*["']?[^\s"',;}\]]+""",
-        key + r"[|>][-+]?[ \t]*\r?\n(?:[ \t]+[^\r\n]*(?:\r?\n|\Z))+",
-        r"""(?i:\bname)\s*:\s*["']?""" + identifier + r"""["']?[ \t]*\r?\n[ \t]*(?i:value)\s*:[^\r\n]*""",
+        key + r"[|>][-+]?[ \t]*\r?\n(?:[+-]?[ \t]+[^\r\n]*(?:\r?\n|\Z))+",
+        r"""(?i:\bname)\s*:\s*["']?""" + identifier + r"""["']?[ \t]*\r?\n[+-]?[ \t]*(?i:value)\s*:[^\r\n]*""",
         key + r"""(?P<quote>["']).*?(?P=quote)""",
         key + r"""[^\s"',;}\]]+""",
     )
@@ -864,6 +872,12 @@ def aggregate(args):
             lines.append(f"| {tag} | {role['role']} | {str(role['required']).lower()} | "
                          f"{role['status']} | {role['reason']} |")
         lines.append("")
+        provenance = summary["provenance"]
+        if provenance.get("excluded_paths"):
+            lines += ["Excluded paths: " + canonical(provenance["excluded_paths"]),
+                      "Input policy SHA-256: " + canonical(provenance.get("input_policy_sha256")), ""]
+        if provenance.get("path_only"):
+            lines += ["Content withheld by collector policy: " + canonical(provenance["path_only"]), ""]
         if failures:
             lines += ["Review blocked: required input or response validation failed.", "",
                       "Failure codes:"] + [f"- `{code}`" for code in sorted(set(failures))]

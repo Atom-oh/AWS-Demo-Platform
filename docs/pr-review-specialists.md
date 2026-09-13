@@ -86,3 +86,8 @@ source path cannot disappear through an artifact rename. A verified exclusions-
 only change is explicitly NOT_APPLICABLE and invokes no model; missing inputs,
 unknown exclusions and truncated required source remain blocked. The policy does
 not authorize excluding additional source merely to obtain a pass.
+
+The distributed chair privately reconstructs issued frames with
+`restore_role_frames.py` from its independently prepared inputs and downloaded
+receipts. It validates the same digests without uploading raw request payloads;
+altered existing frames or mismatched receipts block aggregation.
