@@ -490,6 +490,49 @@ class RoleReviewTests(unittest.TestCase):
                         self.assertNotIn(secret, engine.scrub(value))
         self.assertGreaterEqual(covered, 20, "legacy comparison must exercise real redaction")
 
+    def test_reissue_retains_substantive_prior_reviews_for_adjudication(self):
+        for kind in ("CRITICAL", "MAJOR", "uncertainty"):
+            with self.subTest(kind=kind):
+                self.work = self.root / f"historical-{kind}"
+                self.prepare()
+                response = self.response("codex")
+                if kind == "uncertainty":
+                    response["uncertainties"] = ["Historical unresolved condition"]
+                else:
+                    response["findings"] = [{
+                        "severity": kind, "path": FRONTEND,
+                        "condition": "Historical unresolved condition", "evidence": "Verified candidate",
+                    }]
+                self.record("codex", response=response)
+                self.record("claude-self")
+                self.cli("aggregate", "--work", self.work)
+                self.assertEqual(self.read("role-summary.json")["mode"], "review")
+                self.cli("issue", "--work", self.work, "--tag", "codex")
+                self.record("codex")
+                self.cli("aggregate", "--work", self.work)
+                summary = self.read("role-summary.json")
+                self.assertEqual(summary["mode"], "review")
+                self.assertFalse((self.work / "deterministic-review.md").exists())
+                candidates = summary["uncertainties"] if kind == "uncertainty" else summary["findings"]
+                self.assertIn("Historical unresolved condition", json.dumps(candidates))
+
+    def test_corrupt_historical_candidate_cannot_be_silently_dropped(self):
+        self.prepare()
+        response = self.response("codex", findings=[{
+            "severity": "MAJOR", "path": FRONTEND,
+            "condition": "Unresolved condition", "evidence": "Original candidate",
+        }])
+        self.record("codex", response=response)
+        self.cli("issue", "--work", self.work, "--tag", "codex")
+        self.record("codex")
+        self.record("claude-self")
+        path = self.work / "slot/codex-attempts.json"
+        history = json.loads(path.read_text())
+        history[0]["response"]["findings"][0]["severity"] = "MINOR"
+        path.write_text(json.dumps(history))
+        self.assert_blocked()
+        self.assertIn("invalid_attempt_history:codex", self.read("role-summary.json")["failure_codes"])
+
     def test_record_rejects_changed_issued_input(self):
         self.prepare()
         self.cli("issue", "--work", self.work, "--tag", "codex")

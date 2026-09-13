@@ -29,8 +29,7 @@ The executor sends issued bytes and retains receipts. Hashes bind input,
 provenance and results, not actual transport. The collector owns source completeness.
 Record/aggregate also compare local `requests/TAG.prompt/.input` bytes against the
 receipt and reconstructed frames. Missing or changed files block. Distributed
-consumers must privately restore exact frames from trusted prepared inputs and
-receipts before aggregation; raw requests must not become public artifacts.
+consumers must privately restore exact frames from trusted inputs and receipts.
 
 ## Collector input
 
@@ -40,11 +39,7 @@ checks both sides. Omit only for authoritative, unambiguous patch paths.
 
 `--provenance` names a JSON object. Required `head_sha` and `base_sha` equal the
 40-character lowercase CLI revisions; `diff_sha256` hashes the exact raw diff
-bytes before framing/scrubbing. Minimal example, with illustrative values:
-
-```json
-{"head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","base_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","diff_sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}
-```
+bytes before framing/scrubbing.
 
 Optional `input_failures` is a list of codes matching `[a-z][a-z0-9_:.-]{0,63}`;
 any code blocks input. Invalid provenance is discarded and blocks. Persisted
@@ -82,6 +77,8 @@ Reissue archives up to 32 results in `slot/TAG-attempts.json`. Model-selection,
 fallback, quota and agent-preflight failures stay blocking until new preparation.
 Summaries retain history. All work-tree `*.flag` files block except the engine's
 root `coverage-severe.flag`. `failure_codes` is canonical (`failures` is an alias).
+Valid historical Critical/Major candidates and uncertainties are revalidated and
+retained for adjudication. A clean retry cannot erase them or yield automatic PASS.
 
 Exit 2 means blocked. After aggregate exit 0, `chair-mode.txt` is `deterministic`
 for complete results with no blocking candidate/uncertainty (Minor/Info remain),
