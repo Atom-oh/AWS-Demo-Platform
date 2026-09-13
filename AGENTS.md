@@ -37,7 +37,7 @@ Local Agy compatibility in this header does not mean an Agy CI panel slot.
 CI assigns one specialist responsibility per applicable model: Codex implementation,
 Kiro Opus AWS, Kiro Sol deployment/recovery, Claude auth/data/API/ADR contracts.
 Trusted routing may mark irrelevant Kiro roles NOT_APPLICABLE. Codex and Claude
-cover every changed path across independent model families. Only valid, complete,
+cover every reviewable source path across independent model families. Only valid, complete,
 SHA-bound reports count; missing roles, truncation, quota/model errors and failed
 Kiro startup checks block. Complete uncontested reports get a deterministic summary;
 Critical/Major candidates or uncertainty require chair adjudication. The chair
