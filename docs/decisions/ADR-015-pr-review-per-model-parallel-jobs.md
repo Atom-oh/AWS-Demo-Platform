@@ -75,7 +75,9 @@ either historical comment.
 ## Current limitations and later updates
 
 A row with no non-empty cells generates a warning. At least three empty model rows
-or any wholly empty lens forces severe-coverage failure. Non-empty output is still
+or any wholly empty lens forces severe-coverage failure; since 2026-09-13 a Kiro
+preflight failure or ignored `--agent` (no-tools contract breach, ADR-016
+amendment) also forces it. Non-empty output is still
 counted without proving successful model execution or meaningful review. A Kiro
 outage can empty two rows without forcing that threshold. Do not equate the
 implemented minimum with complete operator-required review.

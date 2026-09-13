@@ -14,8 +14,8 @@ uses immutable base/head SHAs and the merge-base change boundary. Base and candi
 base digest instructs reviewers; candidate documents remain diff data. Local Kiro
 steering points to that digest, but CI explicitly embeds it because Kiro has no tools.
 
-The specialist path reads the complete Git diff rather than awarding coverage for
-the legacy filtered/truncated prefix. Oversize or incomplete input blocks. Four
+The specialist path reviews complete approved Git source under the trusted BASE
+input-scope policy. Exclusions are recorded; prefixes never receive full credit. Oversize or incomplete input blocks. Four
 per-model jobs retain read-only GitHub permissions; the final job aggregates
 validated role artifacts and publishes. Its model subprocess receives no GitHub
 token. Native base scripts adopt a workflow change only after it merges.
@@ -23,7 +23,7 @@ token. Native base scripts adopt a workflow change only after it merges.
 Kiro uses an explicit empty catalog and a fixed no-PR-data canary before each
 active model. `--trust-tools=` alone is not a no-tools control. Failed startup,
 model selection, provider or quota checks do not count as review completion.
-The shared runner's Bedrock endpoint and signing region stay paired in Seoul.
+The existing runner provider configuration is retained.
 `kiro-fable` is the compatibility tag for `claude-opus-5`; `kiro-sol` uses
 `gpt-5.6-sol`, not the old GPT-5.5 selection. `role_review.py` declares specialist
 model IDs; legacy `lib.sh` roster values apply only to legacy fixtures.
@@ -55,3 +55,6 @@ Run `bash tests/run-all.sh` and
 Offline subprocess tests use fake CLIs and spend no model credits. They establish
 protocol behavior, not provider availability or review quality. Revalidate the
 installed CLI after changes and inspect exact-head live artifacts before merge.
+
+Startup checks and explicit no-tools profiles preserve the protections documented
+in [the review runbook](runbooks/pr-review-panel.md); selected-role failures block.

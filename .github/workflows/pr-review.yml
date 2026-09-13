@@ -57,7 +57,8 @@ jobs:
       # keys/node IAM. The PR's changes reach us only as diff data via prepare-inputs.sh's
       # `gh api compare` (never executed). persist-credentials: false so GH_TOKEN isn't
       # left in .git/config for exfiltration by even a hypothetically tool-enabled cell
-      # (defense-in-depth — Kiro's --trust-tools= guard already denies it tool access).
+      # (defense-in-depth — Kiro cells run the tools:[] inline-review agent, verified by
+      # run-panel.sh's preflight; --trust-tools= is ignored by kiro-cli 2.11.1).
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.base.sha }}

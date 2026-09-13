@@ -102,3 +102,19 @@ with `--agent`. Missing profiles or failed installation block the call. The
 approval flag, model selection, limits and environment isolation remain unchanged.
 See the [review contract](../pr-review.md) and its static profile. Offline schema
 validation and mocked invocation tests do not establish successful model review.
+
+**Fail-closed amendment (2026-09-13, later the same day; supersedes the
+"approval flag remains unchanged" sentence above):** `--trust-tools=` is not
+defense in depth on kiro-cli 2.11.1 — the empty value is parsed as a custom tool
+name and ignored with a warning — so it and the v3-only `--mode default` were
+removed from the invocation and from the runner Dockerfile's help-text gate. The
+profile is validated for content (name, empty tools/allowedTools/mcpServers/
+resources/hooks, `useLegacyMcpJson: false`, no `model`, no duplicate keys) before
+any call. Each Kiro job runs a canary preflight (one extra paid request per Kiro
+job) that must return `NO_TOOLS` before the diff is sent; an ignored `--agent` at
+review time discards the response. Both force `VERDICT: FAIL`, extending
+ADR-015's three-empty-rows/empty-lens rule. Monthly quota exhaustion
+(`MONTHLY_REQUEST_COUNT`), at preflight or review time, is detected from stderr,
+not retried, and named in the comment; coverage floors keep deciding its
+severity, so a month-long outage warns rather than blocks.
+Procedures: [panel runbook](../runbooks/pr-review-panel.md).

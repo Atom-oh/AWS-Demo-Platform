@@ -33,6 +33,20 @@ EOF
   chmod +x "$BIN/$1"
 }
 
+# Kiro fakes must first pass run-panel.sh's preflight: the canary prompt gets exactly
+# NO_TOOLS, `--version` gets a version line; everything else is the fake's own body ($1).
+mkfake_kiro() { # $1 = bash body executed for a review call (stdout=slot, stderr=err)
+  {
+    cat <<'EOF'
+#!/usr/bin/env bash
+if [ "${1:-}" = "--version" ]; then echo "kiro-cli fake 2.11.1"; exit 0; fi
+if [[ "${2:-}" == 'Kiro startup safety check.'* ]]; then echo "NO_TOOLS"; exit 0; fi
+EOF
+    printf '%s\n' "$1"
+  } > "$BIN/kiro-cli"
+  chmod +x "$BIN/kiro-cli"
+}
+
 setup() { # $1 = space-separated list of lens tags (default L2)
   cleanup
   WORK=$(mktemp -d); BIN=$(mktemp -d); LENSES=$(mktemp -d)
@@ -43,7 +57,7 @@ setup() { # $1 = space-separated list of lens tags (default L2)
 }
 
 # (a) codex tag fills only codex's cells; other models' slots untouched
-setup "L2 L3"; mkfake codex 0 "codex-finding"; mkfake kiro-cli 0 "kiro-finding"; mkfake claude 0 "claude-finding"
+setup "L2 L3"; mkfake codex 0 "codex-finding"; mkfake_kiro 'echo "kiro-finding"; cat'; mkfake claude 0 "claude-finding"
 "$SCRIPT" "$WORK/diff.txt" "$LENSES" "$WORK" codex >/dev/null 2>&1
 allok=1; diffok=1
 for f in codex-L2 codex-L3; do
@@ -60,7 +74,7 @@ done
   || fail "run-panel (a) no responded.txt written (aggregate.sh's job now)" "responded.txt unexpectedly created"
 
 # (b) kiro-sol calls kiro-cli with gpt-5.6-sol; sibling kiro-fable slot untouched
-setup; mkfake kiro-cli 0 "kiro-finding"
+setup; mkfake_kiro 'echo "kiro-finding"; cat'
 "$SCRIPT" "$WORK/diff.txt" "$LENSES" "$WORK" kiro-sol >/dev/null 2>&1
 [ -s "$WORK/slot/kiro-sol-L2.md" ] \
   && pass "run-panel (b) kiro-sol tag produces kiro-sol-L2.md" || fail "run-panel (b) kiro-sol tag produces kiro-sol-L2.md" "slot missing/empty"
@@ -163,6 +177,14 @@ from pathlib import Path
 import sys
 
 args = sys.argv[1:]
+if args[:1] == ["--version"]:
+    print("kiro-cli recorder 2.11.1")
+    sys.exit(0)
+if len(args) > 1 and args[1].startswith("Kiro startup safety check."):
+    # Preflight: record that the canary was seen, but never its contents (no tools).
+    Path("preflight-called").touch()
+    print("NO_TOOLS")
+    sys.exit(0)
 agent = args[args.index("--agent") + 1] if "--agent" in args else None
 profile = Path.cwd() / ".kiro" / "agents" / f"{agent}.json"
 Path("kiro-called").touch()
@@ -181,8 +203,9 @@ EOF
   chmod +x "$BIN/kiro-cli"
 }
 
-# (i) --trust-tools= controls approval, not availability. Both Kiro slots must use
-# the named empty-tool profile in every fresh lens directory and retain isolation.
+# (i) `--trust-tools=` is ignored by kiro-cli 2.11.1 and `--mode` is v3-only, so neither
+# may appear; the named empty-tool profile selected with --agent is the whole guard. Both
+# Kiro slots must use it in every fresh lens directory and retain isolation.
 for kiro_entry in "kiro-fable:claude-opus-5" "kiro-sol:gpt-5.6-sol"; do
   kiro_tag="${kiro_entry%%:*}"; kiro_model="${kiro_entry#*:}"
   setup "L2 L3 L4 L5"; mkkiro_recorder
@@ -210,15 +233,19 @@ for lens in ("L2", "L3", "L4", "L5"):
     assert profile["name"] == "inline-review"
     for field, expected in (
         ("tools", []), ("allowedTools", []), ("mcpServers", {}),
-        ("resources", []), ("hooks", {}),
+        ("resources", []), ("hooks", {}), ("useLegacyMcpJson", False),
     ):
         assert profile.get(field) == expected, f"{tag}/{lens}: {field} is not explicitly empty"
     assert "model" not in profile, "profile must not override the CLI model"
     args = observed["args"]
     assert args[args.index("--model") + 1] == model
-    assert "--trust-tools=" in args and "--no-interactive" in args
-    assert args[args.index("--mode") + 1] == "default"
+    assert args[args.index("--agent") + 1] == "inline-review"
+    assert "--no-interactive" in args
+    assert not any(a.startswith("--trust-tools") for a in args), "ignored --trust-tools must not be relied on"
+    assert "--mode" not in args and "--v3" not in args and "--agent-engine" not in args
     assert args[args.index("--wrap") + 1] == "never"
+    assert (work / "kiro-cwd" / f"preflight-{tag}" / "preflight-called").exists(), "preflight did not run"
+    assert not (work / "slot" / f"kiro-preflight-{tag}.flag").exists()
     assert "review lens " + lens in args[1] and "diff --git a b" in args[1]
     cell = work / "kiro-cwd" / f"{tag}-{lens}"
     assert observed["cwd"] == observed["home"] == str(cell)
@@ -233,18 +260,25 @@ PY
   fi
 done
 
-# (j) A missing or empty trusted profile must fail before any Kiro invocation.
-# Use a copied script tree so the test never removes tracked configuration.
-for profile_state in missing empty; do
+# (j) A missing, empty or tool-enabled trusted profile must fail before any Kiro
+# invocation (including the preflight). A duplicate "tools" key is last-wins in kiro-cli's
+# parser, so it must be rejected too. Use a copied script tree so the test never removes
+# tracked configuration.
+for profile_state in missing empty tools-present duplicate-key legacy-mcp-default; do
   setup; mkkiro_recorder
   fixture_dir="$BIN/script-copy"; mkdir -p "$fixture_dir"
   cp "$SCRIPT" "$fixture_dir/run-panel.sh"
   cp "$(dirname "$SCRIPT")/lib.sh" "$fixture_dir/lib.sh"
-  [ "$profile_state" = empty ] && : > "$fixture_dir/kiro-inline-review.json"
+  case "$profile_state" in
+    empty) : > "$fixture_dir/kiro-inline-review.json" ;;
+    tools-present) echo '{"name":"inline-review","tools":["glob"],"allowedTools":[],"mcpServers":{},"useLegacyMcpJson":false,"resources":[],"hooks":{}}' > "$fixture_dir/kiro-inline-review.json" ;;
+    duplicate-key) echo '{"name":"inline-review","tools":[],"tools":["read"],"allowedTools":[],"mcpServers":{},"useLegacyMcpJson":false,"resources":[],"hooks":{}}' > "$fixture_dir/kiro-inline-review.json" ;;
+    legacy-mcp-default) echo '{"name":"inline-review","tools":[],"allowedTools":[],"mcpServers":{},"resources":[],"hooks":{}}' > "$fixture_dir/kiro-inline-review.json" ;;
+  esac
   PANEL_RETRIES=1 bash "$fixture_dir/run-panel.sh" "$WORK/diff.txt" "$LENSES" "$WORK" kiro-fable \
     >"$WORK/panel.log" 2>"$WORK/panel.err"
   rc=$?
-  called="$(find "$WORK" -name kiro-called -print -quit)"
+  called="$(find "$WORK" \( -name kiro-called -o -name preflight-called \) -print -quit)"
   if [ "$rc" -ne 0 ] && [ -z "$called" ]; then
     pass "run-panel (j) $profile_state agent profile fails before Kiro/default fallback"
   else
@@ -302,6 +336,182 @@ if [ "$rc" -ne 0 ] && [ -z "$called" ]; then
   pass "run-panel (m) failed cell cleanup prevents reuse and Kiro invocation"
 else
   fail "run-panel (m) failed cell cleanup prevents reuse and Kiro invocation" "rc=$rc or Kiro was invoked"
+fi
+
+# (n) Quota exhaustion, v2 shape (stderr message, rc=0, empty stdout): no retry, empty
+# slot, `[quota]` line, ::error:: with the reset date, per-model flag inside $SLOT (the
+# only uploaded path) and no coverage-severe (that verdict belongs to aggregate.sh).
+setup "L2 L3"
+mkfake_kiro 'printf "Monthly request limit reached\nThe limits reset on 10/01.\n" >&2; exit 0'
+PANEL_RETRIES=3 "$SCRIPT" "$WORK/diff.txt" "$LENSES" "$WORK" kiro-fable >"$WORK/panel.log" 2>"$WORK/panel.err"
+rc=$?
+if [ "$rc" -eq 0 ] && ! grep -q '\[retry ' "$WORK/panel.err" \
+  && [ "$(grep -c '^\[quota\] kiro-fable-L' "$WORK/panel.err")" -eq 2 ] \
+  && grep -q '::error::Kiro monthly request quota exhausted.*\[kiro-fable-L2 kiro-fable-L3\].*reset on 10/01.*AI-key' "$WORK/panel.err" \
+  && [ -s "$WORK/slot/kiro-quota-kiro-fable.flag" ] \
+  && grep -q 'reset on 10/01' "$WORK/slot/kiro-quota-kiro-fable.flag" \
+  && [ ! -s "$WORK/slot/kiro-fable-L2.md" ] && [ ! -s "$WORK/slot/kiro-fable-L3.md" ] \
+  && [ -z "$(find "$WORK/slot" -name '*.quota' -print -quit)" ] \
+  && [ ! -f "$WORK/coverage-severe.flag" ] && [ ! -f "$WORK/slot/coverage-severe.flag" ]; then
+  pass "run-panel (n) v2 quota exhaustion: no retry, empty slots, kiro-quota-<tag>.flag in slot"
+else
+  fail "run-panel (n) v2 quota exhaustion: no retry, empty slots, kiro-quota-<tag>.flag in slot" \
+    "rc=$rc; $(grep -E 'retry|quota|error' "$WORK/panel.err" | head -4 | tr '\n' '|')"
+fi
+
+# (o) Quota, v3 shape (rc=1, human message on stdout, JSON reason on stderr) — detected
+# from stderr only, and the stdout message must not count as a response.
+setup
+mkfake_kiro 'echo "You have reached your monthly usage limit."; echo "[ERROR] HTTP 400 body={\"reason\":\"MONTHLY_REQUEST_COUNT\"}" >&2; exit 1'
+PANEL_RETRIES=3 "$SCRIPT" "$WORK/diff.txt" "$LENSES" "$WORK" kiro-sol >"$WORK/panel.log" 2>"$WORK/panel.err"
+if ! grep -q '\[retry ' "$WORK/panel.err" && [ -s "$WORK/slot/kiro-quota-kiro-sol.flag" ] \
+  && [ ! -s "$WORK/slot/kiro-sol-L2.md" ]; then
+  pass "run-panel (o) v3-style quota error: stderr-only detection, stdout message not counted"
+else
+  fail "run-panel (o) v3-style quota error: stderr-only detection, stdout message not counted" \
+    "$(grep -E 'retry|quota' "$WORK/panel.err" | head -3 | tr '\n' '|'); slot=$(wc -c < "$WORK/slot/kiro-sol-L2.md")"
+fi
+
+# (p) Agent fallback at review time (preflight passed, then kiro-cli lost the agent): the
+# non-empty response is discarded, no retry, per-model fallback flag in $SLOT.
+setup "L2 L3"
+mkfake_kiro 'echo "Error: no agent with name inline-review found. Falling back to user specified default" >&2; echo "> no findings"; exit 0'
+PANEL_RETRIES=3 "$SCRIPT" "$WORK/diff.txt" "$LENSES" "$WORK" kiro-fable >"$WORK/panel.log" 2>"$WORK/panel.err"
+rc=$?
+if [ "$rc" -eq 0 ] && ! grep -q '\[retry ' "$WORK/panel.err" \
+  && [ "$(grep -c '^\[agent-fallback\] kiro-fable-L' "$WORK/panel.err")" -eq 2 ] \
+  && grep -q '::error::kiro-cli ignored --agent inline-review.*\[kiro-fable-L2 kiro-fable-L3\].*no agent with name' "$WORK/panel.err" \
+  && [ -s "$WORK/slot/kiro-agent-fallback-kiro-fable.flag" ] \
+  && [ ! -s "$WORK/slot/kiro-fable-L2.md" ] && [ ! -s "$WORK/slot/kiro-fable-L3.md" ] \
+  && [ -z "$(find "$WORK/slot" -name '*.agentfail' -print -quit)" ]; then
+  pass "run-panel (p) agent fallback: response discarded, kiro-agent-fallback-<tag>.flag in slot"
+else
+  fail "run-panel (p) agent fallback: response discarded, kiro-agent-fallback-<tag>.flag in slot" \
+    "rc=$rc; $(grep -E 'retry|fallback|error' "$WORK/panel.err" | head -4 | tr '\n' '|')"
+fi
+
+# (q) Preflight fails when the canary is readable (tool-enabled agent): the PR diff must
+# never be handed to Kiro, every Kiro cell is skipped (empty), and a preflight flag lands
+# in $SLOT. Also covers the preflight-time fallback signature landing in its own flag.
+# A quota signature at preflight is an outage, not a breach: only the quota flag is
+# written (no preflight flag), so the chair's coverage floors — not severe — decide.
+for preflight_mode in canary-read fallback-signature quota-signature fallback-quota tool-quota canary-quota canary-stderr-quota canary-stderr rc-nonzero; do
+  setup "L2 L3"
+  case "$preflight_mode" in
+    canary-read) body='if [[ "${2:-}" == "Kiro startup safety check."* ]]; then cat ./preflight-canary.txt; exit 0; fi' ;;
+    fallback-signature) body='if [[ "${2:-}" == "Kiro startup safety check."* ]]; then echo "Error: no agent with name inline-review found. Falling back to user specified default" >&2; echo "NO_TOOLS"; exit 0; fi' ;;
+    quota-signature) body='if [[ "${2:-}" == "Kiro startup safety check."* ]]; then printf "Monthly request limit reached\nThe limits reset on 10/01.\n" >&2; exit 0; fi' ;;
+    fallback-quota) body='if [[ "${2:-}" == "Kiro startup safety check."* ]]; then printf "Error: no agent with name inline-review found. Falling back to user specified default\nMonthly request limit reached\nThe limits reset on 10/01.\n" >&2; exit 0; fi' ;;
+    tool-quota) body='if [[ "${2:-}" == "Kiro startup safety check."* ]]; then printf "using tool: fs_read\nMonthly request limit reached\n" >&2; exit 0; fi' ;;
+    canary-quota) body='if [[ "${2:-}" == "Kiro startup safety check."* ]]; then cat ./preflight-canary.txt; echo "Monthly request limit reached" >&2; exit 0; fi' ;;
+    canary-stderr-quota) body='if [[ "${2:-}" == "Kiro startup safety check."* ]]; then cat ./preflight-canary.txt >&2; echo "Monthly request limit reached" >&2; exit 0; fi' ;;
+    canary-stderr) body='if [[ "${2:-}" == "Kiro startup safety check."* ]]; then echo "NO_TOOLS"; cat ./preflight-canary.txt >&2; exit 0; fi' ;;
+    rc-nonzero) body='if [[ "${2:-}" == "Kiro startup safety check."* ]]; then echo "NO_TOOLS"; exit 7; fi' ;;
+  esac
+  # Preflight branch first (overrides mkfake_kiro's default NO_TOOLS), then the review body
+  # records that the diff arrived — which must never happen here.
+  cat > "$BIN/kiro-cli" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-}" = "--version" ]; then echo "kiro-cli fake 2.11.1"; exit 0; fi
+$body
+if [[ "\${2:-}" == 'Kiro startup safety check.'* ]]; then echo "NO_TOOLS"; exit 0; fi
+touch diff-reached-kiro; echo "> no findings"
+EOF
+  chmod +x "$BIN/kiro-cli"
+  PANEL_RETRIES=3 "$SCRIPT" "$WORK/diff.txt" "$LENSES" "$WORK" kiro-sol >"$WORK/panel.log" 2>"$WORK/panel.err"
+  rc=$?
+  extra_ok=1
+  case "$preflight_mode" in
+    fallback-signature) [ -s "$WORK/slot/kiro-agent-fallback-kiro-sol.flag" ] \
+      && [ -s "$WORK/slot/kiro-preflight-kiro-sol.flag" ] \
+      && grep -q '::error::Kiro preflight failed for kiro-sol' "$WORK/panel.err" \
+      && [ "$(grep -c '^\[skip\] kiro-sol/L.*(preflight failed)' "$WORK/panel.err")" -eq 2 ] || extra_ok=0 ;;
+    quota-signature) grep -q '\[preflight kiro-sol\].*reset on 10/01' "$WORK/slot/kiro-quota-kiro-sol.flag" 2>/dev/null \
+      && [ ! -e "$WORK/slot/kiro-preflight-kiro-sol.flag" ] \
+      && grep -q '::error::Kiro monthly request quota exhausted for KIRO_API_KEY at kiro-sol preflight.*reset on 10/01' "$WORK/panel.err" \
+      && ! grep -q 'preflight failed' "$WORK/panel.err" \
+      && [ "$(grep -c '^\[skip\] kiro-sol/L.*(monthly quota exhausted at preflight)' "$WORK/panel.err")" -eq 2 ] || extra_ok=0 ;;
+    fallback-quota|tool-quota|canary-quota|canary-stderr-quota)
+      [ -s "$WORK/slot/kiro-preflight-kiro-sol.flag" ] \
+      && [ -s "$WORK/slot/kiro-quota-kiro-sol.flag" ] \
+      && grep -q '::error::Kiro preflight failed for kiro-sol' "$WORK/panel.err" \
+      && ! grep -q "$(cat "$WORK/kiro-cwd/preflight-kiro-sol/preflight-canary.txt")" "$WORK/panel.err" \
+      && [ "$(grep -c '^\[skip\] kiro-sol/L.*(preflight failed)' "$WORK/panel.err")" -eq 2 ] || extra_ok=0
+      if [ "$preflight_mode" = fallback-quota ]; then
+        [ -s "$WORK/slot/kiro-agent-fallback-kiro-sol.flag" ] || extra_ok=0
+      fi ;;
+    canary-read|canary-stderr|rc-nonzero) ! grep -q "$(cat "$WORK/kiro-cwd/preflight-kiro-sol/preflight-canary.txt")" "$WORK/panel.err" \
+      && [ -s "$WORK/slot/kiro-preflight-kiro-sol.flag" ] \
+      && grep -q '::error::Kiro preflight failed for kiro-sol' "$WORK/panel.err" \
+      && [ "$(grep -c '^\[skip\] kiro-sol/L.*(preflight failed)' "$WORK/panel.err")" -eq 2 ] || extra_ok=0 ;;
+  esac
+  if [ "$rc" -eq 0 ] && [ -z "$(find "$WORK" -name diff-reached-kiro -print -quit)" ] \
+    && [ -f "$WORK/slot/kiro-sol-L2.md" ] && [ ! -s "$WORK/slot/kiro-sol-L2.md" ] \
+    && [ -f "$WORK/slot/kiro-sol-L3.md" ] && [ ! -s "$WORK/slot/kiro-sol-L3.md" ] \
+    && [ "$extra_ok" = 1 ]; then
+    pass "run-panel (q) preflight $preflight_mode withholds the diff and flags the job"
+  else
+    fail "run-panel (q) preflight $preflight_mode withholds the diff and flags the job" \
+      "rc=$rc extra_ok=$extra_ok; $(grep -E 'preflight|skip|error' "$WORK/panel.err" | head -4 | tr '\n' '|')"
+  fi
+done
+
+# (r) Healthy run leaves no flags or markers at all (false-positive guard), logs the CLI
+# version as the first stderr line, and the preflight canary never reached the log.
+setup "L2 L3"
+mkfake_kiro 'echo "> no findings"'
+PANEL_RETRIES=3 "$SCRIPT" "$WORK/diff.txt" "$LENSES" "$WORK" kiro-fable >"$WORK/panel.log" 2>"$WORK/panel.err"
+flags="$(find "$WORK/slot" \( -name '*.flag' -o -name '*.quota' -o -name '*.agentfail' \) | wc -l)"
+if [ "$flags" -eq 0 ] && [ -s "$WORK/slot/kiro-fable-L2.md" ] && [ -s "$WORK/slot/kiro-fable-L3.md" ] \
+  && [ "$(head -1 "$WORK/panel.err")" = "run-panel.sh: kiro-cli fake 2.11.1" ] \
+  && grep -q 'Kiro preflight passed: kiro-fable' "$WORK/panel.err"; then
+  pass "run-panel (r) healthy Kiro run: no flags/markers, version logged first, preflight passed"
+else
+  fail "run-panel (r) healthy Kiro run: no flags/markers, version logged first, preflight passed" \
+    "flags=$flags; first stderr line: $(head -1 "$WORK/panel.err")"
+fi
+
+# (s) Kiro signatures apply only to Kiro processes: Codex echoes its stdin diff to stderr,
+# so a diff quoting the quota/fallback strings (e.g. this PR) must not empty a Codex cell.
+setup
+printf 'diff --git a b\n+Monthly request limit reached\n+Falling back to user specified default\n' > "$WORK/diff.txt"
+cat > "$BIN/codex" <<'EOF'
+#!/usr/bin/env bash
+cat >&2
+echo "no findings"
+EOF
+chmod +x "$BIN/codex"
+PANEL_RETRIES=3 "$SCRIPT" "$WORK/diff.txt" "$LENSES" "$WORK" codex >"$WORK/panel.log" 2>"$WORK/panel.err"
+if [ -s "$WORK/slot/codex-L2.md" ] && [ -z "$(find "$WORK/slot" -name '*.flag' -print -quit)" ] \
+  && ! grep -Eq '\[quota\]|\[agent-fallback\]' "$WORK/panel.err"; then
+  pass "run-panel (s) Codex quoting Kiro error strings is not misclassified"
+else
+  fail "run-panel (s) Codex quoting Kiro error strings is not misclassified" \
+    "slot=$(wc -c < "$WORK/slot/codex-L2.md"); $(grep -E 'quota|fallback' "$WORK/panel.err" | head -2 | tr '\n' '|')"
+fi
+
+# (t) rc≠0 with partial output: a Codex cell cut by timeout keeps its output (old rule,
+# no retry); a Kiro cell with rc≠0 is retried, since the v3 quota shape puts a message on
+# stdout with rc=1.
+setup
+cat > "$BIN/codex" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null; echo "partial finding"; exit 124
+EOF
+chmod +x "$BIN/codex"
+PANEL_RETRIES=3 "$SCRIPT" "$WORK/diff.txt" "$LENSES" "$WORK" codex >"$WORK/panel.log" 2>"$WORK/panel.err"
+codex_ok=0
+grep -q 'partial finding' "$WORK/slot/codex-L2.md" && ! grep -q '\[retry ' "$WORK/panel.err" && codex_ok=1
+setup
+mkfake_kiro 'echo "partial"; exit 1'
+PANEL_RETRIES=2 "$SCRIPT" "$WORK/diff.txt" "$LENSES" "$WORK" kiro-sol >"$WORK/panel.log" 2>"$WORK/panel.err"
+kiro_ok=0
+grep -q '\[retry 1/2\] kiro-sol-L2' "$WORK/panel.err" \
+  && [ ! -s "$WORK/slot/kiro-sol-L2.md" ] && kiro_ok=1
+if [ "$codex_ok" = 1 ] && [ "$kiro_ok" = 1 ]; then
+  pass "run-panel (t) failed Kiro output is excluded after retries; Codex partial output is kept"
+else
+  fail "run-panel (t) failed Kiro output is excluded after retries; Codex partial output is kept" "codex_ok=$codex_ok kiro_ok=$kiro_ok"
 fi
 
 cleanup

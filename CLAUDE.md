@@ -158,7 +158,7 @@ reported separately. `scripts/setup.sh` installs local hooks.
 CI uses specialist roles: Codex checks implementation, Kiro Opus checks AWS,
 Kiro Sol checks deployment/recovery, and Claude checks auth/data/API/ADR contracts.
 Each applicable model runs once. Trusted routing may omit irrelevant Kiro roles;
-Codex and Claude retain independent family coverage of every changed path.
+Codex and Claude retain independent family coverage of every reviewable source path.
 [ADR-020](docs/decisions/ADR-020-specialist-review-protocol.md) supersedes the repeated
 L2-L5 matrix and its permissive coverage floor. [Specialist review](docs/pr-review-specialists.md)
 defines inputs, model aliases and limits. `kiro-fable` remains the legacy Opus tag.
