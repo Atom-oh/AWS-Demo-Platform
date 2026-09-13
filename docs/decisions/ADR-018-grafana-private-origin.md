@@ -39,9 +39,11 @@ internal fan-in exception does not permit a public Grafana fallback.
    current Pod target before changing the external owner's CloudFront origin.
 2. For initial credential setup or a producer migration, land the Secrets Manager
    container and ExternalSecret first. Populate the managed value and rotate the
-   persisted database credential when needed. Verify the login, ESO Ready and
-   in-memory agreement with the authoritative secret before a separate consumer
-   change. Independently synchronized Applications have no implicit ordering.
+   persisted database credential if it differs; any still-valid default credential
+   must be rotated. Verify database login, ESO Ready and agreement between Secrets
+   Manager and the Kubernetes Secret before a separate consumer change. Verify
+   container credentials after that rollout. Independently synchronized Applications
+   have no implicit ordering.
 3. The current Helm values already use `grafana-admin`. Ordinary rotation updates
    the database and authoritative secret, waits for ESO synchronization, then
    rolls Grafana and both sidecars using a reviewed non-secret Pod-template marker.

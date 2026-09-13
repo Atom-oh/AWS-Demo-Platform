@@ -58,7 +58,10 @@ reviewed selection; preserve a known-good image digest for recovery.
 ## Rollback
 
 Select a known-good task definition and retained image digest with matching
-architecture. SHA tags in these mutable ECR repositories are not enforced immutable.
+architecture. The revision's `containerDefinitions[].image` must reference that
+verified digest; register a reviewed revision if none exists. Selecting an older
+revision that still names `main-latest` does not restore its original image.
+SHA tags in these mutable ECR repositories are not enforced immutable.
 Do not point an X86_64 rollback definition at an ARM64 `main-latest` image.
 
 A cross-architecture rollback requires a reviewed Terraform change to both

@@ -49,8 +49,8 @@ public Grafana NLB or Kubernetes Ingress.
 
 The checked-in [ClickHouseInstallation](../../k8s/system/clickhouse-mgmt/clickhouse-installation.yaml)
 sets the `default` user's network ACL to `10.0.0.0/8` and does not configure a
-password. The handoff recorded unauthenticated exporters. Reachable hosts within
-that range can therefore expose the telemetry database to unauthenticated access
+password. The handoff recorded unauthenticated exporters. Hosts with network
+reachability within that range can therefore access the database without authentication
 under this configuration; actual reachability/authentication still needs runtime
 verification. This residual risk was accepted for the reused non-production hub,
 not as a general database security pattern.

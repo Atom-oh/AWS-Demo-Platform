@@ -96,7 +96,8 @@ Before an authorized lifecycle smoke test, inspect current project metadata and
 old instruction to test an RDS stop. Verify a selected controllable resource's job
 and restoration data before expanding the test.
 
-For rollback, use a known-good ARM64 task definition and retained compatible image,
-then explicitly update the service and repeat checks. See the
+For rollback, use a reviewed ARM64 task definition whose image references the
+verified retained digest. An older revision still using `main-latest` does not
+pin the old image. Explicitly update the service and repeat checks. See the
 [architecture rollback procedure](arm64-graviton-migration.md). Investigate logs
 under `/demo-platform/dev/{api,worker,frontend}` when health or auth fails.
