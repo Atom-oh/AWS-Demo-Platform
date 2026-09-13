@@ -274,6 +274,15 @@ class RoleRecordingTests(unittest.TestCase):
                 if event:
                     rc, output, error = self.fake_codex(command, cwd, environment, input_text, timeout)
                     lines = output.splitlines()
+                    if event == "tool":
+                        lines.insert(1, json.dumps({"type": "item.completed", "item": {
+                            "type": "command_execution",
+                            "aggregated_output": "Error: insufficient credits",
+                        }}))
+                        lines[-1] = json.dumps({"type": "turn.failed", "error": {
+                            "message": "Connection closed",
+                        }})
+                        return 1, "\n".join(lines), error
                     lines.insert(1, json.dumps({'type': 'error', 'message': 'You have reached the limit for overages'}))
                     return rc, "\n".join(lines), error
                 if stderr:
@@ -304,6 +313,11 @@ class RoleRecordingTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertFalse(result["valid"])
         self.assertIn("quota_diagnostic", result["failure_codes"])
+
+    def test_failed_codex_tool_text_is_not_quota(self):
+        calls, result = self.quota_case("codex", event="tool")
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(result["valid"], result["failure_codes"])
 
     def test_quota_evidence(self):
         for tag in ("claude-self", "kiro-sol", "codex"):

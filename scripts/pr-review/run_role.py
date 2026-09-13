@@ -316,7 +316,8 @@ def run(work, tag):
                     delivered = payload
                 code, output, error = execute(command, cwd, environment, delivered, timeout)
                 error = preserve_stdout_error(output, error)
-                hard_limit = account_limit(code, output, error)
+                # Codex JSONL tool data is untrusted; inspect native errors below.
+                hard_limit = account_limit(0 if tag == "codex" else code, output, error)
                 if tag == "codex" and not hard_limit:
                     output, event_error, complete = codex_response(output, final_output)
                     hard_limit = account_limit(code, "", event_error)
