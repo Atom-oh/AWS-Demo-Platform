@@ -68,12 +68,13 @@ RUN test "$TARGETARCH" = "arm64" \
  && rm -rf /tmp/kirocli /tmp/kirocli.zip \
  && kiro-cli --version \
  && kiro-cli chat --help > /tmp/kiro-chat-help \
+ && grep -F -- "--agent" /tmp/kiro-chat-help \
  && grep -F -- "--mode" /tmp/kiro-chat-help \
  && grep -F -- "--no-interactive" /tmp/kiro-chat-help \
  && grep -F -- "--wrap" /tmp/kiro-chat-help \
- # kiro-cli is an unpinned vendor-latest install (no version/SHA pin possible) that
- # auto-rebuilds weekly, so this exact-wording check is the only guard against a silent
- # semantics change in the fail-closed no-tools assumption run-panel.sh depends on.
+ # Check the review scripts' required CLI flags before publishing a weekly image.
+ # Approval flags do not remove tools; run-panel.sh selects the empty-tool profile.
+ # Reverify profile loading and the effective catalog after CLI upgrades.
  && grep -F -- "trust no tools: '--trust-tools='" /tmp/kiro-chat-help \
  && rm /tmp/kiro-chat-help
 

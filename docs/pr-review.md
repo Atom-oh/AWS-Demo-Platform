@@ -20,21 +20,24 @@ runner credentials to test a workflow change.
 
 Local `.kiro/steering/project-context.md` points to `AGENTS.md`. CI Kiro uses an
 isolated cwd/HOME and no read tools, so that bridge alone cannot deliver context.
-Each fresh cell receives the trusted
+Each fresh Kiro cell receives the trusted
 [`kiro-inline-review.json`](../scripts/pr-review/kiro-inline-review.json) as
 `.kiro/agents/inline-review.json`; the command explicitly selects `--agent inline-review`.
-The profile sets `tools: []` and `allowedTools: []`, with no MCP servers, resources
-or hooks. Directory preparation, profile readiness and copying must succeed before
-the affected Kiro call; failures stop execution rather than reusing stale state
-or falling back to default tools.
+The profile sets `tools: []` and `allowedTools: []` and declares no additional MCP
+servers, resources or hooks. Default resource patterns may still be inherited;
+the fresh cell HOME/cwd contains no repository steering files. Directory preparation,
+profile readiness and copying must succeed before the affected Kiro call.
+These script-side failures prevent invocation; CLI-side profile loading needs
+separate verification after upgrades.
 
 The [Kiro configuration reference](https://kiro.dev/docs/custom-agents/configuration-reference/)
 distinguishes available `tools` from approval-free `allowedTools`. PR #109 run
 `34729311650` (head `2d47015`, `kiro-fable/L2`) produced only glob-search output
 under `--trust-tools=` alone: an empty approval grant did not
 remove the default catalog. That flag remains as defense in depth; the named
-profile now defines availability. Offline profile validation checks configuration,
-not successful model execution or meaningful review coverage.
+profile now defines availability. Schema validation and the local `/tools` catalog
+were checked with Kiro CLI 2.11.1 on 2026-09-13. Offline checks do not establish
+successful model execution or meaningful review coverage.
 
 Kiro gets context plus capped diff in argv; other cells get the prepared context
 and diff through their existing prompt/stdin paths. An assembled Kiro argument of
