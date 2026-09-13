@@ -122,6 +122,30 @@ class PreparationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "oversized"):
             prepare.context_at(self.base, 3)
 
+    def test_adp_wrapper_preserves_context_limit_before_preparation(self):
+        fake = self.root / "bin"
+        fake.mkdir()
+        capture = self.root / "context-cap"
+        python = fake / "python3"
+        python.write_text('#!/bin/sh\nprintf "%s" "$REVIEW_CONTEXT_CAP" > "$CAPTURE"\nexit 2\n')
+        python.chmod(0o755)
+        for value, expected in ((None, "12288"), ("8192", "8192"),
+                                ("12289", None), ("0", None), ("invalid", None)):
+            with self.subTest(value=value):
+                capture.unlink(missing_ok=True)
+                env = dict(os.environ, PATH=str(fake) + os.pathsep + os.environ["PATH"],
+                           CAPTURE=str(capture))
+                env.pop("REVIEW_CONTEXT_CAP", None)
+                if value is not None:
+                    env["REVIEW_CONTEXT_CAP"] = value
+                result = subprocess.run(
+                    ["bash", str(MODULE.with_name("run-specialists.sh")),
+                     "unused.diff", "unused-lenses", str(self.root / "work")],
+                    env=env, capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(capture.read_text() if capture.exists() else None, expected)
+
     def test_directory_exclusions_do_not_exclude_same_named_source_files(self):
         policy = self.root / "scripts/pr-review/role-input-scope.json"
         policy.parent.mkdir(parents=True)
