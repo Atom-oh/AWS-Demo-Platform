@@ -159,6 +159,7 @@ export function DetailDrawer({
           </div>
           {pr?.description && <p className="desc">{pr.description}</p>}
           <footer>
+            {row.status === 'external' && <span className="muted">외부 운영 체계에서 관리하는 조회 전용 프로젝트입니다.</span>}
             {row.status === 'on' && (
               <button className="btn" disabled={actionsDisabled} onClick={() => void handleToggle('turn_off')}>끄기</button>
             )}
@@ -209,7 +210,7 @@ export function DetailDrawer({
                       <span className={`chip ${on ? 'res-on' : 'res-always'}`}>{LABEL[r.type] ?? r.type}</span>
                       <span className="resid">{resourceId(r)}</span>
                       {!on && <span className="muted">일괄 끄기 제외</span>}
-                      {(isEcs || isArgocdApp) && (
+                      {(isEcs || isArgocdApp) && row.status !== 'external' && (
                         <ScaleControl resource={r} status={row.status} blocked={actionsDisabled}
                           onScale={onScale ? (targets) => onScale(row.repo, targets) : undefined} />
                       )}

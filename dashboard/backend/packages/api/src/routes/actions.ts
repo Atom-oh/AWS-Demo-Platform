@@ -23,6 +23,9 @@ export async function registerActions(
   ): Promise<void> {
     const project = deps.projects[repo];
     if (!project) throw new NotFoundError(`project not found: ${repo}`);
+    if (project.management === 'external') {
+      throw new ConflictError(`project is externally managed: ${repo}`);
+    }
 
     const state = await deps.stateClient.read(repo);
     const current = state?.status;

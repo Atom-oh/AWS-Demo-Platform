@@ -98,6 +98,8 @@ export const ProjectSchema = z.object({
   description: z.string().optional(),
   briefing: z.string().optional(),
   account: z.string().min(1),
+  // Omitted means platform-managed, preserving existing project behavior.
+  management: z.enum(['platform', 'external']).optional(),
   display: z
     .object({
       category: z.string().optional(),

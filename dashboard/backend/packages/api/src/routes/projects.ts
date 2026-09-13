@@ -26,7 +26,7 @@ export async function registerProjects(
     const repo = `${decodeURIComponent(owner)}/${decodeURIComponent(name)}`;
     const project = deps.projects[repo];
     if (!project) throw new NotFoundError(`project not found: ${repo}`);
-    const state = await deps.stateClient.read(repo);
+    const state = project.management === 'external' ? null : await deps.stateClient.read(repo);
     const withStepKeys = {
       ...project,
       resources: project.resources.map((r) => ({ ...r, stepKey: stepKey(r) })),

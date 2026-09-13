@@ -16,6 +16,7 @@ running the latest image.
 | [ai-trader review runner](runbooks/ai-trader-review-runner.md) | Dedicated CLI compatibility pin, retained image evidence and recovery |
 | [Grafana operations](runbooks/grafana-private-ingress.md) | Private ingress and managed administrator lifecycle |
 | [Dashboard rollout](runbooks/dashboard-public-deploy-execution.md) | Current rollout and verification procedure, with a dated initial-deployment record |
+| [FSI registration](runbooks/aws-fsi-demo-registration.md) | External management, metadata scope and guarded rollout |
 | [ARM64 migration and rollback](runbooks/arm64-graviton-migration.md) | Architecture-change and rollback procedure; historical observations are dated |
 | [Decision applicability](decisions/README.md) | Topic-level ADR ownership, supersession and accepted trade-offs |
 | [Specs and plans](superpowers/) | Historical design/implementation records; not deployment status |

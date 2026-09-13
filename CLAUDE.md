@@ -103,6 +103,12 @@ execution. Lifecycle targets come from schema-validated `projects/` resources;
 `always_on` resources are skipped. See [dashboard guide](dashboard/CLAUDE.md) and
 [ADR-001](docs/decisions/ADR-001-sqs-worker-for-async-jobs.md).
 
+Projects may declare `management: external` for registration without resource
+control. The API exposes metadata with no lifecycle state, skips initial state
+seeding and rejects on/off/scale; the worker also rejects resource jobs. The UI
+labels these projects as externally managed. Omitted management preserves existing
+behavior. See [ADR-019](docs/decisions/ADR-019-externally-managed-projects.md).
+
 `turn_off` captures restoration data per resource-unique `stepKey`. Failed
 `turn_on` preserves it through `markError`. Kubernetes off pins HPA min/max and
 workload replicas to 1, not zero; on restores captured values. This applies to

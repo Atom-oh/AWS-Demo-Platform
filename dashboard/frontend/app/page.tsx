@@ -15,7 +15,7 @@ import { authEnabled } from '@/lib/auth-config';
 import { RESOURCE_LABEL } from '@/lib/presentation';
 
 const EMPTY_FILTERS: Filters = { cat: null, acct: null, status: null };
-const PRIORITY = { error: 0, unknown: 1, transitioning: 2, off: 3, on: 4 };
+const PRIORITY = { error: 0, unknown: 1, transitioning: 2, off: 3, on: 4, external: 5 };
 const compare = new Intl.Collator('ko', { numeric: true, sensitivity: 'base' });
 type Plan = { operation: Operation; targets: OperationTarget[]; retry?: boolean };
 

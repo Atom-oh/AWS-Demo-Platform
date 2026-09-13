@@ -48,12 +48,12 @@ export function ProjectTable({ rows, checked, active, blocked, onSelect, onSelec
                 {busy ? '처리 중' : STATUS_LABEL[row.status] ?? row.status}
               </span></td>
               <td><div className="table-actions">
-                <button className="btn" disabled={blocked || busy || (!canStart && row.status !== 'on')}
+                {row.status === 'external' ? <span className="muted">조회 전용</span> : <button className="btn" disabled={blocked || busy || (!canStart && row.status !== 'on')}
                   aria-label={`${name} ${canStart ? '켜기' : '끄기'}`}
                   onClick={() => onToggle(row.repo, canStart ? 'turn_on' : 'turn_off')}>
                   {busy ? <span className="spinner" /> : <Icon name="power" />}
                   {canStart ? '켜기' : '끄기'}
-                </button>
+                </button>}
                 {row.project?.urls?.demo && <a className="icon-button" href={row.project.urls.demo}
                   target="_blank" rel="noopener noreferrer" aria-label={`${name} 데모 열기`}><Icon name="arrow" /></a>}
               </div></td>

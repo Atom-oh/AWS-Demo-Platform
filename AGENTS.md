@@ -1,4 +1,4 @@
-<!-- generated-by: co-agent · source: CLAUDE.md · claude-md-sha: c8d709918b27 · generated-at: 2026-09-13 · DO NOT EDIT — edit CLAUDE.md then run /co-agent sync-context -->
+<!-- generated-by: co-agent · source: CLAUDE.md · claude-md-sha: eb4f579afb5a · generated-at: 2026-09-13 · DO NOT EDIT — edit CLAUDE.md then run /co-agent sync-context -->
 > You are an external reviewer for this repo — project context below, distilled from CLAUDE.md. This file is shared verbatim by Kiro, Codex, and Agy (not a per-AI copy).
 
 # AWS Demo Platform review context
@@ -102,6 +102,10 @@ Lifecycle targets come from schema-validated `projects/` resources; `always_on`
 resources are skipped. Managed Kubernetes off pins HPA min/max and replicas to 1; on restores captures.
 This is not a rule for every HPA/Application. ArgoCD REST uses per-call namespaces
 and one configured endpoint; cluster metadata alone does not select another API.
+
+Projects with `management: external` expose metadata/URLs but no lifecycle state.
+API and worker reject mutations; startup skips state seeding and the UI labels
+external management. Omitted management preserves legacy behavior (ADR-019).
 
 Scale requires status on in API/worker, persists targets and never changes status.
 Repeated successful HPA scales preserve a write-once baseline. First partial failure

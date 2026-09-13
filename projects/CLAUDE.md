@@ -10,6 +10,12 @@ RDS and ArgoCD apps have controllers; several other types are intentionally
 visibility-only. Required resource IDs/names belong in schema-supported fields.
 Credential values do not belong here; use scoped Secrets Manager references.
 
+Set `management: external` when another system owns resource operations. The API
+returns metadata with no platform lifecycle state and rejects on/off/scale;
+the worker enforces the same boundary. The UI shows external management and
+does not offer mutations. Omitted management and `platform` retain legacy
+behavior. See [ADR-019](../docs/decisions/ADR-019-externally-managed-projects.md).
+
 Hub-managed ArgoCD workloads need matching tenant Applications under
 `argocd-apps/tenants/`; one project can have multiple tenant roots. Direct AWS and
 visibility-only projects do not automatically need an ArgoCD root. An independent
