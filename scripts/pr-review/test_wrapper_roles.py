@@ -35,18 +35,14 @@ class WrapperContextTests(unittest.TestCase):
             (work / "slot").mkdir(parents=True)
             sentinel = work / "slot" / "existing-evidence"
             sentinel.write_text("Preserve on invalid configuration.")
-            environment = {
-                "PATH": str(binary) + os.pathsep + os.environ["PATH"],
-                "REVIEW_CAP_TEST_LOG": str(log),
-            }
+            environment = {'PATH': str(binary) + os.pathsep + os.environ['PATH'], 'REVIEW_CAP_TEST_LOG': str(log)}
             if cap is not None:
                 environment["REVIEW_CONTEXT_CAP"] = cap
             result = subprocess.run(
                 ["bash", str(WRAPPER), "unused.diff", "unused-lenses", str(work)],
                 capture_output=True, text=True, env=environment, timeout=10,
             )
-            return (result, [json.loads(p.read_text()) for p in log.iterdir()],
-                    sentinel.exists())
+            return (result, [json.loads(p.read_text()) for p in log.iterdir()], sentinel.exists())
 
     def test_default(self):
         result, calls, _ = self.run_wrapper()

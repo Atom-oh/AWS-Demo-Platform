@@ -1,6 +1,5 @@
 """Offline provider-boundary tests."""
 
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -16,19 +15,22 @@ import test_role_review as fixture
 
 
 MODULE = Path(__file__).with_name("run_role.py")
+START = {"type": "turn.started"}
+DONE = {'type': 'turn.completed', 'usage': {'input_tokens': 1, 'cached_input_tokens': 0, 'output_tokens': 1}}
+
+
+def message(text, ident="reply"):
+    return {'type': 'item.completed', 'item': {'id': ident, 'type': 'agent_message', 'text': text}}
+
+
+def stream(*events):
+    return "\n".join(json.dumps(event) for event in events)
 
 
 class RoleExecutionTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        if not MODULE.exists():
-            return
-        spec = importlib.util.spec_from_file_location("run_role", MODULE)
-        cls.runner = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(cls.runner)
+    runner = run_role
 
     def setUp(self):
-        self.assertTrue(MODULE.exists(), "The single-role executor is not implemented")
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -75,13 +77,8 @@ class RoleExecutionTests(unittest.TestCase):
             "Falling back to user specified default",
         ):
             with self.subTest(message=message):
-                cli = self.executable(
-                    "import sys\nprint('NO_TOOLS')\n"
-                    f"print({message!r}, file=sys.stderr)\n"
-                )
-                ok, code, error = self.runner.preflight(
-                    cli, "claude-opus-5", self.root, os.environ.copy(), 2
-                )
+                cli = self.executable(f"import sys\nprint('NO_TOOLS')\nprint({message!r}, file=sys.stderr)\n")
+                ok, code, error = self.runner.preflight(cli, 'claude-opus-5', self.root, os.environ.copy(), 2)
                 self.assertFalse(ok)
 
     def test_preflight_scope(self):
@@ -94,50 +91,33 @@ class RoleExecutionTests(unittest.TestCase):
             "assert 'preflight-canary.txt' in sys.argv[2]\n"
             "print('> NO_TOOLS')\n"
         )
-        ok, code, error = self.runner.preflight(
-            cli, "claude-opus-5", self.root, os.environ.copy(), 2
-        )
+        ok, code, error = self.runner.preflight(cli, 'claude-opus-5', self.root, os.environ.copy(), 2)
         self.assertTrue(ok, error)
         self.assertEqual(code, 0)
 
     def test_preflight_quota(self):
         cli = self.executable("print('Error: insufficient credits')\n")
-        ok, code, error = self.runner.preflight(
-            cli, "claude-opus-5", self.root, {"PATH": os.environ["PATH"]}, 2)
+        ok, code, error = self.runner.preflight(cli, 'claude-opus-5', self.root, {'PATH': os.environ['PATH']}, 2)
         self.assertFalse(ok)
         self.assertNotEqual(code, 0)
         self.assertEqual(role_review.diagnostic_failure(error), "quota_diagnostic")
 
     def test_codex_events(self):
-        message = {"type": "item.completed", "item": {
-            "id": "reply", "type": "agent_message", "text": '{"review":"exact"}',
-        }}
-        start = {"type": "turn.started"}
-        done = {"type": "turn.completed", "usage": {
-            "input_tokens": 1, "cached_input_tokens": 0, "output_tokens": 1,
-        }}
         self.assertTrue(hasattr(self.runner, "codex_response"))
-        for events in ([start, message], [start, done],
-                       [start, message, {"type": "turn.failed", "error": {"message": "failed"}}],
-                       [start, message, done, message],
-                       [start, message, start, done], [start, message, done, "invalid"]):
+        reply = message('{"review":"exact"}')
+        for events in ([START, reply], [START, DONE],
+                       [START, reply, {"type": "turn.failed", "error": {"message": "failed"}}],
+                       [START, reply, DONE, reply],
+                       [START, reply, START, DONE], [START, reply, DONE, "invalid"]):
             with self.subTest(events=events):
-                raw = "\n".join(json.dumps(event) for event in events)
+                raw = stream(*events)
                 output, error, valid = self.runner.codex_response(raw, self.final_file)
                 self.assertFalse(valid)
                 self.assertEqual(output, "")
 
     def test_codex_final(self):
         self.assertTrue(hasattr(self.runner, "codex_response"))
-        raw = "\n".join(json.dumps(event) for event in [
-            {"type": "turn.started"},
-            {"type": "item.completed", "item": {
-                "id": "first", "type": "agent_message", "text": '{"first":true}\n'}},
-            {"type": "item.completed", "item": {
-                "id": "second", "type": "agent_message", "text": '{"second":true}\n'}},
-            {"type": "turn.completed", "usage": {
-                "input_tokens": 1, "cached_input_tokens": 0, "output_tokens": 1}},
-        ])
+        raw = stream(START, message('{"first":true}\n', 'first'), message('{"second":true}\n', 'second'), DONE)
         self.final_file.write_text('{"second":true}\n')
         output, error, valid = self.runner.codex_response(raw, self.final_file)
         self.assertTrue(valid, error)
@@ -145,14 +125,9 @@ class RoleExecutionTests(unittest.TestCase):
         self.assertEqual(error, "")
 
     def test_codex_reconnect(self):
-        raw = "\n".join(json.dumps(event) for event in [
-            {"type": "turn.started"},
+        raw = stream(START,
             {"type": "error", "message": "Reconnecting... stream disconnected before completion"},
-            {"type": "item.completed", "item": {
-                "id": "reply", "type": "agent_message", "text": '{"review":"complete"}'}},
-            {"type": "turn.completed", "usage": {
-                "input_tokens": 1, "cached_input_tokens": 0, "output_tokens": 1}},
-        ])
+            message('{"review":"complete"}'), DONE)
         self.final_file.write_text('{"review":"complete"}\n')
         output, error, valid = self.runner.codex_response(raw, self.final_file)
         self.assertTrue(valid, error)
@@ -172,8 +147,7 @@ class RoleExecutionTests(unittest.TestCase):
         ):
             with self.subTest(prefix=repr(prefix)):
                 result = subprocess.run(
-                    ["bash", "-c", 'source "$1" && strip_ansi', "control-test",
-                     str(MODULE.with_name("role-controls.sh"))],
+                    ['bash', '-c', 'source "$1" && strip_ansi', 'control-test', str(MODULE.with_name('role-controls.sh'))],
                     input=prefix + plain + suffix, capture_output=True, text=True,
                     timeout=5,
                 )
@@ -204,13 +178,10 @@ class RoleRecordingTests(unittest.TestCase):
         final.write_bytes(self.original.encode("utf-8"))
         events = [
             {"type": "turn.started"},
-            {"type": "item.completed", "item": {
-                "type": "agent_message", "text": self.original,
-            }},
+            {'type': 'item.completed', 'item': {'type': 'agent_message', 'text': self.original}},
             {"type": "turn.completed"},
         ]
-        return (0, "\n".join(json.dumps(event) for event in events),
-                "Fixture diagnostic password=synthetic_diagnostic_value")
+        return (0, '\n'.join((json.dumps(event) for event in events)), 'Fixture diagnostic password=synthetic_diagnostic_value')
 
     def run_recording(self, record_error=None, record_code=None, tag="codex", execute=None):
         real_run = subprocess.run
@@ -301,11 +272,9 @@ class RoleRecordingTests(unittest.TestCase):
             calls.append(timeout)
             if not evidence and len(calls) == 1:
                 if event:
-                    rc, output, error = self.fake_codex(
-                        command, cwd, environment, input_text, timeout)
+                    rc, output, error = self.fake_codex(command, cwd, environment, input_text, timeout)
                     lines = output.splitlines()
-                    lines.insert(1, json.dumps({"type": "error", "message":
-                        "You have reached the limit for overages"}))
+                    lines.insert(1, json.dumps({'type': 'error', 'message': 'You have reached the limit for overages'}))
                     return rc, "\n".join(lines), error
                 if stderr:
                     return code, "", "You have reached the limit for overages"
@@ -315,8 +284,7 @@ class RoleRecordingTests(unittest.TestCase):
             return 0, self.original, ""
 
         timeout, attempts = (480, 2) if tag == "claude-self" else (300, 3)
-        with patch.dict(os.environ, {"PANEL_TIMEOUT": str(timeout),
-                                    "PANEL_RETRIES": str(attempts)}):
+        with patch.dict(os.environ, {'PANEL_TIMEOUT': str(timeout), 'PANEL_RETRIES': str(attempts)}):
             self.run_recording(tag=tag, execute=provider)
         self.assertTrue(all(value == timeout for value in calls))
         return calls, self.harness.read(f"slot/{tag}-result.json")
@@ -343,6 +311,43 @@ class RoleRecordingTests(unittest.TestCase):
                 calls, result = self.quota_case(tag, evidence=True)
                 self.assertEqual(len(calls), 1)
                 self.assertTrue(result["valid"], result["failure_codes"])
+
+    def test_claude_quota(self):
+        calls = []
+        def execute(command, *arguments):
+            calls.append(command)
+            if len(calls) == 1:
+                return 1, "Error: insufficient credits\n", ""
+            return 0, json.dumps(self.harness.response("claude-self")), ""
+        self.run_recording(tag="claude-self", execute=execute)
+        result = self.harness.read("slot/claude-self-result.json")
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(result["valid"])
+        self.assertIn("quota_diagnostic", result["failure_codes"])
+        self.assert_private_response_removed()
+
+    def test_kiro_quota(self):
+        calls = []
+        def execute(command, *arguments):
+            calls.append(command)
+            if "preflight-canary.txt" in command[2]:
+                return 0, "NO_TOOLS\n", ""
+            return 0, "\x1b[32m> UsageLimitReachedError\x1b[0m\n", ""
+        self.run_recording(tag="kiro-sol", execute=execute)
+        result = self.harness.read("slot/kiro-sol-result.json")
+        self.assertEqual(len(calls), 2)
+        self.assertFalse(result["valid"])
+        self.assertIn("quota_diagnostic", result["failure_codes"])
+        self.assert_private_response_removed()
+
+    def test_quota_json(self):
+        response = self.harness.response("claude-self", checks=[{
+            "path": self.path, "evidence": "Checked MONTHLY_REQUEST_COUNT handling."
+        }])
+        self.run_recording(tag='claude-self', execute=lambda *args: (0, json.dumps(response), ''))
+        result = self.harness.read("slot/claude-self-result.json")
+        self.assertTrue(result["valid"], result["failure_codes"])
+        self.assert_private_response_removed()
 
 
 if __name__ == "__main__":

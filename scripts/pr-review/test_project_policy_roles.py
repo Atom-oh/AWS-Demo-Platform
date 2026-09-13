@@ -16,8 +16,7 @@ POLICY = {
     "context_sources": ["CLAUDE.md", "scripts/pr-review/context.md"],
     "chair": {"timeout_seconds": 600, "max_turns": 8, "fallback_max_turns": 12,
               "allowed_tools": ["Read", "Grep", "Glob"],
-              "disallowed_tools": ["Bash", "Write", "Edit", "NotebookEdit",
-                                   "WebFetch", "WebSearch", "Task"]},
+              "disallowed_tools": ['Bash', 'Write', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task']},
 }
 
 
@@ -31,9 +30,7 @@ class ProjectPolicyTests(unittest.TestCase):
         self.assertEqual(prepare_roles.project_policy(self.root), {})
 
     def test_duplicates(self):
-        (self.root / "role-project.json").write_text(
-            '{"schema_version":1,"schema_version":2}'
-        )
+        (self.root / 'role-project.json').write_text('{"schema_version":1,"schema_version":2}')
         with self.assertRaises(ValueError):
             prepare_roles.project_policy(self.root)
 

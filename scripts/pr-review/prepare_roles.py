@@ -49,8 +49,6 @@ def git_file(revision, path):
 def context_at(revision, cap):
     context = git_file(revision, "AGENTS.md")
     source = git_file(revision, "CLAUDE.md")
-    if context is None:
-        context = source
     if context is None or not context.strip() or len(context.encode()) > cap:
         raise ValueError("Base/candidate reviewer context is missing or oversized")
     if "generated-by: co-agent" in context:

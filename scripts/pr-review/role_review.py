@@ -768,7 +768,7 @@ def _scrub_markdown_containers(value, key):
     line_end = re.compile(r"[ \t\r]*(?:\n|\Z)")
     continuation = re.compile(
         r"\s*(?:[" + re.escape("()[]{}.+-*/%&|^?\\<>=!,\"'`#@")
-        + r"]|(?:if|else|and|or|in|is|not|instanceof|as|satisfies)\b)"
+        + r"]|(?:if|else|and|or|in|is|not|instanceof|as|satisfies|for|async)\b)"
     )
     closing = {"[": "]", "(": ")", "{": "}"}
     pieces, cursor = [], 0
@@ -806,8 +806,7 @@ def _scrub_markdown_containers(value, key):
         if stack or quote or escaped:
             return "".join(pieces)
         try:
-            # Parse only, never evaluate. Malformed or unsupported syntax must
-            # not preserve an apparent verdict after a guessed closing bracket.
+            # Parse, never evaluate; uncertain syntax must discard the verdict.
             with warnings.catch_warnings():
                 warnings.simplefilter("error")
                 ast.parse(value[start:index], mode="eval")

@@ -166,6 +166,7 @@ def preflight(binary, model, cwd, environment, timeout):
          "--no-interactive", "--wrap", "never"],
         cwd, kiro_environment(cwd, environment), "", timeout,
     )
+    error = preserve_stdout_error(output, error)
     if account_limit(code, output, error):
         return False, code or 1, error + QUOTA_ERROR
     reply = re.sub(r"(?m)^\s*> ?", "", ANSI.sub("", output)).strip()
@@ -208,6 +209,17 @@ def account_limit(code, output, error=""):
     text = normalize_transport(output) if output else ""
     return bool(ACCOUNT_LIMIT.search(error) or STDOUT_ACCOUNT_LIMIT.search(text)
                 or (code != 0 and ACCOUNT_LIMIT.search(text)))
+
+
+def preserve_stdout_error(output, error):
+    lines = normalize_transport(output).lstrip().splitlines()
+    first = re.sub(r"^> ?", "", lines[0]) if lines else ""
+    # JSON review evidence and JSONL events are not text-mode CLI diagnostics.
+    if first.startswith(("{", "```")):
+        return error
+    if first.startswith("You have reached the limit for overages"):
+        first = "UsageLimitReachedError: stdout account limit"
+    return error + "\n" + first if diagnostic_failure(first) else error
 
 
 def run(work, tag):
@@ -264,6 +276,7 @@ def run(work, tag):
                         code, output, error = execute(
                             command, cwd, kiro_environment(cwd, environment), "", timeout
                         )
+                        error = preserve_stdout_error(output, error)
                         if account_limit(code, output, error):
                             code, error = code or 1, error + QUOTA_ERROR
                             break
@@ -302,6 +315,7 @@ def run(work, tag):
                     command[2] = framed_prompt
                     delivered = payload
                 code, output, error = execute(command, cwd, environment, delivered, timeout)
+                error = preserve_stdout_error(output, error)
                 hard_limit = account_limit(code, output, error)
                 if tag == "codex" and not hard_limit:
                     output, event_error, complete = codex_response(output, final_output)

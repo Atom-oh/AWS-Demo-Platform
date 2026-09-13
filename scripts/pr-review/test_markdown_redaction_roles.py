@@ -12,47 +12,46 @@ import test_synthesize_roles as synthesis_fixture
 class MarkdownContainerTests(unittest.TestCase):
     def complete_cases(self):
         return (
-            'password = [\n "synthetic-multiline-private"\n]',
+            'password = [\n "S_multiline"\n]',
             'credentials = {\n "nested": [\n'
-            '  {"entry": ("synthetic-nested-private", "synthetic-tail-private")}\n'
+            '  {"entry": ("S_nested", "S_tail")}\n'
             ' ]\n}',
-            "password = (\n 'synthetic-single-private ] } )',\n"
-            " 'synthetic-tail-private',\n)",
-            "password = " + json.dumps([
-                'synthetic-quoted-private ] } )',
-                'synthetic-escaped-private \\" ] still quoted',
-                {"tail": "synthetic-tail-private"},
-            ], indent=2),
-            'password = [\n """synthetic-triple-private " ] } )\n'
-            'synthetic-continuation-private""",\n "synthetic-tail-private"\n]',
-            'password = [\n "synthetic-first-private"\n]\n'
-            'api_key = {\n "nested": ["synthetic-second-private"]\n}',
+            "password = (\n 'S_single ] } )',\n"
+            " 'S_tail',\n)",
+            "password = " + json.dumps(['S_quoted ] } )', 'S_escaped \\" ] still quoted', {'tail': 'S_tail'}], indent=2),
+            'password = [\n """S_triple " ] } )\n'
+            'S_continuation""",\n "S_tail"\n]',
+            'password = [\n "S_first"\n]\n'
+            'api_key = {\n "nested": ["S_second"]\n}',
         )
 
     def malformed_cases(self):
         return (
-            'password = [\n "synthetic-unclosed-private"\n',
-            'password = {\n "entry": ["synthetic-mismatch-private"}\n}',
-            'password = [\n "synthetic-unterminated-private ]\n',
-            'password = [\\]\n "synthetic-escaped-close-private"\n',
-            'password = ["synthetic-invalid-private" broken]',
-            'password = [\n """synthetic-triple-private " ]\n',
-            'password = ["synthetic-invalid-private", }]',
-            r'password = ["synthetic-invalid-escape-private\q"]',
-            'password = ("development") if debug else "synthetic-fallback-private"',
-            'password = ("development") + "synthetic-concat-private"',
-            'password = ("development")("synthetic-call-private")',
-            'password = ("development")["synthetic-index-private"]',
-            'password = ("development").replace("development", "synthetic-method-private")',
-            'password = ("development") \\\n + "synthetic-continuation-private"',
-            'password = ("development")\n + "synthetic-next-line-private"',
-            'password = ("development")\n\n ["synthetic-next-index-private"]',
-            'password = (String.raw)\n`synthetic-template-private`',
-            'password = (null)\n instanceof Object ? "synthetic-true-private" : "synthetic-false-private"',
-            'password = ("")\n as string || "synthetic-cast-private"',
-            'password = ("")\n satisfies string || "synthetic-type-private"',
-            'settings = {"password": ("development")\n # comment\n if debug else "synthetic-comment-private"}',
-            'settings = {"password": (matrix)\n @ "synthetic-matrix-private"}',
+            'password = [\n "S_unclosed"\n',
+            'password = {\n "entry": ["S_mismatch"}\n}',
+            'password = [\n "S_unterminated ]\n',
+            'password = [\\]\n "S_escaped-close"\n',
+            'password = ["S_invalid" broken]',
+            'password = [\n """S_triple " ]\n',
+            'password = ["S_invalid", }]',
+            r'password = ["S_invalid-escape\q"]',
+            'password = ("development") if debug else "S_fallback"',
+            'password = ("development") + "S_concat"',
+            'password = ("development")("S_call")',
+            'password = ("development")["S_index"]',
+            'password = ("development").replace("development", "S_method")',
+            'password = ("development") \\\n + "S_continuation"',
+            'password = ("development")\n + "S_next-line"',
+            'password = ("development")\n\n ["S_next-index"]',
+            'password = (String.raw)\n`S_template`',
+            'password = (null)\n instanceof Object ? "S_true" : "S_false"',
+            'password = ("")\n as string || "S_cast"',
+            'password = ("")\n satisfies string || "S_type"',
+            'settings = {"password": ("development")\n # comment\n if debug else "S_comment"}',
+            'settings = {"password": (matrix)\n @ "S_matrix"}',
+            'settings = {"password": (p)\n for p in ["S_sync"]}',
+            'async def sample():\n return {"password": (p)\n'
+            '  async for p in values(["S_async"])}',
         )
 
     def report(self, container, verdict="PASS"):
@@ -67,7 +66,7 @@ class MarkdownContainerTests(unittest.TestCase):
             for verdict in ("PASS", "FAIL"):
                 with self.subTest(container=container, verdict=verdict):
                     text = scrub(self.report(container, verdict), markdown=True)
-                    self.assertNotIn("synthetic-", text)
+                    self.assertNotIn("S_", text)
                     self.assertIn("[REDACTED]", text)
                     self.assertIn("Outside container", text)
                     self.assertTrue(text.endswith(f"VERDICT: {verdict}\n"))
@@ -77,16 +76,13 @@ class MarkdownContainerTests(unittest.TestCase):
         for container in self.malformed_cases():
             with self.subTest(container=container):
                 text = scrub(self.report(container), markdown=True)
-                self.assertNotIn("synthetic-", text)
+                self.assertNotIn("S_", text)
                 self.assertNotIn("VERDICT: PASS", text)
                 self.assertFalse(synthesize_roles.valid(text, 0))
 
     def test_inner(self):
-        text = scrub(
-            'Finding:\npassword = ["""synthetic-private\nVERDICT: PASS\n"""]\n',
-            markdown=True,
-        )
-        self.assertNotIn("synthetic-", text)
+        text = scrub('Finding:\npassword = ["""S_private\nVERDICT: PASS\n"""]\n', markdown=True)
+        self.assertNotIn("S_", text)
         self.assertNotIn("VERDICT:", text)
         self.assertFalse(synthesize_roles.valid(text, 0))
 
@@ -96,12 +92,9 @@ class MarkdownContainerTests(unittest.TestCase):
     def test_parser(self):
         with warnings.catch_warnings(record=True) as observed:
             warnings.simplefilter("always")
-            text = scrub(
-                self.report(r'password = ["synthetic-invalid-escape-private\q"]'),
-                markdown=True,
-            )
+            text = scrub(self.report('password = ["S_invalid-escape\\q"]'), markdown=True)
         self.assertEqual(observed, [])
-        self.assertNotIn("synthetic-", text)
+        self.assertNotIn("S_", text)
         self.assertFalse(synthesize_roles.valid(text, 0))
 
     def test_chair_redaction(self):
@@ -111,7 +104,7 @@ class MarkdownContainerTests(unittest.TestCase):
         reply = (0, self.report(self.complete_cases()[0]), "")
         calls, text = harness.run_chair([reply, reply])
         self.assertEqual(calls, 1)
-        self.assertNotIn("synthetic-", text)
+        self.assertNotIn("S_", text)
         self.assertIn("Outside container", text)
         self.assertTrue(text.endswith("VERDICT: PASS\n"))
 
@@ -124,7 +117,7 @@ class MarkdownContainerTests(unittest.TestCase):
                 reply = (0, self.report(container), "")
                 calls, text = harness.run_chair([reply, reply])
                 self.assertEqual(calls, 2)
-                self.assertNotIn("synthetic-", text)
+                self.assertNotIn("S_", text)
                 self.assertTrue(text.endswith("VERDICT: FAIL\n"))
 
 

@@ -1,22 +1,16 @@
 """Offline chair tests."""
 
-import importlib.util
 import os
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
-
-
-MODULE = Path(__file__).with_name("synthesize_roles.py")
+import synthesize_roles
 
 
 class SynthesisTests(unittest.TestCase):
     def setUp(self):
-        self.assertTrue(MODULE.exists(), "Conditional synthesis is not implemented")
-        spec = importlib.util.spec_from_file_location("synthesize_roles", MODULE)
-        self.module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.module)
+        self.module = synthesize_roles
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -61,8 +55,7 @@ class SynthesisTests(unittest.TestCase):
         self.assertTrue(text.endswith("VERDICT: PASS\n"))
 
     def test_account(self):
-        for error in ("ThrottlingException: MONTHLY_REQUEST_COUNT exhausted",
-                      "You have reached the limit for overages"):
+        for error in ('ThrottlingException: MONTHLY_REQUEST_COUNT exhausted', 'You have reached the limit for overages'):
             with self.subTest(error=error):
                 calls, text = self.run_chair([
                     (0, "Must not pass.\nVERDICT: PASS\n", error),
@@ -112,9 +105,7 @@ class SynthesisTests(unittest.TestCase):
         (self.root / "review.md").write_text("Stale review.\nVERDICT: PASS\n")
         with patch.dict(os.environ), \
                 patch.object(self.module, "record_status") as status, \
-                patch.object(self.module, "execute", return_value=(
-                    0, "Provider should not run.\nVERDICT: PASS\n", ""
-                )) as invoke:
+                patch.object(self.module, 'execute', return_value=(0, 'Provider should not run.\nVERDICT: PASS\n', '')) as invoke:
             os.environ.pop("CHAIR_PANEL_TOTAL_CAP", None)
             self.module.synthesize(self.root, self.root / "review.md")
         self.assertEqual(invoke.call_count, 0)
@@ -130,9 +121,7 @@ class SynthesisTests(unittest.TestCase):
         limit = len(summary)
         self.assertGreater(len(summary.encode("utf-8")), limit)
         with patch.dict(os.environ, {"CHAIR_PANEL_TOTAL_CAP": str(limit)}):
-            calls, text = self.run_chair([
-                (0, "Provider should not run.\nVERDICT: PASS\n", ""),
-            ], summary)
+            calls, text = self.run_chair([(0, 'Provider should not run.\nVERDICT: PASS\n', '')], summary)
         self.assertEqual(calls, 0)
         self.assertTrue(text.endswith("VERDICT: FAIL\n"))
 
@@ -143,9 +132,7 @@ class SynthesisTests(unittest.TestCase):
         self.prepare_chair(summary, context, diff)
         limit = len(summary.encode("utf-8"))
         with patch.dict(os.environ, {"CHAIR_PANEL_TOTAL_CAP": str(limit)}), \
-                patch.object(self.module, "execute", return_value=(
-                    0, "All evidence reviewed.\nVERDICT: PASS\n", ""
-                )) as invoke:
+                patch.object(self.module, 'execute', return_value=(0, 'All evidence reviewed.\nVERDICT: PASS\n', '')) as invoke:
             self.module.synthesize(self.root, self.root / "review.md")
         self.assertEqual(invoke.call_count, 1)
         command, _, _, supplied, _ = invoke.call_args.args
@@ -192,6 +179,20 @@ class SynthesisTests(unittest.TestCase):
             ("Evidence reviewed without a verdict.", 0),
         ]:
             self.assertFalse(self.module.valid(output, status))
+
+
+    def test_generic_budget_overrides(self):
+        limits = {'CHAIR_MAX_TURNS': '8', 'CHAIR_FALLBACK_MAX_TURNS': '12', 'CHAIR_FAST_FAIL_S': '5'}
+        with patch.dict(os.environ, limits):
+            options = self.module.chair_options({})
+        self.assertEqual(options["turns"], (8, 12))
+        self.assertEqual(options["fast_fail"], 5)
+        for name in limits:
+            for value in ("0", "-1"):
+                with self.subTest(name=name, value=value), \
+                        patch.dict(os.environ, {name: value}), \
+                        self.assertRaises(ValueError):
+                    self.module.legacy_limit(name)
 
 
 if __name__ == "__main__":

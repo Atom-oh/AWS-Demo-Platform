@@ -1,6 +1,5 @@
 """Trusted preparation tests."""
 
-import importlib.util
 import hashlib
 import json
 import os
@@ -9,12 +8,10 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
+import prepare_roles as prepare
 
 
 MODULE = Path(__file__).with_name("prepare_roles.py")
-spec = importlib.util.spec_from_file_location("prepare_roles", MODULE)
-prepare = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(prepare)
 
 
 class PreparationTests(unittest.TestCase):
@@ -89,8 +86,7 @@ class PreparationTests(unittest.TestCase):
         directory = self.root / "scripts/pr-review"
         directory.mkdir(parents=True)
         self.prepare_locally(self.base, self.base, directory)
-        self.assertEqual((self.root / "work/project-context.md").read_text(),
-                         "Trusted reviewer context.\n")
+        self.assertEqual((self.root / 'work/project-context.md').read_text(), 'Trusted reviewer context.\n')
         hook = directory / "prepare_context_roles.py"
         hook.write_text("raise RuntimeError('must never execute untracked code')\n")
         with self.assertRaisesRegex(ValueError, "trusted base"):
@@ -108,6 +104,13 @@ class PreparationTests(unittest.TestCase):
         self.git("add", ".")
         self.git("commit", "-qm", "stale")
         with self.assertRaisesRegex(ValueError, "stale"):
+            prepare.context_at(self.git("rev-parse", "HEAD").strip(), 24000)
+
+    def test_missing_agents(self):
+        (self.root / "AGENTS.md").unlink()
+        self.git("add", ".")
+        self.git("commit", "-qm", "delete digest")
+        with self.assertRaisesRegex(ValueError, "missing"):
             prepare.context_at(self.git("rev-parse", "HEAD").strip(), 24000)
 
     def test_base(self):
@@ -129,12 +132,10 @@ class PreparationTests(unittest.TestCase):
         python = fake / "python3"
         python.write_text('#!/bin/sh\nprintf "%s" "$REVIEW_CONTEXT_CAP" > "$CAPTURE"\nexit 2\n')
         python.chmod(0o755)
-        for value, expected in ((None, "12288"), ("8192", "8192"),
-                                ("12289", None), ("0", None), ("invalid", None)):
+        for value, expected in ((None, '12288'), ('8192', '8192'), ('12289', None), ('0', None), ('invalid', None)):
             with self.subTest(value=value):
                 capture.unlink(missing_ok=True)
-                env = dict(os.environ, PATH=str(fake) + os.pathsep + os.environ["PATH"],
-                           CAPTURE=str(capture))
+                env = dict(os.environ, PATH=str(fake) + os.pathsep + os.environ['PATH'], CAPTURE=str(capture))
                 env.pop("REVIEW_CONTEXT_CAP", None)
                 if value is not None:
                     env["REVIEW_CONTEXT_CAP"] = value
