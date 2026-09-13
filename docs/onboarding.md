@@ -75,6 +75,11 @@ commit messages. Keep the source, documentation and generated context aligned.
   do not trigger on project/account-only changes, so arrange a build and rollout.
   ArgoCD tenant coverage is needed only when this hub actually owns those workloads.
 
+For independently operated projects, use `management: external` instead of a
+dummy controller or hub ArgoCD target. The platform exposes metadata/links and
+blocks resource changes. Follow the [FSI registration runbook](runbooks/aws-fsi-demo-registration.md)
+for its account, ownership and image-rollout boundaries.
+
 ## Preparing a demo
 
 - Add optional `briefing` text to schema-valid project YAML; the detail drawer

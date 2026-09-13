@@ -25,6 +25,7 @@ Historical names, cost estimates and catalog probes are not current guarantees.
 | [016](ADR-016-multi-ai-pr-review-panel.md) | Panel/chair architecture, shared context and runner-image ownership | Partially amended; retains context-delivery and compatibility updates |
 | [017](ADR-017-demo-scale-job-operation.md) | Async scale and HPA restoration | Accepted partial-failure limits; inspect before next off cycle |
 | [018](ADR-018-grafana-private-origin.md) | Grafana private path and credential rollout | Split repo/state ownership and producer-first readiness |
+| [019](ADR-019-externally-managed-projects.md) | Registration without resource control | External management enforced by API, worker and UI |
 
 [PR review](../pr-review.md) maps configured slots, trusted inputs and actual
 coverage behavior. [Review and release](../runbooks/review-and-release.md) defines

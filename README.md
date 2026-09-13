@@ -18,6 +18,8 @@ runtime definitions. This is a non-production platform.
   [HPA recovery](docs/decisions/ADR-017-demo-scale-job-operation.md) requires saved bounds.
 - Use Cognito access-token authorization, scoped cross-account roles/ExternalIds,
   Atlantis-managed Terraform and hub/spoke ArgoCD Applications.
+- Register independently operated projects, including `aws-fsi-demo`, with
+  read-only metadata and demo links under [external management](docs/decisions/ADR-019-externally-managed-projects.md).
 - Route public traffic through CloudFront, a private VPC Origin and internal ALB.
   [Architecture](docs/architecture.md) defines ownership, including Grafana's
   cross-repository CloudFront/DNS boundary.

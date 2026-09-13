@@ -7,9 +7,19 @@ import {
   createLogger,
   type Project,
   type Account,
+  type StateClient,
 } from '@demo-platform/shared';
 
 const log = createLogger({ name: 'projects-loader' });
+
+export async function seedPlatformStates(
+  projects: Record<string, Project>,
+  state: Pick<StateClient, 'upsertInitial'>,
+): Promise<void> {
+  await Promise.all(Object.entries(projects)
+    .filter(([, project]) => project.management !== 'external')
+    .map(([repo]) => state.upsertInitial(repo)));
+}
 
 export async function loadProjects(dir: string): Promise<Record<string, Project>> {
   const entries = await fs.readdir(dir);

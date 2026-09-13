@@ -130,6 +130,13 @@ The current schema supports toggle controllers for ECS, EC2, RDS and ArgoCD apps
 several other resource types are intentionally visibility-only. A project entry
 must match the schema and actual controller/ArgoCD owner, not a future design.
 
+`management: external` registers metadata and links without adopting resource
+control. The API exposes no lifecycle state and blocks mutation requests; the
+worker also refuses those jobs. Startup skips state initialization and the UI
+shows external management. FSI keeps its own GitOps owner and is registered with
+supported DynamoDB metadata, not a fabricated hub ArgoCD target.
+See [ADR-019](decisions/ADR-019-externally-managed-projects.md).
+
 ## Runtime and deployment contracts
 
 - The configured platform compute region is `ap-northeast-2`; CloudFront is global

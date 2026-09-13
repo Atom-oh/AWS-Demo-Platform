@@ -24,6 +24,11 @@ const validProject = {
 };
 
 describe('ProjectSchema', () => {
+  it('preserves external management and rejects unknown modes', () => {
+    expect(ProjectSchema.parse({ ...validProject, management: 'external' }).management).toBe('external');
+    expect(ProjectSchema.parse(validProject).management).toBeUndefined();
+    expect(() => ProjectSchema.parse({ ...validProject, management: 'automatic' })).toThrow();
+  });
   it('parses a full valid project', () => {
     const p: Project = ProjectSchema.parse(validProject);
     expect(p.name).toBe('multi-region-mall');

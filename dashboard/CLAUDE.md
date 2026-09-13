@@ -13,8 +13,8 @@ and the [frontend guide](frontend/CLAUDE.md) for UI behavior.
 | `api` | Auth, configured project metadata, lifecycle/scale validation, job creation and enqueue |
 | `worker` | SQS polling, startup recovery, ECS/EC2/RDS/ArgoCD controllers and GitHub discovery |
 
-The API loads schema-valid project YAML at boot and seeds missing state rows as
-`on`; invalid project documents are logged and skipped. State is bookkeeping, not
+The API loads schema-valid project YAML at boot and seeds missing platform-managed
+state rows as `on`; invalid project documents are logged and skipped. State is bookkeeping, not
 a resource health probe. The worker separately loads projects/accounts at boot.
 Its immediate/hourly GitHub discovery writes `meta#discoverable` to DynamoDB;
 the API/UI do not consume that snapshot or automatically onboard those repositories.
@@ -23,6 +23,12 @@ AWS controllers assume the account's configured operator role with its ExternalI
 One worker-wide ArgoCD client uses `ARGOCD_BASE_URL`; each call supplies the
 resource's `workload_selector.namespace`. The `cluster` field does not select
 another ArgoCD endpoint. See [ADR-002](../docs/decisions/ADR-002-argocd-control-via-rest-api.md).
+
+`management: external` exposes only metadata/URLs, returns `state: null` and skips
+state initialization. API mutation routes reject it before state/queue writes;
+the worker refuses external jobs without controller or project-state calls.
+The frontend derives its external-management status from metadata rather than
+creating a DynamoDB state value. See [ADR-019](../docs/decisions/ADR-019-externally-managed-projects.md).
 
 ## Contracts to preserve
 

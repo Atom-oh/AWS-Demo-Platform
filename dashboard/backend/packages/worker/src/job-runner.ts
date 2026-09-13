@@ -43,7 +43,22 @@ export interface RunJobOpts {
   logger: Logger;
 }
 
+export async function rejectExternalJob(
+  opts: Pick<RunJobOpts, 'job' | 'account' | 'ddb' | 'logger'>,
+): Promise<void> {
+  const error = `project is externally managed: ${opts.job.repo}`;
+  await opts.ddb.jobs.markFailed(opts.job.id, error);
+  await opts.ddb.history.append({
+    repo: opts.job.repo, action: opts.job.operation, actor: opts.job.actor,
+    account: opts.account, result: 'failure', details: { error },
+  });
+  opts.logger.warn({ jobId: opts.job.id, repo: opts.job.repo }, error);
+}
+
 export async function runJob(opts: RunJobOpts): Promise<void> {
+  if (opts.project.management === 'external') {
+    return rejectExternalJob(opts);
+  }
   if (opts.job.operation === 'scale') {
     return runScaleJob(opts);
   }

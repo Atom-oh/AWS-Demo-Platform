@@ -12,7 +12,7 @@ import type {
   ScaleTarget,
 } from '@demo-platform/shared';
 import type { Controllers, DDB } from './job-runner.js';
-import { runJob as defaultRunJob } from './job-runner.js';
+import { runJob as defaultRunJob, rejectExternalJob } from './job-runner.js';
 
 interface MessageBody {
   jobId: string;
@@ -62,6 +62,22 @@ export async function runOnce(ctx: PollContext): Promise<boolean> {
     await ctx.sqsClient.send(
       new DeleteMessageCommand({ QueueUrl: ctx.queueUrl, ReceiptHandle: msg.ReceiptHandle! }),
     );
+    return true;
+  }
+
+  // Reject before account lookup or credentialed controller construction.
+  if (project.management === 'external') {
+    try {
+      await rejectExternalJob({
+        job: { id: body.jobId, repo: body.repo, operation: body.operation, actor: 'system', targets: body.targets },
+        account: project.account, ddb: ctx.ddb, logger: ctx.logger,
+      });
+      await ctx.sqsClient.send(
+        new DeleteMessageCommand({ QueueUrl: ctx.queueUrl, ReceiptHandle: msg.ReceiptHandle! }),
+      );
+    } catch (err) {
+      ctx.logger.error({ err, jobId: body.jobId }, 'external job rejection failed; visibility timeout will redeliver');
+    }
     return true;
   }
 

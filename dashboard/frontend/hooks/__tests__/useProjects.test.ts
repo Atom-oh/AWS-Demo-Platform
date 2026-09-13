@@ -25,6 +25,24 @@ async function setup() {
   return result;
 }
 
+describe('external project display', () => {
+  afterEach(() => vi.restoreAllMocks());
+  it('keeps external ownership on initial load and refresh regardless of stored state', async () => {
+    mockedApi.listProjects.mockResolvedValue([{ repo: 'org/external', name: 'External', account: 'main' }]);
+    const project: Project = {
+      name: 'External', github: { repo: 'org/external', branch: 'main' }, account: 'main',
+      management: 'external', resources: [{ type: 'dynamodb', stepKey: 'dynamodb', table_names: ['table'], always_on: true }],
+    };
+    mockedApi.getProject.mockResolvedValue({ project, state: { status: 'on' } });
+    const { result } = renderHook(() => useProjects());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.rows[0].status).toBe('external');
+    mockedApi.getProject.mockResolvedValue({ project, state: { status: 'off' } });
+    await act(async () => { await result.current.reload(); });
+    expect(result.current.rows[0].status).toBe('external');
+  });
+});
+
 describe('toggle()', () => {
   afterEach(() => {
     vi.useRealTimers();

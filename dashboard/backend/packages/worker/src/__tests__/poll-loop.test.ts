@@ -28,6 +28,45 @@ const account = {
 };
 
 describe('runOnce', () => {
+  it('rejects external jobs before resolving account credentials or building controllers', async () => {
+    sqsMock.on(ReceiveMessageCommand).resolves({
+      Messages: [{ Body: JSON.stringify({ jobId: 'external-job', repo: 'foo/bar', operation: 'turn_off' }), ReceiptHandle: 'external-handle' }],
+    });
+    sqsMock.on(DeleteMessageCommand).resolves({});
+    const markFailed = vi.fn();
+    const append = vi.fn();
+    const buildControllers = vi.fn(async () => { throw new Error('operator credentials unavailable'); });
+    await runOnce({
+      sqsClient: sqsMock as unknown as SQSClient, queueUrl: 'q', waitSeconds: 0,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      projectByRepo: { 'foo/bar': { ...baseProject, management: 'external' } },
+      accountsByName: { 'atomoh-main': account }, buildControllers,
+      ddb: { jobs: { markFailed }, history: { append }, state: {} },
+    } as never);
+    expect(buildControllers).not.toHaveBeenCalled();
+    expect(markFailed).toHaveBeenCalledWith('external-job', expect.stringContaining('externally managed'));
+    expect(append).toHaveBeenCalledWith(expect.objectContaining({ result: 'failure', repo: 'foo/bar' }));
+    expect(sqsMock.commandCalls(DeleteMessageCommand)).toHaveLength(1);
+  });
+
+  it('retains an external message for retry when rejection cannot be recorded', async () => {
+    sqsMock.on(ReceiveMessageCommand).resolves({
+      Messages: [{ Body: JSON.stringify({ jobId: 'external-job', repo: 'foo/bar', operation: 'scale' }), ReceiptHandle: 'external-handle' }],
+    });
+    const buildControllers = vi.fn();
+    const markFailed = vi.fn(async () => { throw new Error('platform storage unavailable'); });
+    await runOnce({
+      sqsClient: sqsMock as unknown as SQSClient, queueUrl: 'q', waitSeconds: 0,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      projectByRepo: { 'foo/bar': { ...baseProject, management: 'external' } },
+      accountsByName: {}, buildControllers,
+      ddb: { jobs: { markFailed }, history: { append: vi.fn() }, state: {} },
+    } as never);
+    expect(buildControllers).not.toHaveBeenCalled();
+    expect(markFailed).toHaveBeenCalled();
+    expect(sqsMock.commandCalls(DeleteMessageCommand)).toHaveLength(0);
+  });
+
   it('processes a message: read project, run job, delete message', async () => {
     sqsMock.on(ReceiveMessageCommand).resolves({
       Messages: [

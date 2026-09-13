@@ -1,7 +1,13 @@
-import type { Status } from './types';
+import type { Project, Status } from './types';
+
+export function projectStatus(project: Project | null | undefined, status?: string | null): Status {
+  if (project?.management === 'external') return 'external';
+  if (status === 'on' || status === 'off' || status === 'transitioning' || status === 'error') return status;
+  return 'unknown';
+}
 
 export const STATUS_LABEL: Record<Status, string> = {
-  on: '실행 중', off: '중지됨', transitioning: '전환 중', error: '확인 필요', unknown: '상태 미확인',
+  on: '실행 중', off: '중지됨', transitioning: '전환 중', error: '확인 필요', unknown: '상태 미확인', external: '외부 관리',
 };
 
 export const RESOURCE_LABEL: Record<string, string> = {

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { listProjects, getProject, toggleProject, getJob, scaleProject } from '@/lib/api';
 import type { ProjectRow, Status, ScaleTarget } from '@/lib/types';
-import { ECS_SCALE_NOTE, HPA_SCALE_NOTE, HPA_SCALE_WARNING } from '@/lib/presentation';
+import { ECS_SCALE_NOTE, HPA_SCALE_NOTE, HPA_SCALE_WARNING, projectStatus } from '@/lib/presentation';
 
 type Notify = (msg: string, err?: boolean) => void;
 
@@ -40,7 +40,7 @@ export function useProjects() {
       if (rowRequestIds.current[repo] !== requestId) return rs;
       return rs.map((r) =>
           r.repo === repo
-            ? { ...r, project: detail.project, status: (detail.state?.status as Status) ?? 'unknown' }
+            ? { ...r, project: detail.project, status: projectStatus(detail.project, detail.state?.status) }
             : r,
       );
     });
@@ -58,7 +58,7 @@ export function useProjects() {
           const { requestId, detail } = await readProject(it.repo);
           const row: ProjectRow = {
             ...it, project: detail?.project ?? null,
-            status: (detail?.state?.status as Status) ?? 'unknown',
+            status: projectStatus(detail?.project, detail?.state?.status),
           };
           return { requestId, row };
         }),
