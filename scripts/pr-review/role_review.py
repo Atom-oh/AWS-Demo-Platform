@@ -421,12 +421,12 @@ def prepare(args):
                 for x in declared
             ):
                 raise Invalid("invalid_input_provenance")
-            failures.extend(declared)
+            failures.extend(code if scrub(code) == code else "collector_input_failure" for code in declared)
         except Invalid:
             provenance = {}
             failures.append("invalid_input_provenance")
     material, policy_hash = None, None
-    scope_names = set()
+    scope_fields = {}
     try:
         manifest = strict_json(text_file(args.paths)) if args.paths else None
         metadata_only = provenance.get("path_only", [])
@@ -441,14 +441,15 @@ def prepare(args):
                 raise Invalid("invalid_exclusions_policy")
             material, policy_hash = candidate, digest(candidate)
         paths = [] if policy_hash else diff_paths(diff, manifest, metadata_only)
-        scope_names.update(paths)
         for key in ("scope_paths", "excluded_paths", "path_only"):
-            values = provenance.get(key, [])
-            if not isinstance(values, list):
-                raise Invalid("invalid_input_provenance")
-            scope_names.update(repo_path(path) for path in values)
+            if key in provenance:
+                values = provenance[key]
+                if not isinstance(values, list):
+                    raise Invalid("invalid_input_provenance")
+                scope_fields[key] = [repo_path(path) for path in values]
     except Invalid as exc:
         paths = []
+        scope_fields = {}
         failures.append(str(exc))
     anchor = work / "exclusions-policy.json"
     if material is not None:
@@ -457,7 +458,7 @@ def prepare(args):
         remove(anchor)
     if re.search(r"^(?:Binary files .* differ|GIT binary patch)$", diff, re.M):
         failures.append("binary_content_not_reviewable")
-    provenance = scrub(provenance, frozenset(scope_names))
+    provenance = {**scrub(provenance), **scope_fields}
     plan = {
         "schema_version": 1, "head_sha": args.head, "base_sha": args.base,
         "diff_sha256": digest(raw), "context_sha256": digest(context.encode()),
@@ -591,11 +592,10 @@ def _issue_request(work, tag):
         raise Invalid("missing_record_result")
     if previous.exists():
         prior = strict_json(text_file(previous))
-        if not isinstance(prior, dict):
-            raise Invalid("valid_result_reissue")
+        validate_result(prior, plan, tag, issued_request(work, plan, tag)["invocation_nonce"])
         history_file = work / "slot" / f"{tag}-attempts.json"
-        history = strict_json(text_file(history_file)) if history_file.exists() else []
-        if not isinstance(history, list) or len(history) >= 32:
+        history = attempt_history(work, tag)
+        if len(history) >= 32:
             raise Invalid("attempt_history_limit")
         history.append(prior)
         write_json(history_file, history)
@@ -683,6 +683,36 @@ def validate_response(response, plan, tag):
         raise Invalid("invalid_uncertainties")
 
 
+def validate_result(result, plan, tag, nonce=None):
+    if plan is None or not isinstance(result, dict):
+        raise Invalid("invalid_role_result")
+    role = plan["roles"][tag]
+    actual = result.get("invocation_nonce", "")
+    if nonce is not None and actual != nonce:
+        raise Invalid("invalid_invocation_nonce")
+    expected = {"schema_version": 1, "tag": tag, **{
+        k: plan[k] for k in ("head_sha", "base_sha", "plan_digest")
+    }, **{k: role[k] for k in ("role", "family", "model")},
+        "prepared_request_digest": role["request_digest"],
+        "request_digest": invocation_digest(role["request_digest"], actual)}
+    if any(result.get(k) != v for k, v in expected.items()):
+        raise Invalid("stale_result_metadata")
+    codes = result.get("failure_codes")
+    if result.get("valid") is not True:
+        if (result.get("valid") is not False or not isinstance(codes, list) or not codes
+                or any(not isinstance(code, str) or code not in FAILURE_CODES for code in codes)
+                or result.get("response") is not None or "response_digest" in result):
+            raise Invalid("invalid_role_result")
+        return None
+    if codes != []:
+        raise Invalid("invalid_role_result")
+    response = result.get("response")
+    validate_response(response, plan, tag)
+    if result.get("response_digest") != digest(response):
+        raise Invalid("invalid_response_digest")
+    return response
+
+
 def parse_response(text):
     text = "\n".join(re.sub(r"^\s*> ?", "", line) for line in text.splitlines()).strip()
     if text.startswith("```"):
@@ -731,20 +761,18 @@ SENSITIVE_KEY = re.compile(
 )
 
 
-def scrub(value, preserved=frozenset()):
-    """Scrub decoded strings too: raw-JSON sanitizers miss escaped credentials."""
+def scrub(value, keep=()):
+    """Keep only caller-validated structural fields; scrub free-text JSON too."""
     if isinstance(value, list):
-        return [scrub(x, preserved) for x in value]
+        return [scrub(x, keep) for x in value]
     if isinstance(value, dict):
         fields = {str(k).lower(): v for k, v in value.items()}
         sensitive_values = {v for k, v in (("name", "value"), ("headername", "headervalue"))
                             if isinstance(fields.get(k), str) and SENSITIVE_KEY.fullmatch(fields[k])}
-        return {k: "[REDACTED]" if isinstance(k, str) and (
+        return {scrub(k): v if k in keep else "[REDACTED]" if isinstance(k, str) and (
             SENSITIVE_KEY.fullmatch(k) or k.lower() in sensitive_values
-        ) else scrub(v, preserved) for k, v in value.items()}
+        ) else scrub(v, keep) for k, v in value.items()}
     if not isinstance(value, str):
-        return value
-    if value in preserved:
         return value
     value = re.sub(r"(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]", "", value)
     value = re.sub(r"(?:\x1b[\]PX^_]|\x9d|\x90|\x98|\x9e|\x9f).*?(?:\x07|\x9c|\x1b\\|$)", "", value, flags=re.S)
@@ -753,12 +781,12 @@ def scrub(value, preserved=frozenset()):
     try:
         decoded = strict_json(value)
         if isinstance(decoded, (dict, list)):
-            return canonical(scrub(decoded, preserved))
+            return canonical(scrub(decoded))
     except Invalid:
         pass
     def quoted(match):
         try:
-            return canonical(scrub(strict_json(match.group()), preserved))
+            return canonical(scrub(strict_json(match.group())))
         except Invalid:
             return match.group()
     # Decode nested JSON strings/escaped keys before applying key/value patterns.
@@ -850,7 +878,7 @@ def _record(args):
             raise Invalid(result["failure_codes"][0])
         response = parse_response(text_file(args.output))
         validate_response(response, plan, args.tag)
-        response = scrub(response, frozenset(role["paths"]))
+        response = scrub(response, ("path", "reviewed_paths"))
         validate_response(response, plan, args.tag)
         result.update(valid=True, response=response, response_digest=digest(response))
     except Invalid as exc:
@@ -891,34 +919,13 @@ def aggregate(args):
             seen.add(tag)
             try:
                 result = strict_json(text_file(file))
-                role = plan["roles"][tag]
                 receipt = issued_request(work, plan, tag)
-                if not isinstance(result, dict):
-                    raise Invalid("invalid_role_result")
-                nonce = result.get("invocation_nonce", "")
-                if nonce != receipt["invocation_nonce"]:
-                    raise Invalid("invalid_invocation_nonce")
-                expected = {"schema_version": 1, "tag": tag, **{
-                    k: plan[k] for k in ("head_sha", "base_sha", "plan_digest")
-                }, **{k: role[k] for k in ("role", "family", "model")},
-                    "prepared_request_digest": role["request_digest"],
-                    "request_digest": invocation_digest(role["request_digest"], nonce)}
-                if not isinstance(result, dict) or any(result.get(k) != v for k, v in expected.items()):
-                    raise Invalid("stale_result_metadata")
-                if result.get("valid") is not True or result.get("failure_codes") != []:
-                    codes = result.get("failure_codes")
-                    if not isinstance(codes, list) or not codes or any(
-                        not isinstance(code, str) or code not in FAILURE_CODES for code in codes
-                    ):
-                        raise Invalid("invalid_role_result")
-                    failures.extend(f"{code}:{tag}" for code in codes)
+                response = validate_result(result, plan, tag, receipt["invocation_nonce"])
+                if response is None:
+                    failures.extend(f"{code}:{tag}" for code in result["failure_codes"])
                     continue
-                response = result.get("response")
-                validate_response(response, plan, tag)
-                if result.get("response_digest") != digest(response):
-                    raise Invalid("invalid_response_digest")
                 responded.append(tag)
-                findings.extend({"tag": tag, **scrub(item, frozenset(plan["paths"]))} for item in response["findings"])
+                findings.extend({"tag": tag, **scrub(item, ("path",))} for item in response["findings"])
                 uncertainties.extend({"tag": tag, "text": scrub(text)} for text in response["uncertainties"])
             except Invalid as exc:
                 failures.append(f"{exc}:{tag}")
@@ -930,24 +937,17 @@ def aggregate(args):
         path = work / "slot" / f"{tag}-attempts.json"
         if path.exists():
             try:
-                attempts = strict_json(text_file(path))
-                if not isinstance(attempts, list) or len(attempts) > 32:
-                    raise Invalid("invalid_attempt_history")
-                history[tag] = scrub(attempts, frozenset(plan["paths"]) if plan else frozenset())
+                attempts = attempt_history(work, tag)
+                history[tag] = scrub(attempts)
                 for number, prior in enumerate(attempts, 1):
-                    if not isinstance(prior, dict):
-                        raise Invalid("invalid_attempt_history")
-                    if prior.get("valid") is not True:
+                    response = validate_result(prior, plan, tag)
+                    if response is None:
+                        failures.extend(f"{code}:{tag}" for code in
+                                        TERMINAL_CODES.intersection(prior["failure_codes"]))
                         continue
-                    if (plan is None or prior.get("plan_digest") != plan["plan_digest"]
-                            or prior.get("tag") != tag):
-                        raise Invalid("invalid_attempt_history")
-                    response = prior.get("response")
-                    validate_response(response, plan, tag)
-                    if prior.get("response_digest") != digest(response):
-                        raise Invalid("invalid_attempt_history")
+                    history[tag][number - 1]["response"] = scrub(response, ("path", "reviewed_paths"))
                     # History retains candidates, never current-role coverage.
-                    findings.extend({"tag": tag, "source_attempt": number, **scrub(item, frozenset(plan["paths"]))}
+                    findings.extend({"tag": tag, "source_attempt": number, **scrub(item, ("path",))}
                                     for item in response["findings"]
                                     if item["severity"] in ("CRITICAL", "MAJOR"))
                     uncertainties.extend({"tag": tag, "source_attempt": number, "text": scrub(text)}
