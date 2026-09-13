@@ -1,8 +1,9 @@
 # Dashboard detail drawer — historical design
 
 **Date:** 2026-06-14. **Original status:** proposed after panel review, pending approval.
-**Reconciled:** 2026-09-13. The drawer and history route are implemented; several
-UI details evolved. Full draft and review transcript remain in Git history.
+**Reconciled:** 2026-09-13. UI history below runs through PR #103; the drawer and
+history route were implemented. Full draft and review transcript remain in Git
+history.
 
 ## Intent and boundaries
 
@@ -19,7 +20,7 @@ or TTL. `limit` defaults to 20 for invalid/nonpositive parsed values and caps at
 whole query string. Unknown projects return 404. The API task receives
 `DDB_TABLE_HISTORY`; the existing task-role policy supplies table access.
 
-## Current applicability
+## Implementation through PR #103
 
 The [history route](../../../dashboard/backend/packages/api/src/routes/history.ts),
 [route tests](../../../dashboard/backend/packages/api/src/__tests__/history.test.ts)
@@ -35,8 +36,9 @@ shows action/result/actor/time. The local simulated dev API has no history route
 so its error state cannot validate real history retrieval.
 
 The original backend-before-frontend rollout rationale still applies: verify the
-producer endpoint before deploying a consumer. Current UI behavior and checks
-belong to the [frontend guide](../../../dashboard/frontend/CLAUDE.md);
+producer endpoint before deploying a consumer. PR #107 later added table-based
+selection, on/off batches and page-level operation guards; current behavior and
+checks belong to the [frontend guide](../../../dashboard/frontend/CLAUDE.md);
 [ADR-001](../../decisions/ADR-001-sqs-worker-for-async-jobs.md) explains why worker
 history is best-effort and uses actor `system`. Use the
 [release runbook](../../runbooks/review-and-release.md), not old revision-selection
