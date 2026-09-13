@@ -98,3 +98,6 @@ offline library, must establish complete Git scope and approved exclusions.
 
 Valid historical Critical/Major candidates and uncertainties remain subject to
 adjudication after reissue; old attempts never provide current-role coverage.
+
+The model table targets CI's Bedrock Runtime provider. Local Mantle uses
+`openai.gpt-6-astra` for Astra; provider-specific identifiers are not interchangeable.
