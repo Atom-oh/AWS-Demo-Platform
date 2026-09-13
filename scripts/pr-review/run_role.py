@@ -197,7 +197,7 @@ def normalize_transport(text):
 def preserve_stdout_error(output, error):
     lines = normalize_transport(output).lstrip().splitlines()
     first = re.sub(r"^> ?", "", lines[0]) if lines else ""
-    # JSON review evidence and JSONL events are not text-mode CLI diagnostics.
+    # JSON reviews/events are not CLI diagnostics.
     if first.startswith(("{", "```")):
         return error
     if first.startswith("You have reached the limit for overages"):
