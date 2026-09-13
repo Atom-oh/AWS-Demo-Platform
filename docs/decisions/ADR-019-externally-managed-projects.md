@@ -48,6 +48,14 @@ credentials or changing their infrastructure. This registration does not inspect
 table contents, discover live workload health or provide FSI on/off/scale control.
 Full lifecycle integration remains a separate change.
 
+Changing management mode is an ownership handover, not automatic state migration.
+Quiesce submissions and settle queued/running jobs before transferring an existing
+project. A late rejected job leaves prior lifecycle/restoration data untouched,
+including a possible `transitioning` state. Before re-adoption, reconcile that
+bookkeeping with the actual resources and retained HPA baselines; simply removing
+`management: external` does not recover or validate old state. This FSI registration
+creates a new external entry and performs no such handover.
+
 Ship worker enforcement before API exposure, followed by the frontend display.
 Images bundle code and metadata; use verified immutable digests. During rollback,
 restore a compatible code/config bundle, never feed external metadata to older

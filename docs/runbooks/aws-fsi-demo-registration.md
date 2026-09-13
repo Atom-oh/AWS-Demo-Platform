@@ -38,6 +38,19 @@ Use approved synthetic samples for any separate FSI demonstration.
 No FSI resource mutation is needed for verification. Local simulator tests are
 not live deployment evidence; record actual runtime checks separately.
 
+## Existing-project ownership changes
+
+This registration adds FSI directly as external. For a later ownership change,
+quiesce new submissions and settle all pending/running jobs and queued messages
+before changing the project's management mode. A late rejected job fails its job
+record but deliberately preserves project state, which may remain `transitioning`.
+
+Before returning an external project to platform control, inspect its actual
+resources, retained lifecycle/restoration data and HPA baselines. Reconcile the
+platform state under a separate, reviewed handover before enabling controls.
+Removing the external marker alone is not a recovery procedure; do not assume
+`on`, delete restoration data or clear a transition without resource evidence.
+
 ## Rollback
 
 Restore verified retained image digests and the captured service settings.
