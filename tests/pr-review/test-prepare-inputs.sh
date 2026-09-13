@@ -48,6 +48,10 @@ check() {
     prep_fail=1
   fi
 }
+# Check the actual generated digest as well as synthetic runtime boundaries.
+# The installed generator permits 32 KiB; this workflow's argv budget is 12 KiB.
+check test "$(wc -c < "$PREP_ROOT/AGENTS.md")" -gt 0
+check test "$(wc -c < "$PREP_ROOT/AGENTS.md")" -le 12288
 bash "$PREP_ROOT/scripts/pr-review/prepare-inputs.sh" HEAD BASE "$PREP_TMP/work" >/dev/null
 for lens in L2 L3 L4 L5; do
   check grep -Fq 'Documentation is English; product UI copy may be Korean.' "$PREP_TMP/work/lenses/$lens.txt"

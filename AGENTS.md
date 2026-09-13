@@ -64,6 +64,7 @@ ECS dashboard tasks/images stay ARM64 (`linux/arm64`) in `ap-northeast-2`. EKS h
 `mall-apne2-mgmt` hosts GitOps/automation/observability/runners, not ECS dashboard.
 Spokes: `mall-apne2-az-a`/`mall-apne2-az-c`. Some system overlays target spokes; use
 owning Application destinations and actual NodePool taints/tolerations.
+ESO uses `external-secrets.io/v1` and `ClusterSecretStore aws-secrets-manager`.
 
 Public traffic: CloudFront → VPC Origin → internal ALB → target IPs. ALB HTTPS SG
 accepts exactly CF VPC Origin source SG plus `10.0.0.0/8`. TGB registers Pod IPs,
@@ -95,7 +96,8 @@ Shared owns schemas/clients; API validates/queues; worker operates resources.
 Lifecycle sets transitioning, persists job, returns 202. State/job/queue writes are
 separate; retry/resume is not exactly once. SQS redrive: three receives (ADR-001).
 Off captures restoration per unique `stepKey`; failed on preserves it via markError.
-Managed Kubernetes off pins HPA min/max and replicas to 1; on restores captures.
+Lifecycle targets come from schema-validated `projects/` resources; `always_on`
+resources are skipped. Managed Kubernetes off pins HPA min/max and replicas to 1; on restores captures.
 This is not a rule for every HPA/Application. ArgoCD REST uses per-call namespaces
 and one configured endpoint; cluster metadata alone does not select another API.
 
