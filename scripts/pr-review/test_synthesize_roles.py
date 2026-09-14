@@ -247,6 +247,36 @@ class SynthesisTests(unittest.TestCase):
                 self.assertIn("Reviewed behavior.", text)
                 self.assertTrue(text.endswith("VERDICT: PASS\n"))
 
+    def test_source_comment_ticks_cannot_open_later_values(self):
+        for example in (
+            "/* literal ` */\nconst password = tag` private-value`;",
+            "/* start\nliteral `\n*/\nconst password = tag` private-value`;",
+            "const publicValue = 1; // literal `\nconst password = tag` private-value`;",
+            "#comment `\npassword=prefix` printf 'private-value'`",
+        ):
+            with self.subTest(example=example):
+                reply = (0, example + "\n\nReviewed behavior.\nVERDICT: PASS\n", "")
+                calls, text = self.run_chair([reply, reply])
+                self.assertEqual(calls, 1)
+                self.assertNotIn("private-value", text)
+                self.assertIn("Reviewed behavior.", text)
+                self.assertTrue(text.endswith("VERDICT: PASS\n"))
+
+    def test_comment_detection_preserves_markdown_and_strings(self):
+        import role_review
+        cases = (
+            ("Run `first\nsecond` // note", "first\nsecond"),
+            ("// Checked `public()`", "public()"),
+            ("/* Checked `public()` */", "public()"),
+            ("Run https://example.invalid/ `first\nsecond`.", "first\nsecond"),
+            ("Run `echo \"https://example.invalid/\"\nsecond`.", 'echo "https://example.invalid/"\nsecond'),
+            ("Run `echo '/* marker */'\nsecond`.", "echo '/* marker */'\nsecond"),
+            ("Run `first /* note */\nsecond`.", "first /* note */\nsecond"),
+        )
+        for value, expected in cases:
+            with self.subTest(value=value):
+                self.assertIn(expected, [value[start:end] for start, end in role_review._inline_code_spans(value)])
+
     def test_long_quoted_fragment_cannot_open_a_later_value(self):
         for example in (
             "console.log('literal`tick');\nconst password = tag` private-value`;",

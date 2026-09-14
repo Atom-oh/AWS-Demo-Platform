@@ -110,15 +110,30 @@ The model table targets CI's Bedrock Runtime provider. Local Mantle uses
 
 React edits retain `kiro-sol`; altered or missing receipt-bound history blocks.
 
-Chair Markdown redacts nested/multiline containers and handles quoted/escaped
-delimiters. Parse-only validation rejects malformed, unclosed or unsupported syntax.
-Uncertain boundaries consume the remaining reply, including its verdict.
-Conditional, call, index, concatenation and continuation tails are rejected.
-Plain paragraph text can preserve outside verdicts. Markdown bullets, headings,
-links or closing fences can look like continuations and fail closed. Avoid sensitive
-assignment examples in summaries. Amazon Bedrock/Kiro hard account limits stop
-retries and chair fallback, including stdout and mixed diagnostics. Transient
-throttling alone may use the configured fallback.
+Chair publication hides supported credential values while retaining review evidence.
+Complete supported assignments can preserve surrounding prose; uncertain container
+or expression boundaries consume the remaining reply, including its verdict.
+This is a conservative publication filter, not a general language parser. Avoid
+sensitive assignment examples in summaries; use synthetic values and explicit code
+fences when a code example is necessary. Boundary hints keep ticks in recognized
+quoted fragments and source comments line-local. Table cells have separate inline scopes.
+Existing same-line citations and supported multiline Markdown remain covered by tests.
+
+The rendering target is GitHub PR Markdown. Synthetic `POST /markdown` requests
+with `mode: gfm` verified these behaviors on 2026-09-14:
+
+- A pipe immediately following backslashes stays in its cell, including after two
+  backslashes. Ordinary odd/even escape parity is not the target behavior here.
+- A pipe-less `---` after `| heading |` is a Setext heading, not a table delimiter.
+- A raw block HTML tag starting an unbordered row terminates the table; escaped or
+  inline-code tags remain cells. Do not parse the raw HTML block as table content.
+
+The offline regression fixtures encode those results without network calls. Check
+renderer disputes using public synthetic input and retain the input/HTML pair;
+do not change privacy, coverage or verdict checks merely to obtain PASS.
+
+Amazon Bedrock/Kiro hard account limits stop retries and chair fallback, including
+stdout and mixed diagnostics. Transient throttling alone may use the configured fallback.
 
 ## Executor inputs and limits
 

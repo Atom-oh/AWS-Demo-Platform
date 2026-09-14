@@ -777,6 +777,10 @@ def _inline_code_spans(value, closing_fences=None):
         r"(?<![\w\\])'(?:\\[^\r\n]|[^'\\\r\n])*'"
         r'|(?<!\\)"(?:\\[^\r\n]|[^"\\\r\n])*"'
     )
+    comment_line_ends, block_comment_end = {}, 0
+    comment_token = re.compile(
+        quoted_fragment.pattern + r"|[A-Za-z][A-Za-z0-9+.-]*://[^\s<>`\"']*|/\*|//"
+    )
     containers, next_quotes = (), (0,)
     offset, block, paragraph = 0, None, False
     table_active, last_row = False, None
@@ -805,16 +809,45 @@ def _inline_code_spans(value, closing_fences=None):
                 slash_start -= 1
             close = following[index]
             owner_end = quoted_line_ends.get(start)
+            comment_end = comment_line_ends.get(start)
             if (close is None or (start - slash_start) % 2
-                    or (owner_end is not None and pending[close][1] > owner_end)):
+                    or (owner_end is not None and pending[close][1] > owner_end)
+                    or (comment_end is not None and pending[close][1] > comment_end)):
                 index += 1
             else:
                 spans.append((end, pending[close][0]))
                 index = close + 1
         pending.clear()
         quoted_line_ends.clear()
+        comment_line_ends.clear()
         paragraph = False
         table_active, last_row = False, None
+
+    def comment_ranges(raw, content):
+        nonlocal block_comment_end
+        line_end = offset + len(raw)
+        if content.lstrip(" ").startswith("#"):
+            return [(offset, line_end)]
+        ranges = []
+        position = 0
+        if block_comment_end > offset:
+            ranges.append((offset, min(block_comment_end, line_end)))
+            position = min(len(raw), block_comment_end - offset)
+        while position < len(raw):
+            token = comment_token.search(raw, position)
+            if token is None:
+                break
+            if token[0] == "//":
+                ranges.append((offset + token.start(), line_end))
+                break
+            if token[0] == "/*":
+                close = value.find("*/", offset + token.end())
+                block_comment_end = close + 2 if close >= 0 else line_end
+                ranges.append((offset + token.start(), min(block_comment_end, line_end)))
+                position = min(len(raw), block_comment_end - offset)
+            else:
+                position = token.end()
+        return ranges
 
     def cell_parts(text):
         pipes, slashes = [], 0
@@ -1069,11 +1102,17 @@ def _inline_code_spans(value, closing_fences=None):
                               for start, end, region in pending]
                 flush()
                 table_active = True
+                block_comment_end = 0
             if table_active:
                 pending.extend(table_tokens(row))
             else:
-                region = ("comment", offset) if content.lstrip(" ").startswith("//") else None
-                pending.extend((start, end, region) for start, end in ticks)
+                ranges, range_index = comment_ranges(raw_line, content), 0
+                for start, end in ticks:
+                    while range_index < len(ranges) and ranges[range_index][1] <= start:
+                        range_index += 1
+                    if range_index < len(ranges) and ranges[range_index][0] <= start:
+                        comment_line_ends[start] = offset + len(raw_line)
+                    pending.append((start, end, None))
             last_row = row
             paragraph = True
             if heading:
