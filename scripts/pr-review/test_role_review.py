@@ -236,6 +236,104 @@ class RoleReviewTests(unittest.TestCase):
         self.aggregate()
         self.assertNotIn(secret, (self.work / "deterministic-review.md").read_text())
 
+    def test_sensitive_defaults_and_punctuated_keys_in_public_results(self):
+        secret = "SYNTHETIC_REVIEW_PRIVATE_VALUE"
+        cases = [
+            f'password = settings.PASSWORD {operator} "{secret}"\nPUBLIC_KEEP'
+            for operator in ("||", "??", "or")
+        ]
+        cases += [
+            f'password = (previous {operator}\n    "{secret}")'
+            for operator in ("||", "??", "or")
+        ]
+        cases += [
+            f'password: "{operator}\n{secret}"\nPUBLIC_KEEP'
+            for operator in ("||", "??", "or")
+        ]
+        cases += [
+            f'password = settings.PASSWORD{before}{operator}{after}"{secret}"\nPUBLIC_KEEP'
+            for operator in ("||", "??", "or")
+            for before, after in ((" ", "\n    "), ("\n    ", " "))
+        ]
+        cases += [
+            f'password = prior || "default"; api_key =\n"{secret}"; PUBLIC_KEEP',
+            f'password: "first\n{secret} token=value or last"\nPUBLIC_KEEP',
+            f'password = prior || "{secret}"; PUBLIC_KEEP',
+            f'The new secret: name="PASSWORD", value="{secret}"\nPUBLIC_KEEP',
+            f'''curl -d "password="'{secret}'"&user=demo" https://example.invalid''',
+            'Evidence: ' + json.dumps({"api key (prod)": secret})
+            + f'; name="api key (prod)", value="{secret}"\nPUBLIC_KEEP',
+            f"password = prior  # don't use token='prefix,{secret}'",
+            f"password = prior  // don't use token='prefix,{secret}'",
+            f"password=https://example.invalid/#{secret}\nPUBLIC_KEEP",
+            f'password = previous ||\n  // local fallback\n  "{secret}"\nPUBLIC_KEEP',
+            f'password = previous || // local fallback\n  "{secret}"\nPUBLIC_KEEP',
+            f"The secret: don't use token='prefix,{secret}'\nPUBLIC_KEEP",
+            f"password = prior /* don't use token='prefix,{secret}' */\nPUBLIC_KEEP",
+            f'password = github_pat_from_secrets_manager\n// fallback\n|| "{secret}"',
+            f'password = github_pat_from_secrets_manager +\n"{secret}"',
+        ]
+        cases += [
+            prefix + json.dumps({key: secret}) + suffix
+            for key in ("/prod/db/password", "password[0]", "api key (prod)")
+            for prefix, suffix in (("", ""), ("Evidence: ", "\nPUBLIC_KEEP"))
+        ]
+        for index, evidence in enumerate(cases):
+            with self.subTest(index=index):
+                self.prepare(case=f"sensitive-default-{index}")
+                result = self.record("codex", self.response("codex", checks=[
+                    {"path": FRONTEND, "evidence": evidence}
+                ]))
+                self.assertTrue(result["valid"])
+                self.assertEqual(result["response"]["reviewed_paths"], [FRONTEND])
+                self.assertNotIn(secret, json.dumps(result))
+                if evidence.endswith("PUBLIC_KEEP"):
+                    self.assertIn("PUBLIC_KEEP", json.dumps(result))
+                for tag, role in self.plan()["roles"].items():
+                    if role["required"] and tag != "codex":
+                        self.record(tag)
+                self.aggregate()
+                self.assertNotIn(secret, json.dumps(self.summary()))
+                self.assertNotIn(secret, (self.work / "deterministic-review.md").read_text())
+
+    def test_sensitive_words_in_plain_prose_remain_bounded(self):
+        text = "The password is required and the token is optional. " * 80
+        result = subprocess.run(
+            [sys.executable, "-c", "import role_review,sys; print(role_review.scrub(sys.stdin.read()), end='')"],
+            input=text, text=True, capture_output=True, cwd=ENGINE.parent, timeout=5,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, text)
+
+    def test_repeated_quoted_sensitive_keys_remain_bounded(self):
+        secret = "SYNTHETIC_REPEATED_PRIVATE_VALUE"
+        text = "Evidence: " + json.dumps([{"password": secret}] * 300)
+        result = subprocess.run(
+            [sys.executable, "-c", "import role_review,sys; print(role_review.scrub(sys.stdin.read()), end='')"],
+            input=text, text=True, capture_output=True, cwd=ENGINE.parent, timeout=5,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn(secret, result.stdout)
+
+    def test_distinct_quoted_sensitive_keys_remain_bounded(self):
+        secret = "SYNTHETIC_DISTINCT_VALUE"
+        text = "Evidence: " + json.dumps([
+            {f"api key (prod-{index:04d})": secret} for index in reversed(range(5000))
+        ])
+        result = subprocess.run(
+            [sys.executable, "-c", "import role_review,sys; print(role_review.scrub(sys.stdin.read()), end='')"],
+            input=text, text=True, capture_output=True, cwd=ENGINE.parent, timeout=5,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn(secret, result.stdout)
+
+    def test_label_normalization_preserves_invalid_container_rejection(self):
+        import role_review
+        for key in ('"pwd\\q"', 'f"pwd{1+}"'):
+            with self.subTest(key=key):
+                text = f'credentials = {{{key}: "SYNTHETIC_VALUE"}}\n\nVERDICT: PASS\n'
+                self.assertNotIn("VERDICT: PASS", role_review.scrub(text, markdown=True))
+
     def test_credential_pattern_matrix(self):
         cases = [
             ("xox" + "b-" + "A" * 35, "A" * 35),

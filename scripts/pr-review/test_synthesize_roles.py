@@ -186,6 +186,31 @@ class SynthesisTests(unittest.TestCase):
         ]:
             self.assertFalse(self.module.valid(output, status))
 
+    def test_scrubbing_cannot_accept_conflicting_original_verdicts(self):
+        for failure in ("VERDICT: FAIL", "\x1b[31mVERDICT: FAIL\x1b[0m"):
+            with self.subTest(failure=failure):
+                reply = (0, f"Finding:\npassword = prior ||\n{failure}\nVERDICT: PASS\n", "")
+                calls, text = self.run_chair([reply, reply])
+                self.assertEqual(calls, 2)
+                self.assertTrue(text.endswith("VERDICT: FAIL\n"))
+
+    def test_complete_scalar_citations_preserve_the_verdict(self):
+        secret = "SYNTHETIC_CITATION_VALUE"
+        for example, accepted in (
+            (f'Example: `password="{secret}"` is illustrative.', True),
+            # An unquoted legacy marker still reaches the existing strict container guard.
+            (f'Example: `password={secret}` is illustrative.', False),
+            (f'Reviewed password="{secret}" isn\'t logged.', True),
+            (f'Example: ``password = `{secret}` `` is illustrative.', True),
+            (f'```js\npassword = prefix + `{secret}`;\n```\nReviewed the expression.', True),
+        ):
+            with self.subTest(example=example):
+                reply = (0, example + "\nVERDICT: PASS\n", "")
+                calls, text = self.run_chair([reply, reply])
+                self.assertEqual(calls, 1 if accepted else 2)
+                self.assertIn("VERDICT: PASS" if accepted else "VERDICT: FAIL", text)
+                self.assertNotIn(secret, text)
+
 
     def test_generic_budget_overrides(self):
         limits = {'CHAIR_MAX_TURNS': '8', 'CHAIR_FALLBACK_MAX_TURNS': '12', 'CHAIR_FAST_FAIL_S': '5'}

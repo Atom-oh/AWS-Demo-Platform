@@ -762,18 +762,160 @@ SENSITIVE_KEY = re.compile(
 )
 
 
-def _scrub_markdown_containers(value, key):
-    """Remove complete containers; an uncertain boundary consumes the remainder."""
+def sensitive_key(value):
+    return isinstance(value, str) and SENSITIVE_KEY.fullmatch(re.sub(r"[^A-Za-z0-9]+", "_", value))
+
+
+def _inline_code_spans(value):
+    spans, offset, fence = [], 0, None
+    for line in value.splitlines(keepends=True):
+        marker = re.match(r" {0,3}(`{3,}|~{3,})(.*)", line)
+        if fence:
+            if (marker and marker[1][0] == fence[0] and len(marker[1]) >= fence[1]
+                    and not marker[2].strip()):
+                fence = None
+        elif marker and (marker[1][0] == "~" or "`" not in marker[2]):
+            fence = (marker[1][0], len(marker[1]))
+        elif not line.startswith(("    ", "\t")):
+            runs = list(re.finditer(r"`+", line))
+            following, last = {}, {}
+            for index in range(len(runs) - 1, -1, -1):
+                width = len(runs[index].group())
+                following[index] = last.get(width)
+                last[width] = index
+            index = 0
+            while index < len(runs):
+                close = following[index]
+                if close is None:
+                    index += 1
+                else:
+                    spans.append((offset + runs[index].end(), offset + runs[close].start()))
+                    index = close + 1
+        offset += len(line)
+    return spans
+
+
+def _assignment_spans(value, key, markdown=False):
+    """Find complete assignments without changing another detector's input."""
+    operator = re.compile(r"\|\||\?\?|\bor\b")
+    tail_operator = re.compile(r"(?:\|\||\?\?|\bor|\\|(?:^|\s)[+*/%&|^?:<>=!-])$")
+    head_operator = re.compile(r"(?:\|\||\?\?|\bor\b|[+*/%&|^?:<>=!.(\[-])")
+    code_spans = _inline_code_spans(value) if markdown else []
+    code_index = 0
+    opening = {"(": ")", "[": "]", "{": "}"}
+    def next_content(index):
+        while index < len(value) and value[index].isspace():
+            index += 1
+        return index
+    spans, cursor = [], 0
+    for match in re.finditer(key, value):
+        if match.start() < cursor:
+            continue
+        while code_index < len(code_spans) and code_spans[code_index][1] < match.start():
+            code_index += 1
+        code_end = (
+            code_spans[code_index][1]
+            if code_index < len(code_spans) and code_spans[code_index][0] <= match.start()
+            else None
+        )
+        index, quote, escaped, stack = match.end(), None, False, []
+        line_start = index
+        continuation_pending = False
+        while index < len(value):
+            char = value[index]
+            if (markdown and index == code_end and index > match.end() and not quote
+                    and not stack and not tail_operator.search(value[line_start:index].rstrip())):
+                break
+            if escaped:
+                escaped = False
+            elif quote:
+                if char == "\\":
+                    escaped = True
+                elif value.startswith(quote, index):
+                    index += len(quote)
+                    quote = None
+                    continue
+            elif char in "\"'`":
+                continuation_pending = False
+                quote = char * 3 if char != "`" and value.startswith(char * 3, index) else char
+                index += len(quote)
+                continue
+            elif markdown and char in " \t\r" and not stack and index > match.end():
+                following = index
+                while following < len(value) and value[following] in " \t\r":
+                    following += 1
+                if (following < len(value) and value[following] != "\n"
+                        and not tail_operator.search(value[line_start:index].rstrip())
+                        and not head_operator.match(value, following)):
+                    break
+            elif (not stack and (index == match.end() or value[index - 1].isspace())
+                  and (char == "#" or value.startswith("//", index))):
+                previous = value[line_start:index].rstrip()
+                if continuation_pending or re.search(r"(?:\|\||\?\?|\bor|\\)$", previous):
+                    newline = value.find("\n", index)
+                    index = len(value) if newline < 0 else next_content(newline)
+                    line_start = index
+                    continuation_pending = True
+                    continue
+                break
+            elif char in ";," and not stack:
+                break
+            elif char in opening:
+                stack.append(opening[char])
+            elif char in ")]}" and stack:
+                if char != stack.pop():
+                    index = len(value)
+                    break
+            elif char == "\n" and not stack:
+                previous = value[line_start:index].rstrip()
+                following = next_content(index)
+                if not (re.search(r"(?:\|\||\?\?|\bor|\\)$", previous) or operator.match(value, following)):
+                    break
+                continuation_pending = True
+                index = line_start = following
+                continue
+            if char == "\n":
+                line_start = index + 1
+            elif not char.isspace():
+                continuation_pending = False
+            index += 1
+        if index == match.end():
+            continue
+        spans.append((match.start(), index))
+        cursor = index
+    return spans
+
+
+_CONTAINER_LINE_END = re.compile(r"[ \t\r]*(?:\n|\Z)")
+_CONTAINER_CONTINUATION = re.compile(
+    r"\s*(?:[" + re.escape("()[]{}.+-*/%&|^?\\<>=!,\"'`#@")
+    + r"]|(?:if|else|and|or|in|is|not|instanceof|as|satisfies|for|async)\b)"
+)
+
+
+def _uncertain_container_tail(value, index):
+    boundary = _CONTAINER_LINE_END.match(value, index)
+    return boundary is None or _CONTAINER_CONTINUATION.match(value, boundary.end())
+
+
+def _credential_tail_spans(value, key, credential_spans, markdown):
+    """Retain the legacy conservative tail after an unquoted credential value."""
+    ends = {}
+    for start, end in credential_spans:
+        ends[start] = max(end, ends.get(start, end))
+    for match in re.finditer(key, value):
+        end = ends.get(match.end())
+        if end is not None and (not markdown or _uncertain_container_tail(value, end)):
+            return [(match.start(), len(value))]
+    return []
+
+
+def _markdown_container_spans(value, key):
+    """Include the remainder whenever a container's boundary is uncertain."""
     opening = re.compile(key + r"[\[({]")
-    line_end = re.compile(r"[ \t\r]*(?:\n|\Z)")
-    continuation = re.compile(
-        r"\s*(?:[" + re.escape("()[]{}.+-*/%&|^?\\<>=!,\"'`#@")
-        + r"]|(?:if|else|and|or|in|is|not|instanceof|as|satisfies|for|async)\b)"
-    )
     closing = {"[": "]", "(": ")", "{": "}"}
-    pieces, cursor = [], 0
+    spans, cursor = [], 0
     while match := opening.search(value, cursor):
-        pieces.extend((value[cursor:match.start()], "[REDACTED]"))
         start, index = match.end() - 1, match.end()
         stack, quote, escaped = [closing[value[start]]], None, False
         # Each matched region is scanned once, including nested/quoted delimiters.
@@ -799,25 +941,39 @@ def _scrub_markdown_containers(value, key):
                 index += 1
             elif char in "])}":
                 if char != stack.pop():
-                    return "".join(pieces)
+                    return spans + [(match.start(), len(value))]
                 index += 1
             else:
                 index += 1
         if stack or quote or escaped:
-            return "".join(pieces)
+            return spans + [(match.start(), len(value))]
         try:
             # Parse, never evaluate; uncertain syntax must discard the verdict.
             with warnings.catch_warnings():
                 warnings.simplefilter("error")
                 ast.parse(value[start:index], mode="eval")
         except (SyntaxError, ValueError, RecursionError, Warning):
-            return "".join(pieces)
+            return spans + [(match.start(), len(value))]
         # A balanced prefix can still be followed by a conditional, call, index
         # or concatenation. Do not guess where such a sensitive expression ends.
-        boundary = line_end.match(value, index)
-        if boundary is None or continuation.match(value, boundary.end()):
-            return "".join(pieces)
+        if _uncertain_container_tail(value, index):
+            return spans + [(match.start(), len(value))]
+        spans.append((match.start(), index))
         cursor = index
+    return spans
+
+
+def _redact_spans(value, spans):
+    merged = []
+    for start, end in sorted(spans):
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(end, merged[-1][1]))
+        else:
+            merged.append((start, end))
+    pieces, cursor = [], 0
+    for start, end in merged:
+        pieces.extend((value[cursor:start], "[REDACTED]"))
+        cursor = end
     pieces.append(value[cursor:])
     return "".join(pieces)
 
@@ -829,9 +985,9 @@ def scrub(value, keep=(), markdown=False):
     if isinstance(value, dict):
         fields = {str(k).lower(): v for k, v in value.items()}
         sensitive_values = {v for k, v in (("name", "value"), ("headername", "headervalue"))
-                            if isinstance(fields.get(k), str) and SENSITIVE_KEY.fullmatch(fields[k])}
+                            if sensitive_key(fields.get(k))}
         return {scrub(k): v if k in keep else "[REDACTED]" if isinstance(k, str) and (
-            SENSITIVE_KEY.fullmatch(k) or k.lower() in sensitive_values
+            sensitive_key(k) or k.lower() in sensitive_values
         ) else scrub(v, keep, markdown) for k, v in value.items()}
     if not isinstance(value, str):
         return value
@@ -852,8 +1008,27 @@ def scrub(value, keep=(), markdown=False):
             return match.group()
     # Decode nested JSON strings/escaped keys before applying key/value patterns.
     value = re.sub(r'"(?:\\.|[^"\\])*"', quoted, value)
-    identifier = SENSITIVE_KEY.pattern
     quote = r"""\\*["']"""
+    label = rf"""(?<![\\A-Za-z0-9_])(?P<label_quote>{quote})(?P<label>[^"'\r\n]+)(?P=label_quote)"""
+    def normalize_label(match):
+        spelling = match["label"]
+        if SENSITIVE_KEY.fullmatch(spelling) or not sensitive_key(spelling):
+            return match.group()
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                ast.literal_eval(match["label_quote"][-1] + spelling + match["label_quote"][-1])
+        except (SyntaxError, ValueError, RecursionError, Warning):
+            return match.group()
+        prefix = match.groupdict().get("label_prefix") or ""
+        return prefix + match["label_quote"] + "password" + match["label_quote"]
+    paired_label = (
+        rf"(?P<label_prefix>(?i:\b(?:header)?name)(?:{quote})?\s*[:=]\s*)" + label
+        + rf"(?=[\s,]*[+-]?[ \t]*(?:{quote})?(?i:(?:header)?value)(?:{quote})?\s*[:=])"
+    )
+    value = re.sub(paired_label, normalize_label, value)
+    value = re.sub(label + r"(?=\s*[:=])", normalize_label, value)
+    identifier = SENSITIVE_KEY.pattern
     key = identifier + rf"(?:{quote})?\s*[:=]\s*"
     container = key + r"[\[({].*"
     patterns = (
@@ -876,15 +1051,26 @@ def scrub(value, keep=(), markdown=False):
         rf"(?i:\b(?:header)?name)(?:{quote})?\s*[:=]\s*(?:{quote})?" + identifier
         + rf"(?:{quote})?[\s,]*[+-]?[ \t]*(?:{quote})?(?i:(?:header)?value)(?:{quote})?\s*[:=]\s*"
         + rf"(?:(?P<named>{quote}).*?(?P=named)|[^\s,}}\]]+)",
+        _assignment_spans,
         key + rf"(?P<quote>{quote}).*?(?P=quote)",
         key + r"""[^\s"',;}\]]+""",
     )
+    spans, credential_spans = [], []
+    before_container = True
     for pattern in patterns:
-        if markdown and pattern == container:
-            value = _scrub_markdown_containers(value, key)
+        if pattern is _assignment_spans:
+            spans.extend(_assignment_spans(value, key, markdown))
+        elif pattern == container:
+            spans.extend(_credential_tail_spans(value, key, credential_spans, markdown))
+            before_container = False
+            spans.extend(_markdown_container_spans(value, key) if markdown else
+                         (match.span() for match in re.finditer(pattern, value, flags=re.S)))
         else:
-            value = re.sub(pattern, "[REDACTED]", value, flags=re.S)
-    return value
+            found = [match.span() for match in re.finditer(pattern, value, flags=re.S)]
+            spans.extend(found)
+            if before_container:
+                credential_spans.extend(found)
+    return _redact_spans(value, spans)
 
 
 def record(args):
