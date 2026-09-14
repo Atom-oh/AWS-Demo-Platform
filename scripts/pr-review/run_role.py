@@ -37,6 +37,7 @@ STDOUT_ACCOUNT_LIMIT = re.compile(
     + ACCOUNT_LIMIT.pattern + r")", re.I,
 )
 QUOTA_ERROR = "\nUsageLimitReachedError"
+KIRO_ENGINE_ARGS = ("--legacy-ui", "--agent-engine", "v1")
 AGENT = {
     "name": "inline-review",
     "description": "Review inline data without tools, hooks or external resources.",
@@ -164,7 +165,7 @@ def preflight(binary, model, cwd, environment, timeout):
     )
     code, output, error = execute(
         [binary, "chat", prompt, "--model", model, "--agent", "inline-review",
-         "--no-interactive", "--wrap", "never"],
+         "--no-interactive", "--wrap", "never", *KIRO_ENGINE_ARGS],
         cwd, kiro_environment(cwd, environment), "", timeout,
     )
     error = preserve_stdout_error(output, error)
@@ -280,6 +281,7 @@ def run(work, tag):
                     command = [
                         binary, "chat", instruction, "--model", role["model"],
                         "--agent", "inline-review", "--no-interactive", "--wrap", "never",
+                        *KIRO_ENGINE_ARGS,
                     ]
                     for _ in range(attempts):
                         nonce, framed_prompt, payload = issue_request(work, tag)
