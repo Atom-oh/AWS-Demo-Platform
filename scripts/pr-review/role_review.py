@@ -766,32 +766,88 @@ def sensitive_key(value):
     return isinstance(value, str) and SENSITIVE_KEY.fullmatch(re.sub(r"[^A-Za-z0-9]+", "_", value))
 
 
-def _inline_code_spans(value):
-    spans, offset, fence = [], 0, None
+def _inline_code_spans(value, closing_fences=None):
+    """Find code delimiters within prose paragraphs and list continuations."""
+    spans, pending, list_indents = [], [], []
+    offset, fence, paragraph, quote_depth = 0, None, False, 0
+
+    def flush():
+        nonlocal paragraph, quote_depth
+        following, last = {}, {}
+        for index in range(len(pending) - 1, -1, -1):
+            start, end = pending[index]
+            width = end - start
+            following[index] = last.get(width)
+            last[width] = index
+        index = 0
+        while index < len(pending):
+            start, end = pending[index]
+            slash_start = start
+            while slash_start and value[slash_start - 1] == "\\":
+                slash_start -= 1
+            close = following[index]
+            if close is None or (start - slash_start) % 2:
+                index += 1
+            else:
+                spans.append((end, pending[close][0]))
+                index = close + 1
+        pending.clear()
+        paragraph, quote_depth = False, 0
+
     for line in value.splitlines(keepends=True):
-        marker = re.match(r" {0,3}(`{3,}|~{3,})(.*)", line)
+        quote = re.match(r" {0,3}(?:>[\t ]?)+", line)
+        depth = quote.group().count(">") if quote else 0
+        content_line = line[quote.end():] if quote else line
+        leading = re.match(r"[\t ]*", content_line).group()
+        indent = len(leading.expandtabs(4))
         if fence:
-            if (marker and marker[1][0] == fence[0] and len(marker[1]) >= fence[1]
-                    and not marker[2].strip()):
+            marker = re.match(r"[\t ]*(`{3,}|~{3,})(.*)", content_line)
+            if (marker and indent <= fence[2] + 3 and marker[1][0] == fence[0]
+                    and len(marker[1]) >= fence[1] and not marker[2].strip()):
+                if closing_fences is not None:
+                    closing_fences.add(offset + (quote.end() if quote else 0) + marker.start(1))
                 fence = None
-        elif marker and (marker[1][0] == "~" or "`" not in marker[2]):
-            fence = (marker[1][0], len(marker[1]))
-        elif not line.startswith(("    ", "\t")):
-            runs = list(re.finditer(r"`+", line))
-            following, last = {}, {}
-            for index in range(len(runs) - 1, -1, -1):
-                width = len(runs[index].group())
-                following[index] = last.get(width)
-                last[width] = index
-            index = 0
-            while index < len(runs):
-                close = following[index]
-                if close is None:
-                    index += 1
-                else:
-                    spans.append((offset + runs[index].end(), offset + runs[close].start()))
-                    index = close + 1
+            offset += len(line)
+            continue
+        if not content_line.strip():
+            flush()
+            offset += len(line)
+            continue
+        if depth and depth != quote_depth:
+            flush()
+        if depth:
+            quote_depth = depth
+        item = re.match(r"([\t ]*)(?:[-+*]|[0-9]{1,9}[.)])([\t ]+)", content_line)
+        if item or not paragraph:
+            while list_indents and indent < list_indents[-1]:
+                list_indents.pop()
+        in_list = bool(list_indents) and indent < list_indents[-1] + 4
+        content = content_line
+        if item and (indent < 4 or in_list):
+            flush()
+            quote_depth = depth
+            list_indents.append(len(item.group().expandtabs(4)))
+            in_list = True
+            content = content_line[item.end():]
+        elif in_list:
+            content = content_line[len(leading):]
+        marker = re.match(r" {0,3}(`{3,}|~{3,})(.*)", content)
+        heading = re.match(r" {0,3}(?:#{1,6}(?:[\t ]|$)|(?:-+|=+|(?:_[\t ]*){3,}|(?:\*[\t ]*){3,})[\t ]*$)", content.rstrip())
+        if marker and (marker[1][0] == "~" or "`" not in marker[2]):
+            flush()
+            fence = (marker[1][0], len(marker[1]), list_indents[-1] if in_list else 0)
+        elif indent < 4 or in_list or paragraph:
+            if heading:
+                flush()
+            pending.extend((offset + match.start(), offset + match.end())
+                           for match in re.finditer(r"`+", line))
+            paragraph = True
+            if heading:
+                flush()
+        else:
+            flush()
         offset += len(line)
+    flush()
     return spans
 
 
@@ -838,7 +894,8 @@ def _assignment_spans(value, key, markdown=False):
     operator = re.compile(r"\|\||\?\?|\bor\b")
     tail_operator = re.compile(r"(?:\|\||\?\?|\bor|\\|(?:^|\s)[+*/%&|^?:<>=!-])$")
     head_operator = re.compile(r"(?:\|\||\?\?|\bor\b|[+*/%&|^?:<>=!.(\[-])")
-    code_spans = _inline_code_spans(value) if markdown else []
+    closing_fences = set()
+    code_spans = _inline_code_spans(value, closing_fences) if markdown else []
     code_index = 0
     opening = {"(": ")", "[": "]", "{": "}"}
     def next_content(index):
@@ -849,6 +906,8 @@ def _assignment_spans(value, key, markdown=False):
     for match in re.finditer(key, value):
         if match.start() < cursor:
             continue
+        if match.end() in closing_fences:
+            continue  # Whitespace after an empty assignment reached its closing fence.
         while code_index < len(code_spans) and code_spans[code_index][1] < match.start():
             code_index += 1
         code_end = (
@@ -861,7 +920,7 @@ def _assignment_spans(value, key, markdown=False):
         continuation_pending = False
         while index < len(value):
             char = value[index]
-            if (markdown and index == code_end and index > match.end() and not quote
+            if (markdown and index == code_end and not quote
                     and not stack and not tail_operator.search(value[line_start:index].rstrip())):
                 break
             if escaped:
