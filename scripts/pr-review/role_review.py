@@ -771,6 +771,12 @@ def _inline_code_spans(value, closing_fences=None):
     if "`" not in value and (closing_fences is None or "~~~" not in value):
         return []
     spans, pending = [], []
+    quoted_line_ends = {}
+    # Quoted ticks stay line-local; preserve existing same-line Markdown pairs.
+    quoted_fragment = re.compile(
+        r"(?<![\w\\])'(?:\\[^\r\n]|[^'\\\r\n])*'"
+        r'|(?<!\\)"(?:\\[^\r\n]|[^"\\\r\n])*"'
+    )
     containers, next_quotes = (), (0,)
     offset, block, paragraph = 0, None, False
     table_active, last_row = False, None
@@ -798,12 +804,15 @@ def _inline_code_spans(value, closing_fences=None):
             while slash_start and value[slash_start - 1] == "\\":
                 slash_start -= 1
             close = following[index]
-            if close is None or (start - slash_start) % 2:
+            owner_end = quoted_line_ends.get(start)
+            if (close is None or (start - slash_start) % 2
+                    or (owner_end is not None and pending[close][1] > owner_end)):
                 index += 1
             else:
                 spans.append((end, pending[close][0]))
                 index = close + 1
         pending.clear()
+        quoted_line_ends.clear()
         paragraph = False
         table_active, last_row = False, None
 
@@ -1040,8 +1049,16 @@ def _inline_code_spans(value, closing_fences=None):
         elif len(content) - len(content.lstrip(" ")) < 4 or paragraph:
             if heading:
                 flush()
-            ticks = [(offset + match.start(), offset + match.end())
-                     for match in re.finditer(r"`+", raw_line)]
+            ticks = []
+            fragments = iter(quoted_fragment.finditer(raw_line))
+            fragment = next(fragments, None)
+            for match in re.finditer(r"`+", raw_line):
+                while fragment is not None and fragment.end() <= match.start():
+                    fragment = next(fragments, None)
+                start = offset + match.start()
+                if fragment is not None and fragment.start() < match.start():
+                    quoted_line_ends[start] = offset + len(raw_line)
+                ticks.append((start, offset + match.end()))
             parts, pipes = cell_parts(content)
             row = {"offset": offset, "ticks": ticks, "parts": parts,
                    "pipes": cell_parts(raw_line.rstrip("\r\n"))[1],

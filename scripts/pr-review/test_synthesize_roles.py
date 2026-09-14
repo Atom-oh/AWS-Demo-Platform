@@ -247,6 +247,59 @@ class SynthesisTests(unittest.TestCase):
                 self.assertIn("Reviewed behavior.", text)
                 self.assertTrue(text.endswith("VERDICT: PASS\n"))
 
+    def test_long_quoted_fragment_cannot_open_a_later_value(self):
+        for example in (
+            "console.log('literal`tick');\nconst password = tag` private-value`;",
+            'console.log("literal`tick");\nconst password = tag` private-value`;',
+        ):
+            with self.subTest(example=example):
+                reply = (0, example + "\n\nReviewed behavior.\nVERDICT: PASS\n", "")
+                calls, text = self.run_chair([reply, reply])
+                self.assertEqual(calls, 1)
+                self.assertNotIn("private-value", text)
+                self.assertIn("Reviewed behavior.", text)
+                self.assertTrue(text.endswith("VERDICT: PASS\n"))
+
+    def test_same_line_prose_quotes_keep_inline_review_evidence(self):
+        for quote in ('"', "'"):
+            for prefix in ("", "env "):
+                with self.subTest(quote=quote, prefix=prefix):
+                    example = (quote + "Checked `" + prefix + "password=" + quote
+                               + "private-value" + quote + "`; MAJOR rollback evidence. "
+                               + "See `service`." + quote)
+                    reply = (0, example + "\nPUBLIC_AFTER\nVERDICT: FAIL\n", "")
+                    calls, published = self.run_chair([reply, reply])
+                    self.assertNotIn("private-value", published)
+                    self.assertEqual(calls, 1)
+                    self.assertIn("MAJOR rollback evidence.", published)
+                    self.assertIn("PUBLIC_AFTER", published)
+                    self.assertTrue(published.endswith("VERDICT: FAIL\n"))
+
+    def test_quote_ownership_preserves_valid_code_citations(self):
+        import role_review
+        for example, expected in (
+            ("Say '`public()`'.", "public()"),
+            ("It's `echo user's name` output.", "echo user's name"),
+            ("Run `first\nsecond` now.", "first\nsecond"),
+        ):
+            with self.subTest(example=example):
+                self.assertEqual([example[start:end]
+                                  for start, end in role_review._inline_code_spans(example)], [expected])
+
+    def test_html_block_start_interrupts_a_borderless_table(self):
+        import role_review
+        raw = "a | b\n--- | ---\n<div> | `setting=value`\n\nPUBLIC_AFTER\n"
+        self.assertEqual(role_review._inline_code_spans(raw), [])
+        for cell in ("\\<div>", "`<div>`"):
+            with self.subTest(cell=cell):
+                reply = (0, "a | b\n--- | ---\n" + cell
+                         + " | `password='private-value'`\n\nPUBLIC_AFTER\nVERDICT: PASS\n", "")
+                calls, text = self.run_chair([reply, reply])
+                self.assertEqual(calls, 1)
+                self.assertNotIn("private-value", text)
+                self.assertIn("PUBLIC_AFTER", text)
+                self.assertTrue(text.endswith("VERDICT: PASS\n"))
+
     def test_escaped_pipe_cell_preserves_the_review(self):
         example = "| a | b |\n| --- | --- |\n| `printf a\\\\|b; password='private-value'` | safe |"
         reply = (0, example + "\n\nReviewed behavior.\nVERDICT: PASS\n", "")
