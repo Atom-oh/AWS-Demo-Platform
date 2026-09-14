@@ -90,7 +90,8 @@ in Korea `shared/`. Never manage a resource from two states.
   integrations retain their owning contracts; renaming them is not a docs fix.
 - Documentation, agent instructions, code comments and review output are English.
   Dashboard UI copy is Korean; localized UI strings and their test assertions are
-  not documentation violations. Operator conversation may be Korean.
+  not documentation violations. Operator conversation may be Korean. This policy
+  supersedes older bilingual review-document templates.
 - Preserve Atlantis `--write-git-creds` for GitHub App authentication.
 
 ## Application and Deployment Contracts
@@ -144,6 +145,7 @@ A consumer revert is not password rollback. See the [runbook](docs/runbooks/graf
 | `dashboard/backend` | `pnpm -r build`, `pnpm -r lint`, `pnpm -r test` |
 | `dashboard/frontend` | `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm build` |
 | Repository | `bash tests/run-all.sh` |
+| PR review (offline) | `python3 -m unittest discover -s scripts/pr-review -p 'test_*role*.py'` |
 | Terraform root | `terraform init -backend=false`, `terraform fmt -check`, `terraform validate`; review a real plan before apply |
 | Kubernetes | `kubectl kustomize <dir>`; appropriate dry-run with explicit context and prerequisites |
 
@@ -157,11 +159,14 @@ reported separately. `scripts/setup.sh` installs local hooks.
 
 CI uses specialist roles: Codex checks implementation, Kiro Opus checks AWS,
 Kiro Sol checks deployment/recovery, and Claude checks auth/data/API/ADR contracts.
-Each applicable model runs once. Trusted routing may omit irrelevant Kiro roles;
+Each applicable role receives one logical request within configured retry budgets.
+Trusted routing may omit irrelevant Kiro roles;
 Codex and Claude retain independent family coverage of every reviewable source path.
 [ADR-020](docs/decisions/ADR-020-specialist-review-protocol.md) supersedes the repeated
 L2-L5 matrix and its permissive coverage floor. [Specialist review](docs/pr-review-specialists.md)
 defines inputs, model aliases and limits. `kiro-fable` remains the legacy Opus tag.
+ADR-015 retains per-model job and artifact isolation; ADR-016 retains shared-context
+and runner-image ownership. Their earlier matrix/chair rules are superseded by ADR-020.
 Only complete, valid, SHA-bound results qualify for coverage. Missing roles,
 truncation, quota/model errors and failed Kiro safety checks block; the chair
 cannot waive them. A deterministic summary handles uncontroversial complete
@@ -212,7 +217,3 @@ handwritten overrides and `.kiro/steering/project-context.md`.
 Known non-issues: the commit hook removes `Co-Authored-By`; task-definition
 replacement does not imply ECS service destruction; visibility-only types have no
 toggle controller; local Agy context support does not imply an Agy CI panel slot.
-
-PR review instructions, guides, related ADRs and review output are English-only.
-This scoped policy supersedes older bilingual review-document templates; product
-localization is a separate contract.

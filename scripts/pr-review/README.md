@@ -1,4 +1,4 @@
-# Specialist review protocol
+# AWS Demo Platform specialist review protocol
 
 CI selects `ROLE_REVIEW=1`. Trusted inputs feed specialist executors; validated
 results feed aggregation and, when needed, the chair. See
@@ -86,27 +86,24 @@ bytes by default), covering specialist-summary bytes only, not diff/context.
 Oversized summaries produce FAIL before any chair call, without truncation.
 
 Run `python3 -m unittest discover -s scripts/pr-review -p 'test_*role*.py'`.
-Offline CI: `.github/workflows/pr-review-roles-tests.yml`. Activation also needs
-executor/adapter, limit and exact-HEAD publication tests; offline success proves
-no live provider execution.
+Offline CI: `.github/workflows/pr-review-roles-tests.yml` covers the protocol,
+executors, limits, artifact transport and workflow boundaries. Passing offline
+checks does not prove live provider execution.
 
-ADP uses Sol. Its wrapper accepts `REVIEW_CONTEXT_CAP` 1–12,288 (default 12,288).
+The Kiro GPT slot uses Sol. The wrapper accepts `REVIEW_CONTEXT_CAP` 1–12,288 (default 12,288).
 Generic `prepare_roles.py` retains a 24,000-byte default; direct ADP protocol calls
 must pass `--context-cap 12288` or less.
 Record/aggregate also validate private issued-frame files. Distributed consumers
 must restore them from trusted inputs/receipts before aggregation, never publish them.
 
-Valid historical Critical/Major findings and uncertainties remain in adjudication;
-a clean retry cannot discard them or establish current-role coverage.
+Valid historical Critical/Major candidates and uncertainties remain subject to
+adjudication after reissue; old attempts never provide current-role coverage.
 
 Exclusions-only review requires both `--allow-exclusions-only --policy FILE`.
 The trusted BASE collector supplies a schema-1 policy; its exact bytes must match
 `input_policy_sha256`. The private `exclusions-policy.json` anchor is rechecked
 during aggregation. Missing or mismatched opt-in blocks. The collector, not this
 offline library, must establish complete Git scope and approved exclusions.
-
-Valid historical Critical/Major candidates and uncertainties remain subject to
-adjudication after reissue; old attempts never provide current-role coverage.
 
 The model table targets CI's Bedrock Runtime provider. Local Mantle uses
 `openai.gpt-6-astra` for Astra; provider-specific identifiers are not interchangeable.
@@ -124,6 +121,9 @@ retries and chair fallback, including stdout and mixed diagnostics. Transient
 throttling alone may use the configured fallback.
 
 ## Executor inputs and limits
+
+CI calls `prepare-inputs.sh`, `run-panel.sh`, `aggregate.sh` and `synthesize.sh`.
+The all-roles wrapper below is the local/offline entrypoint.
 
 - `run-specialists.sh DIFF UNUSED WORK`: uses the context cap above, `HEAD_SHA`,
   `BASE_SHA`, and `GH_REPO` or `GITHUB_REPOSITORY`. The second argument preserves

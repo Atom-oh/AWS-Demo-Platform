@@ -27,7 +27,7 @@ may record NOT_APPLICABLE; provider failures never do.
 base, fetches Git objects and generates a complete diff without executing head
 code. It reads reviewer instructions from the base Git object. Candidate context
 is checked for availability, size and generated-source freshness, then discarded.
-The shared context ceiling is 24,000 bytes; repositories may enforce a smaller one.
+The shared context ceiling is 24,000 bytes; AWS Demo Platform enforces 12,288 bytes.
 
 Every result confirms its role, HEAD and reviewed paths. Host metadata binds it
 to the prepared request and records the process status. Nonzero exits, malformed
@@ -36,9 +36,9 @@ quota exhaustion and failed required roles block coverage. A JSON shape is
 evidence of protocol completion, not proof that the model found every defect.
 
 The common protocol accepts a complete diff within 3,000 lines and 95,000 UTF-8
-bytes. It blocks oversized input without awarding credit for a prefix. Existing
-repository-specific chunking is governed by its own implementation and budget;
-do not remove chunk attestations or raise limits to obtain a pass.
+bytes. It blocks oversized input without awarding credit for a prefix. AWS Demo
+Platform has no chunk coordinator: split larger changes into reviewable PRs.
+Other repositories' separately governed chunkers are not enabled by this protocol.
 
 ## Execution and synthesis
 
