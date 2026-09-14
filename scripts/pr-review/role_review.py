@@ -756,9 +756,9 @@ def diagnostic_failure(stderr):
 
 
 SENSITIVE_KEY = re.compile(
-    r"(?i:(?<![A-Za-z0-9])[A-Za-z0-9_.:/()\[\],\t -]*(?:password|passwd|pwd|dsn|api[_\t -]*key|"
+    r"(?i:(?<![A-Za-z0-9])[A-Za-z0-9_.:-]*(?:password|passwd|pwd|dsn|api[_-]?key|"
     r"secret|token|credential|passphrase|private[_-]?key|cookie|authorization|auth(?![A-Za-z])|dockerconfigjson|"
-    r"connection[_-]?string|origin[_-]?verify|AccessKeyId|access[_-]?key[_-]?id|external[_-]?id)[A-Za-z0-9_.:/()\[\],\t -]*)"
+    r"connection[_-]?string|origin[_-]?verify|AccessKeyId|access[_-]?key[_-]?id|external[_-]?id)[A-Za-z0-9_.:-]*)"
 )
 
 
@@ -856,7 +856,11 @@ def scrub(value, keep=(), markdown=False):
             return match.group()
     # Decode nested JSON strings/escaped keys before applying key/value patterns.
     value = re.sub(r'"(?:\\.|[^"\\])*"', quoted, value)
-    identifier = SENSITIVE_KEY.pattern
+    quoted_keys = re.findall(r"""(["'])([^"'\r\n]+)\1(?=\s*[:=])""", value)
+    identifiers = [SENSITIVE_KEY.pattern] + [
+        re.escape(key) for _, key in quoted_keys if sensitive_key(key)
+    ]
+    identifier = "(?:" + "|".join(identifiers) + ")"
     quote = r"""\\*["']"""
     key = identifier + rf"(?:{quote})?\s*[:=]\s*"
     container = key + r"[\[({].*"
@@ -875,8 +879,8 @@ def scrub(value, keep=(), markdown=False):
         r"""https://hooks\.slack\.com/services/[^\s"'<>]+""",
         r"""(?im)^[ \t]*[+-]?[ \t]*(?:set-)?cookie["']?[ \t]*:[^\r\n]*""",
         r"""(?i:x-origin-verify)["']?\s*:\s*["']?[^\s"',;}\]]+""",
-        key + r"[^\r\n]*(?:\|\||\?\?|\bor\b)[^\r\n]*",
         container,
+        key + r"[^\r\n]*(?:\|\||\?\?|\bor\b)[^\r\n]*",
         key + r"[|>][-+]?[ \t]*\r?\n(?:[+-]?[ \t]+[^\r\n]*(?:\r?\n|\Z))+",
         rf"(?i:\b(?:header)?name)(?:{quote})?\s*[:=]\s*(?:{quote})?" + identifier
         + rf"(?:{quote})?[\s,]*[+-]?[ \t]*(?:{quote})?(?i:(?:header)?value)(?:{quote})?\s*[:=]\s*"

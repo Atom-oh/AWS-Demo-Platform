@@ -243,6 +243,10 @@ class RoleReviewTests(unittest.TestCase):
             for operator in ("||", "??", "or")
         ]
         cases += [
+            f'password = (previous {operator}\n    "{secret}")'
+            for operator in ("||", "??", "or")
+        ]
+        cases += [
             prefix + json.dumps({key: secret}) + suffix
             for key in ("/prod/db/password", "password[0]", "api key (prod)")
             for prefix, suffix in (("", ""), ("Evidence: ", "\nPUBLIC_KEEP"))
@@ -264,6 +268,15 @@ class RoleReviewTests(unittest.TestCase):
                 self.aggregate()
                 self.assertNotIn(secret, json.dumps(self.summary()))
                 self.assertNotIn(secret, (self.work / "deterministic-review.md").read_text())
+
+    def test_sensitive_words_in_plain_prose_remain_bounded(self):
+        text = "The password is required and the token is optional. " * 80
+        result = subprocess.run(
+            [sys.executable, "-c", "import role_review,sys; print(role_review.scrub(sys.stdin.read()), end='')"],
+            input=text, text=True, capture_output=True, cwd=ENGINE.parent, timeout=5,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, text)
 
     def test_credential_pattern_matrix(self):
         cases = [
