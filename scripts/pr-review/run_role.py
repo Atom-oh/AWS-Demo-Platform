@@ -315,6 +315,11 @@ def run(work, tag):
                     command[2] = framed_prompt
                     delivered = payload
                 code, output, error = execute(command, cwd, environment, delivered, timeout)
+                if tag == "codex":
+                    echoed = normalize_transport(delivered).replace("\r\n", "\n").replace("\r", "\n")
+                    error = normalize_transport(error).replace("\r\n", "\n").replace("\r", "\n")
+                    if echoed:
+                        error = error.replace(echoed, "[omitted echoed review input]")
                 error = preserve_stdout_error(output, error)
                 diagnostics = error
                 if tag == "codex":
