@@ -756,10 +756,14 @@ def diagnostic_failure(stderr):
 
 
 SENSITIVE_KEY = re.compile(
-    r"(?i:(?<![A-Za-z0-9])[A-Za-z0-9_.:-]*(?:password|passwd|pwd|dsn|api[_-]?key|"
+    r"(?i:(?<![A-Za-z0-9])[A-Za-z0-9_.:/()\[\],\t -]*(?:password|passwd|pwd|dsn|api[_\t -]*key|"
     r"secret|token|credential|passphrase|private[_-]?key|cookie|authorization|auth(?![A-Za-z])|dockerconfigjson|"
-    r"connection[_-]?string|origin[_-]?verify|AccessKeyId|access[_-]?key[_-]?id|external[_-]?id)[A-Za-z0-9_.:-]*)"
+    r"connection[_-]?string|origin[_-]?verify|AccessKeyId|access[_-]?key[_-]?id|external[_-]?id)[A-Za-z0-9_.:/()\[\],\t -]*)"
 )
+
+
+def sensitive_key(value):
+    return isinstance(value, str) and SENSITIVE_KEY.fullmatch(re.sub(r"[^A-Za-z0-9]+", "_", value))
 
 
 def _scrub_markdown_containers(value, key):
@@ -829,9 +833,9 @@ def scrub(value, keep=(), markdown=False):
     if isinstance(value, dict):
         fields = {str(k).lower(): v for k, v in value.items()}
         sensitive_values = {v for k, v in (("name", "value"), ("headername", "headervalue"))
-                            if isinstance(fields.get(k), str) and SENSITIVE_KEY.fullmatch(fields[k])}
+                            if sensitive_key(fields.get(k))}
         return {scrub(k): v if k in keep else "[REDACTED]" if isinstance(k, str) and (
-            SENSITIVE_KEY.fullmatch(k) or k.lower() in sensitive_values
+            sensitive_key(k) or k.lower() in sensitive_values
         ) else scrub(v, keep, markdown) for k, v in value.items()}
     if not isinstance(value, str):
         return value
@@ -871,6 +875,7 @@ def scrub(value, keep=(), markdown=False):
         r"""https://hooks\.slack\.com/services/[^\s"'<>]+""",
         r"""(?im)^[ \t]*[+-]?[ \t]*(?:set-)?cookie["']?[ \t]*:[^\r\n]*""",
         r"""(?i:x-origin-verify)["']?\s*:\s*["']?[^\s"',;}\]]+""",
+        key + r"[^\r\n]*(?:\|\||\?\?|\bor\b)[^\r\n]*",
         container,
         key + r"[|>][-+]?[ \t]*\r?\n(?:[+-]?[ \t]+[^\r\n]*(?:\r?\n|\Z))+",
         rf"(?i:\b(?:header)?name)(?:{quote})?\s*[:=]\s*(?:{quote})?" + identifier

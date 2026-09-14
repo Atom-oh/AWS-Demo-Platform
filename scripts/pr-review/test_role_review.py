@@ -236,6 +236,35 @@ class RoleReviewTests(unittest.TestCase):
         self.aggregate()
         self.assertNotIn(secret, (self.work / "deterministic-review.md").read_text())
 
+    def test_sensitive_defaults_and_punctuated_keys_in_public_results(self):
+        secret = "SYNTHETIC_REVIEW_PRIVATE_VALUE"
+        cases = [
+            f'password = settings.PASSWORD {operator} "{secret}"\nPUBLIC_KEEP'
+            for operator in ("||", "??", "or")
+        ]
+        cases += [
+            prefix + json.dumps({key: secret}) + suffix
+            for key in ("/prod/db/password", "password[0]", "api key (prod)")
+            for prefix, suffix in (("", ""), ("Evidence: ", "\nPUBLIC_KEEP"))
+        ]
+        for index, evidence in enumerate(cases):
+            with self.subTest(index=index):
+                self.prepare(case=f"sensitive-default-{index}")
+                result = self.record("codex", self.response("codex", checks=[
+                    {"path": FRONTEND, "evidence": evidence}
+                ]))
+                self.assertTrue(result["valid"])
+                self.assertEqual(result["response"]["reviewed_paths"], [FRONTEND])
+                self.assertNotIn(secret, json.dumps(result))
+                if evidence.endswith("PUBLIC_KEEP"):
+                    self.assertIn("PUBLIC_KEEP", json.dumps(result))
+                for tag, role in self.plan()["roles"].items():
+                    if role["required"] and tag != "codex":
+                        self.record(tag)
+                self.aggregate()
+                self.assertNotIn(secret, json.dumps(self.summary()))
+                self.assertNotIn(secret, (self.work / "deterministic-review.md").read_text())
+
     def test_credential_pattern_matrix(self):
         cases = [
             ("xox" + "b-" + "A" * 35, "A" * 35),
