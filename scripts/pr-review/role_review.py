@@ -1050,6 +1050,58 @@ def _json_enclosing_closers(value):
     return closers
 
 
+def _empty_inline_assignment(value, start, value_start, code_span):
+    """Prove a standalone empty example before accepting a zero-value boundary."""
+    if code_span is None or code_span[1] != value_start:
+        return False
+    body = value[code_span[0]:code_span[1]]
+    if "\n" in body or "\r" in body:
+        return False
+    if value[code_span[0]:start].strip(" \t") not in ("", "export"):
+        return False
+    following = value_start
+    while following < len(value) and value[following] == "`":
+        following += 1
+    while following < len(value) and value[following] in " \t":
+        following += 1
+    return following == len(value) or value[following] in "\r\n;,.!?)]}"
+
+
+def _backtick_value_spans(value, key, markdown=True):
+    """Protect closed literal values independently of Markdown presentation."""
+    if "`" not in value:
+        return []
+    prefix = re.compile(r'''(?:\\.|[^\s"'`,;}\]\\]|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')*''', re.S)
+    literal = re.compile(r"`(?:\\.|[^`\\])*`", re.S)
+    spans, cursor, code_index = [], 0, 0
+    code_spans = None
+    for match in re.finditer(key, value):
+        if match.start() < cursor:
+            continue
+        before = prefix.match(value, match.end())
+        position = before.end()
+        cursor = position
+        if position == len(value) or value[position] != "`":
+            continue
+        quoted = literal.match(value, position)
+        if quoted is None:
+            # No later unescaped closing tick can start another complete value.
+            break
+        if markdown and position == match.end():
+            if code_spans is None:
+                code_spans = _inline_code_spans(value)
+            while code_index < len(code_spans) and code_spans[code_index][1] < match.start():
+                code_index += 1
+            code_span = (code_spans[code_index]
+                         if code_index < len(code_spans)
+                         and code_spans[code_index][0] <= match.start() else None)
+            if _empty_inline_assignment(value, match.start(), match.end(), code_span):
+                continue
+        spans.append((match.start(), quoted.end()))
+        cursor = quoted.end()
+    return spans
+
+
 def _assignment_spans(value, key, markdown=False):
     """Find complete assignments without changing another detector's input."""
     json_closers = _json_enclosing_closers(value)
@@ -1077,13 +1129,16 @@ def _assignment_spans(value, key, markdown=False):
             if code_index < len(code_spans) and code_spans[code_index][0] <= match.start()
             else None
         )
+        code_span = (code_spans[code_index] if code_end is not None else None)
+        empty_inline = _empty_inline_assignment(value, match.start(), match.end(), code_span)
         index, quote, escaped, stack = match.end(), None, False, []
         line_start = index
         continuation_pending = False
         while index < len(value):
             char = value[index]
-            if (markdown and index == code_end and not quote
-                    and not stack and not tail_operator.search(value[line_start:index].rstrip())):
+            if (markdown and index == code_end and (index > match.end() or empty_inline)
+                    and not quote and not stack
+                    and not tail_operator.search(value[line_start:index].rstrip())):
                 break
             if escaped:
                 escaped = False
@@ -1316,7 +1371,7 @@ def scrub(value, keep=(), markdown=False):
         key + rf"(?P<quote>{quote}).*?(?P=quote)",
         key + r"""[^\s"',;}\]]+""",
     )
-    spans, credential_spans = [], []
+    spans, credential_spans = _backtick_value_spans(value, key, markdown), []
     before_container = True
     for pattern in patterns:
         if pattern is _assignment_spans:
