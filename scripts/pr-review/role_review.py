@@ -886,14 +886,33 @@ def _assignment_spans(value, key, markdown=False):
     return spans
 
 
+_CONTAINER_LINE_END = re.compile(r"[ \t\r]*(?:\n|\Z)")
+_CONTAINER_CONTINUATION = re.compile(
+    r"\s*(?:[" + re.escape("()[]{}.+-*/%&|^?\\<>=!,\"'`#@")
+    + r"]|(?:if|else|and|or|in|is|not|instanceof|as|satisfies|for|async)\b)"
+)
+
+
+def _uncertain_container_tail(value, index):
+    boundary = _CONTAINER_LINE_END.match(value, index)
+    return boundary is None or _CONTAINER_CONTINUATION.match(value, boundary.end())
+
+
+def _credential_tail_spans(value, key, credential_spans, markdown):
+    """Retain the legacy conservative tail after an unquoted credential value."""
+    ends = {}
+    for start, end in credential_spans:
+        ends[start] = max(end, ends.get(start, end))
+    for match in re.finditer(key, value):
+        end = ends.get(match.end())
+        if end is not None and (not markdown or _uncertain_container_tail(value, end)):
+            return [(match.start(), len(value))]
+    return []
+
+
 def _markdown_container_spans(value, key):
     """Include the remainder whenever a container's boundary is uncertain."""
     opening = re.compile(key + r"[\[({]")
-    line_end = re.compile(r"[ \t\r]*(?:\n|\Z)")
-    continuation = re.compile(
-        r"\s*(?:[" + re.escape("()[]{}.+-*/%&|^?\\<>=!,\"'`#@")
-        + r"]|(?:if|else|and|or|in|is|not|instanceof|as|satisfies|for|async)\b)"
-    )
     closing = {"[": "]", "(": ")", "{": "}"}
     spans, cursor = [], 0
     while match := opening.search(value, cursor):
@@ -937,8 +956,7 @@ def _markdown_container_spans(value, key):
             return spans + [(match.start(), len(value))]
         # A balanced prefix can still be followed by a conditional, call, index
         # or concatenation. Do not guess where such a sensitive expression ends.
-        boundary = line_end.match(value, index)
-        if boundary is None or continuation.match(value, boundary.end()):
+        if _uncertain_container_tail(value, index):
             return spans + [(match.start(), len(value))]
         spans.append((match.start(), index))
         cursor = index
@@ -1037,14 +1055,21 @@ def scrub(value, keep=(), markdown=False):
         key + rf"(?P<quote>{quote}).*?(?P=quote)",
         key + r"""[^\s"',;}\]]+""",
     )
-    spans = []
+    spans, credential_spans = [], []
+    before_container = True
     for pattern in patterns:
         if pattern is _assignment_spans:
             spans.extend(_assignment_spans(value, key, markdown))
-        elif markdown and pattern == container:
-            spans.extend(_markdown_container_spans(value, key))
+        elif pattern == container:
+            spans.extend(_credential_tail_spans(value, key, credential_spans, markdown))
+            before_container = False
+            spans.extend(_markdown_container_spans(value, key) if markdown else
+                         (match.span() for match in re.finditer(pattern, value, flags=re.S)))
         else:
-            spans.extend(match.span() for match in re.finditer(pattern, value, flags=re.S))
+            found = [match.span() for match in re.finditer(pattern, value, flags=re.S)]
+            spans.extend(found)
+            if before_container:
+                credential_spans.extend(found)
     return _redact_spans(value, spans)
 
 
