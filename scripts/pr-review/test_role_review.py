@@ -263,6 +263,9 @@ class RoleReviewTests(unittest.TestCase):
             f'''curl -d "password="'{secret}'"&user=demo" https://example.invalid''',
             'Evidence: ' + json.dumps({"api key (prod)": secret})
             + f'; name="api key (prod)", value="{secret}"\nPUBLIC_KEEP',
+            f"password = prior  # don't use token='prefix,{secret}'",
+            f"password = prior  // don't use token='prefix,{secret}'",
+            f"password=https://example.invalid/#{secret}\nPUBLIC_KEEP",
         ]
         cases += [
             prefix + json.dumps({key: secret}) + suffix

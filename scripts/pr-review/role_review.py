@@ -795,6 +795,9 @@ def _scrub_assignment_values(value, key):
                 quote = char * 3 if char != "`" and value.startswith(char * 3, index) else char
                 index += len(quote)
                 continue
+            elif (not stack and (index == match.end() or value[index - 1].isspace())
+                  and (char == "#" or value.startswith("//", index))):
+                break
             elif char in ";," and not stack:
                 break
             elif char in opening:
