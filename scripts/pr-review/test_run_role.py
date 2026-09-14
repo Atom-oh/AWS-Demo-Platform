@@ -306,6 +306,25 @@ class RoleRecordingTests(unittest.TestCase):
         self.assertNotIn(self.private_value, json.dumps(result))
         self.assert_private_response_removed()
 
+    def test_kiro_engine_compatibility_in_both_phases(self):
+        for tag, model in (("kiro-fable", "claude-opus-5"), ("kiro-sol", "gpt-5.6-sol")):
+            with self.subTest(tag=tag):
+                self.harness.prepare(fixture.patch(self.path), case=f"engine-{tag}")
+                calls = []
+                def provider(command, cwd, environment, input_text, timeout):
+                    calls.append(command)
+                    if ("--legacy-ui" not in command or "--agent-engine" not in command
+                            or command[command.index("--agent-engine") + 1] != "v1"):
+                        return 1, "", f"[warn] failed to set model '{model}': Method not found"
+                    self.assertEqual(command[command.index("--model") + 1], model)
+                    if "preflight-canary.txt" in command[2]:
+                        return 0, "NO_TOOLS\n", ""
+                    return 0, json.dumps(self.harness.response(tag)), ""
+                self.run_recording(tag=tag, execute=provider)
+                result = self.harness.read(f"slot/{tag}-result.json")
+                self.assertTrue(result["valid"], result["failure_codes"])
+                self.assertEqual(len(calls), 2)
+
     def quota_case(self, tag, code=1, evidence=False, event=False, stderr=False):
         self.harness.prepare(fixture.patch(self.path))
         self.original = json.dumps(self.harness.response(tag, checks=[{
