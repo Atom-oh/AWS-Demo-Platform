@@ -234,6 +234,31 @@ class SynthesisTests(unittest.TestCase):
                 self.assertIn("PUBLIC_AFTER", text)
                 self.assertTrue(text.endswith("VERDICT: PASS\n"))
 
+    def test_literal_quote_context_keeps_whitespace_values_private(self):
+        for example in (
+            "echo '`'\npassword=prefix` printf 'private-value'`\nSee `service`.",
+            "echo '`'\npassword=$(printf public)` printf 'private-value'`",
+        ):
+            with self.subTest(example=example):
+                reply = (0, example + "\n\nReviewed behavior.\nVERDICT: PASS\n", "")
+                calls, text = self.run_chair([reply, reply])
+                self.assertNotIn("private-value", text)
+                self.assertEqual(calls, 1)
+                self.assertIn("Reviewed behavior.", text)
+                self.assertTrue(text.endswith("VERDICT: PASS\n"))
+
+    def test_inline_assignment_preserves_evidence_before_raw_blocks(self):
+        for block in ("```text\npublic()\n```", "<pre>\necho '`'\n</pre>"):
+            with self.subTest(block=block):
+                reply = (0, "Checked `env password='private-value'`; "
+                         "MAJOR rollback evidence.\n\n" + block + "\nVERDICT: FAIL\n", "")
+                calls, text = self.run_chair([reply, reply])
+                self.assertEqual(calls, 1)
+                self.assertNotIn("private-value", text)
+                self.assertIn("MAJOR rollback evidence.", text)
+                self.assertIn("public()" if block.startswith("```") else "<pre>", text)
+                self.assertTrue(text.endswith("VERDICT: FAIL\n"))
+
     def test_command_citations_preserve_following_findings(self):
         for prefix in ("env ", "curl -d ", "USER=demo ", "export\n"):
             with self.subTest(prefix=prefix):
