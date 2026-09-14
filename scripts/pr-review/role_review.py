@@ -813,6 +813,8 @@ def _scrub_assignment_values(value, key):
             if char == "\n":
                 line_start = index + 1
             index += 1
+        if index == match.end():
+            continue
         pieces.extend((value[cursor:match.start()], "[REDACTED]"))
         cursor = index
     pieces.append(value[cursor:])
@@ -935,10 +937,10 @@ def scrub(value, keep=(), markdown=False):
         r"""(?i:x-origin-verify)["']?\s*:\s*["']?[^\s"',;}\]]+""",
         container,
         key + r"[|>][-+]?[ \t]*\r?\n(?:[+-]?[ \t]+[^\r\n]*(?:\r?\n|\Z))+",
-        _scrub_assignment_values,
         rf"(?i:\b(?:header)?name)(?:{quote})?\s*[:=]\s*(?:{quote})?" + identifier
         + rf"(?:{quote})?[\s,]*[+-]?[ \t]*(?:{quote})?(?i:(?:header)?value)(?:{quote})?\s*[:=]\s*"
         + rf"(?:(?P<named>{quote}).*?(?P=named)|[^\s,}}\]]+)",
+        _scrub_assignment_values,
         key + rf"(?P<quote>{quote}).*?(?P=quote)",
         key + r"""[^\s"',;}\]]+""",
     )

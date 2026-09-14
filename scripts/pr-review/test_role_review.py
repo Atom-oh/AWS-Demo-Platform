@@ -259,6 +259,8 @@ class RoleReviewTests(unittest.TestCase):
             f'password = prior || "default"; api_key =\n"{secret}"; PUBLIC_KEEP',
             f'password: "first\n{secret} token=value or last"\nPUBLIC_KEEP',
             f'password = prior || "{secret}"; PUBLIC_KEEP',
+            f'The new secret: name="PASSWORD", value="{secret}"\nPUBLIC_KEEP',
+            f'''curl -d "password="'{secret}'"&user=demo" https://example.invalid''',
         ]
         cases += [
             prefix + json.dumps({key: secret}) + suffix
