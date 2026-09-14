@@ -211,6 +211,41 @@ class SynthesisTests(unittest.TestCase):
                 self.assertIn("VERDICT: PASS" if accepted else "VERDICT: FAIL", text)
                 self.assertNotIn(secret, text)
 
+    def test_adjacent_values_do_not_end_at_an_inline_delimiter(self):
+        for example, accepted in (
+            ("// `export\npassword=prefix`printf 'private-value'`", True),
+            ("1. Summary\n\n    Example `password=prefix`'private-value'", False),
+        ):
+            with self.subTest(example=example):
+                reply = (0, example + "\n\nReviewed behavior.\nVERDICT: PASS\n", "")
+                calls, text = self.run_chair([reply, reply])
+                self.assertNotIn("private-value", text)
+                self.assertEqual(calls, 1 if accepted else 2)
+                self.assertTrue(text.endswith("VERDICT: PASS\n" if accepted else "VERDICT: FAIL\n"))
+
+    def test_normal_inline_closing_separators_preserve_review(self):
+        for suffix in ("; reviewed.", ", reviewed.", ".", "**", "_", "~", ")", "]"):
+            with self.subTest(suffix=suffix):
+                reply = (0, "Checked `password=private-value`" + suffix
+                         + "\nPUBLIC_AFTER\nVERDICT: PASS\n", "")
+                calls, text = self.run_chair([reply, reply])
+                self.assertEqual(calls, 1)
+                self.assertNotIn("private-value", text)
+                self.assertIn("PUBLIC_AFTER", text)
+                self.assertTrue(text.endswith("VERDICT: PASS\n"))
+
+    def test_command_citations_preserve_following_findings(self):
+        for prefix in ("env ", "curl -d ", "USER=demo ", "export\n"):
+            with self.subTest(prefix=prefix):
+                reply = (0, "Checked `" + prefix + "password='private-value'`; "
+                         "MAJOR rollback evidence. See `service` and `validate()`.\nVERDICT: FAIL\n", "")
+                calls, text = self.run_chair([reply, reply])
+                self.assertEqual(calls, 1)
+                self.assertNotIn("private-value", text)
+                self.assertIn("MAJOR rollback evidence.", text)
+                self.assertIn("`service`", text)
+                self.assertTrue(text.endswith("VERDICT: FAIL\n"))
+
     def test_backtick_assignment_keeps_concatenated_suffix_private(self):
         for suffix in ("private-value", "'private-value'", "`printf private-value`"):
             for prefix in ("echo '`'\n", "- > echo '`'\n  > "):
