@@ -766,15 +766,15 @@ def sensitive_key(value):
     return isinstance(value, str) and SENSITIVE_KEY.fullmatch(re.sub(r"[^A-Za-z0-9]+", "_", value))
 
 
-def _scrub_assignment_values(value, key):
-    """Consume complete assignments before another matcher can remove delimiters."""
+def _assignment_spans(value, key):
+    """Find complete assignments without changing another detector's input."""
     operator = re.compile(r"\|\||\?\?|\bor\b")
     opening = {"(": ")", "[": "]", "{": "}"}
     def next_content(index):
         while index < len(value) and value[index].isspace():
             index += 1
         return index
-    pieces, cursor = [], 0
+    spans, cursor = [], 0
     for match in re.finditer(key, value):
         if match.start() < cursor:
             continue
@@ -830,14 +830,13 @@ def _scrub_assignment_values(value, key):
             index += 1
         if index == match.end():
             continue
-        pieces.extend((value[cursor:match.start()], "[REDACTED]"))
+        spans.append((match.start(), index))
         cursor = index
-    pieces.append(value[cursor:])
-    return "".join(pieces)
+    return spans
 
 
-def _scrub_markdown_containers(value, key):
-    """Remove complete containers; an uncertain boundary consumes the remainder."""
+def _markdown_container_spans(value, key):
+    """Include the remainder whenever a container's boundary is uncertain."""
     opening = re.compile(key + r"[\[({]")
     line_end = re.compile(r"[ \t\r]*(?:\n|\Z)")
     continuation = re.compile(
@@ -845,9 +844,8 @@ def _scrub_markdown_containers(value, key):
         + r"]|(?:if|else|and|or|in|is|not|instanceof|as|satisfies|for|async)\b)"
     )
     closing = {"[": "]", "(": ")", "{": "}"}
-    pieces, cursor = [], 0
+    spans, cursor = [], 0
     while match := opening.search(value, cursor):
-        pieces.extend((value[cursor:match.start()], "[REDACTED]"))
         start, index = match.end() - 1, match.end()
         stack, quote, escaped = [closing[value[start]]], None, False
         # Each matched region is scanned once, including nested/quoted delimiters.
@@ -873,25 +871,40 @@ def _scrub_markdown_containers(value, key):
                 index += 1
             elif char in "])}":
                 if char != stack.pop():
-                    return "".join(pieces)
+                    return spans + [(match.start(), len(value))]
                 index += 1
             else:
                 index += 1
         if stack or quote or escaped:
-            return "".join(pieces)
+            return spans + [(match.start(), len(value))]
         try:
             # Parse, never evaluate; uncertain syntax must discard the verdict.
             with warnings.catch_warnings():
                 warnings.simplefilter("error")
                 ast.parse(value[start:index], mode="eval")
         except (SyntaxError, ValueError, RecursionError, Warning):
-            return "".join(pieces)
+            return spans + [(match.start(), len(value))]
         # A balanced prefix can still be followed by a conditional, call, index
         # or concatenation. Do not guess where such a sensitive expression ends.
         boundary = line_end.match(value, index)
         if boundary is None or continuation.match(value, boundary.end()):
-            return "".join(pieces)
+            return spans + [(match.start(), len(value))]
+        spans.append((match.start(), index))
         cursor = index
+    return spans
+
+
+def _redact_spans(value, spans):
+    merged = []
+    for start, end in sorted(spans):
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(end, merged[-1][1]))
+        else:
+            merged.append((start, end))
+    pieces, cursor = [], 0
+    for start, end in merged:
+        pieces.extend((value[cursor:start], "[REDACTED]"))
+        cursor = end
     pieces.append(value[cursor:])
     return "".join(pieces)
 
@@ -969,18 +982,19 @@ def scrub(value, keep=(), markdown=False):
         rf"(?i:\b(?:header)?name)(?:{quote})?\s*[:=]\s*(?:{quote})?" + identifier
         + rf"(?:{quote})?[\s,]*[+-]?[ \t]*(?:{quote})?(?i:(?:header)?value)(?:{quote})?\s*[:=]\s*"
         + rf"(?:(?P<named>{quote}).*?(?P=named)|[^\s,}}\]]+)",
-        _scrub_assignment_values,
+        _assignment_spans,
         key + rf"(?P<quote>{quote}).*?(?P=quote)",
         key + r"""[^\s"',;}\]]+""",
     )
+    spans = []
     for pattern in patterns:
-        if pattern is _scrub_assignment_values:
-            value = _scrub_assignment_values(value, key)
+        if pattern is _assignment_spans:
+            spans.extend(_assignment_spans(value, key))
         elif markdown and pattern == container:
-            value = _scrub_markdown_containers(value, key)
+            spans.extend(_markdown_container_spans(value, key))
         else:
-            value = re.sub(pattern, "[REDACTED]", value, flags=re.S)
-    return value
+            spans.extend(match.span() for match in re.finditer(pattern, value, flags=re.S))
+    return _redact_spans(value, spans)
 
 
 def record(args):

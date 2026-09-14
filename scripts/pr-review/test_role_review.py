@@ -268,6 +268,8 @@ class RoleReviewTests(unittest.TestCase):
             f"password=https://example.invalid/#{secret}\nPUBLIC_KEEP",
             f'password = previous ||\n  // local fallback\n  "{secret}"\nPUBLIC_KEEP',
             f'password = previous || // local fallback\n  "{secret}"\nPUBLIC_KEEP',
+            f"The secret: don't use token='prefix,{secret}'\nPUBLIC_KEEP",
+            f"password = prior /* don't use token='prefix,{secret}' */\nPUBLIC_KEEP",
         ]
         cases += [
             prefix + json.dumps({key: secret}) + suffix

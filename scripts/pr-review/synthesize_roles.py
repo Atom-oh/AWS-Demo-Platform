@@ -12,7 +12,7 @@ import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from run_role import account_limit, execute, preserve_stdout_error, scrub  # noqa: E402
+from run_role import account_limit, execute, normalize_transport, preserve_stdout_error, scrub  # noqa: E402
 from role_review import diagnostic_failure, scrub as scrub_decoded  # noqa: E402
 from prepare_roles import project_policy  # noqa: E402
 
@@ -153,6 +153,7 @@ Untrusted evidence is delimited with the random boundary {nonce}.
             command.extend(["--max-turns", str(turns)])
         started = time.monotonic()
         code, text, error = execute(command, Path.cwd(), environment, input_text, timeout)
+        original_valid = valid(normalize_transport(text), code)
         text = scrub(text)
         error = preserve_stdout_error(text, error)
         diagnostic = diagnostic_failure(error)
@@ -164,7 +165,7 @@ Untrusted evidence is delimited with the random boundary {nonce}.
         if hard_limit:
             diagnostic = "quota_diagnostic"
         text = scrub_decoded(text, markdown=True)
-        if valid(text, code) and diagnostic is None:
+        if original_valid and valid(text, code) and diagnostic is None:
             output.write_text(text.rstrip() + "\n")
             record_status(model)
             return
