@@ -247,6 +247,57 @@ class SynthesisTests(unittest.TestCase):
                 self.assertIn("Reviewed behavior.", text)
                 self.assertTrue(text.endswith("VERDICT: PASS\n"))
 
+    def test_comment_and_table_ticks_do_not_open_later_values(self):
+        for example in (
+            "// `\nconst password = tag` private-value`;",
+            "| first | second |\n| --- | --- |\n| ` | public |\n"
+            "| password=prefix` printf 'private-value'` | done |",
+            "| first | second |\n| --- | --- |\n"
+            "| ` | password=prefix` printf 'private-value'` |",
+        ):
+            with self.subTest(example=example):
+                reply = (0, example + "\n\nReviewed behavior.\nVERDICT: PASS\n", "")
+                calls, text = self.run_chair([reply, reply])
+                self.assertNotIn("private-value", text)
+                self.assertEqual(calls, 1)
+                self.assertIn("Reviewed behavior.", text)
+                self.assertTrue(text.endswith("VERDICT: PASS\n"))
+
+    def test_table_recognition_preserves_cell_spans_and_offsets(self):
+        import role_review
+        for example in (
+            "| a | b |\n| --- | --- |\n| ` | `keep()` |",
+            "| ` | `keep()` |\n| --- | --- |",
+            "a | b\n--- | ---\n` | `keep()`",
+            "| a | b |\n| --- | --- |\n| ` | public |\n`keep()`",
+            "| a | b |\n| --- | --- |\n| ` | public | extra |\n| `keep()` |",
+            "- > | a | b |\n  > | --- | --- |\n  > | ` | `keep()` |",
+            "- | π | b |\n\t| --- | --- |\n\t| ` | `keep()` |",
+            "| a | b |\n| --- | --- |\n| `a\\|b` | `keep()` |",
+        ):
+            with self.subTest(example=example):
+                spans = role_review._inline_code_spans(example)
+                self.assertIn((example.index("keep()"), example.index("keep()") + 6), spans)
+                if "a\\|b" in example:
+                    self.assertIn("a\\|b", [example[start:end] for start, end in spans])
+        even_slashes = "| a | b |\n| --- | --- |\n| `a\\\\|b` | public |"
+        self.assertEqual(role_review._inline_code_spans(even_slashes), [])
+
+    def test_table_scope_leaves_other_paragraphs_unchanged(self):
+        import role_review
+        for example, expected in (
+            ("Use `open | middle\nclose` now.", "open | middle\nclose"),
+            ("Header `open | extra | third\n--- | ---\nclose`", "open | extra | third\n--- | ---\nclose"),
+            ("Header `open | extra\nxx | ---\nclose`", "open | extra\nxx | ---\nclose"),
+            ("| a | b |\n| --- | --- |\n| ` | public |\n\nRun `open\nclose`.", "open\nclose"),
+            ("| a | b |\n| --- | --- |\n| ` | public |\n# Heading\nRun `open\nclose`.", "open\nclose"),
+            ("// Checked `keep()` now.", "keep()"),
+            ("Use https://example.invalid/ `open\nclose`.", "open\nclose"),
+        ):
+            with self.subTest(example=example):
+                self.assertIn(expected, [example[start:end]
+                                        for start, end in role_review._inline_code_spans(example)])
+
     def test_inline_assignment_preserves_evidence_before_raw_blocks(self):
         for block in ("```text\npublic()\n```", "<pre>\necho '`'\n</pre>"):
             with self.subTest(block=block):

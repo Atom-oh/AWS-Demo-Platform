@@ -773,6 +773,7 @@ def _inline_code_spans(value, closing_fences=None):
     spans, pending = [], []
     containers, next_quotes = (), (0,)
     offset, block, paragraph = 0, None, False
+    table_active, last_row = False, None
     quote_marker = re.compile(r" {0,3}> ?")
     fence_marker = re.compile(r" {0,3}(`{3,}|~{3,})(.*)")
     list_marker = re.compile(r"( {0,3})([-+*]|[0-9]{1,9}[.)])(?= |$)")
@@ -783,15 +784,16 @@ def _inline_code_spans(value, closing_fences=None):
                       for char in "-*_"}
 
     def flush():
-        nonlocal paragraph
+        nonlocal paragraph, table_active, last_row
         following, last = {}, {}
         for index in range(len(pending) - 1, -1, -1):
-            start, end = pending[index]
-            following[index] = last.get(end - start)
-            last[end - start] = index
+            start, end, region = pending[index]
+            key = (region, end - start)
+            following[index] = last.get(key)
+            last[key] = index
         index = 0
         while index < len(pending):
-            start, end = pending[index]
+            start, end, _ = pending[index]
             slash_start = start
             while slash_start and value[slash_start - 1] == "\\":
                 slash_start -= 1
@@ -803,6 +805,41 @@ def _inline_code_spans(value, closing_fences=None):
                 index = close + 1
         pending.clear()
         paragraph = False
+        table_active, last_row = False, None
+
+    def cell_parts(text):
+        pipes, slashes = [], 0
+        for index, char in enumerate(text):
+            if char == "\\":
+                slashes += 1
+                continue
+            if char == "|" and slashes % 2 == 0:
+                pipes.append(index)
+            slashes = 0
+        cuts = [-1] + pipes + [len(text)]
+        parts = [text[left + 1:right] for left, right in zip(cuts, cuts[1:])]
+        if pipes and not parts[0].strip(" \t"):
+            parts.pop(0)
+        if pipes and parts and not parts[-1].strip(" \t"):
+            parts.pop()
+        return parts, pipes
+
+    def table_delimiter(content):
+        if table_active or last_row is None:
+            return False
+        parts, pipes = cell_parts(content)
+        return (len(content) - len(content.lstrip(" ")) <= 3
+                and last_row["indent"] <= 3 and bool(pipes or last_row["has_pipe"])
+                and len(parts) == len(last_row["parts"]) and bool(parts)
+                and all(re.fullmatch(r"[ \t]*:?-+:?[ \t]*", part) for part in parts))
+
+    def table_tokens(row):
+        result, cell = [], 0
+        for start, end in row["ticks"]:
+            while cell < len(row["pipes"]) and row["pipes"][cell] < start - row["offset"]:
+                cell += 1
+            result.append((start, end, ("cell", row["offset"], cell)))
+        return result
 
     def blank(line):
         return not line.strip(" \r\n")
@@ -913,6 +950,8 @@ def _inline_code_spans(value, closing_fences=None):
         return theme_patterns[char].fullmatch(line, position, end) is not None
 
     def is_heading(line, position, end, cache):
+        if table_delimiter(line[position:end]):
+            return False
         return (atx_marker.match(line, position, end)
                 or thematic(line, position, end, cache)
                 or (paragraph and setext_marker.match(line, position, end)))
@@ -955,7 +994,7 @@ def _inline_code_spans(value, closing_fences=None):
         sibling = (containers[matched][2] if matched < len(containers)
                    and containers[matched][0] == "list" else None)
         if matched < len(containers):
-            lazy = paragraph and position < tail and not interrupts(
+            lazy = paragraph and not table_active and position < tail and not interrupts(
                 line, position, end, tail, themes, sibling)
             if not lazy:
                 containers = containers[:matched]
@@ -1001,8 +1040,24 @@ def _inline_code_spans(value, closing_fences=None):
         elif len(content) - len(content.lstrip(" ")) < 4 or paragraph:
             if heading:
                 flush()
-            pending.extend((offset + match.start(), offset + match.end())
-                           for match in re.finditer(r"`+", raw_line))
+            ticks = [(offset + match.start(), offset + match.end())
+                     for match in re.finditer(r"`+", raw_line)]
+            parts, pipes = cell_parts(content)
+            row = {"offset": offset, "ticks": ticks, "parts": parts,
+                   "pipes": cell_parts(raw_line.rstrip("\r\n"))[1],
+                   "has_pipe": bool(pipes), "indent": len(content) - len(content.lstrip(" "))}
+            if table_delimiter(content):
+                header = {start: region for start, _, region in table_tokens(last_row)}
+                pending[:] = [(start, end, header.get(start, region))
+                              for start, end, region in pending]
+                flush()
+                table_active = True
+            if table_active:
+                pending.extend(table_tokens(row))
+            else:
+                region = ("comment", offset) if content.lstrip(" ").startswith("//") else None
+                pending.extend((start, end, region) for start, end in ticks)
+            last_row = row
             paragraph = True
             if heading:
                 flush()
