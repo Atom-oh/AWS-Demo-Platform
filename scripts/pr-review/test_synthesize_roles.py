@@ -247,6 +247,15 @@ class SynthesisTests(unittest.TestCase):
                 self.assertIn("Reviewed behavior.", text)
                 self.assertTrue(text.endswith("VERDICT: PASS\n"))
 
+    def test_escaped_pipe_cell_preserves_the_review(self):
+        example = "| a | b |\n| --- | --- |\n| `printf a\\\\|b; password='private-value'` | safe |"
+        reply = (0, example + "\n\nReviewed behavior.\nVERDICT: PASS\n", "")
+        calls, text = self.run_chair([reply, reply])
+        self.assertEqual(calls, 1)
+        self.assertNotIn("private-value", text)
+        self.assertIn("Reviewed behavior.", text)
+        self.assertTrue(text.endswith("VERDICT: PASS\n"))
+
     def test_comment_and_table_ticks_do_not_open_later_values(self):
         for example in (
             "// `\nconst password = tag` private-value`;",
@@ -281,7 +290,8 @@ class SynthesisTests(unittest.TestCase):
                 if "a\\|b" in example:
                     self.assertIn("a\\|b", [example[start:end] for start, end in spans])
         even_slashes = "| a | b |\n| --- | --- |\n| `a\\\\|b` | public |"
-        self.assertEqual(role_review._inline_code_spans(even_slashes), [])
+        self.assertEqual([even_slashes[start:end] for start, end
+                          in role_review._inline_code_spans(even_slashes)], ['a\\\\|b'])
 
     def test_table_scope_leaves_other_paragraphs_unchanged(self):
         import role_review
@@ -291,6 +301,7 @@ class SynthesisTests(unittest.TestCase):
             ("Header `open | extra\nxx | ---\nclose`", "open | extra\nxx | ---\nclose"),
             ("| a | b |\n| --- | --- |\n| ` | public |\n\nRun `open\nclose`.", "open\nclose"),
             ("| a | b |\n| --- | --- |\n| ` | public |\n# Heading\nRun `open\nclose`.", "open\nclose"),
+            ("| a |\n---\nRun `open\nclose`.", "open\nclose"),
             ("// Checked `keep()` now.", "keep()"),
             ("Use https://example.invalid/ `open\nclose`.", "open\nclose"),
         ):

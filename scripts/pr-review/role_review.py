@@ -813,7 +813,7 @@ def _inline_code_spans(value, closing_fences=None):
             if char == "\\":
                 slashes += 1
                 continue
-            if char == "|" and slashes % 2 == 0:
+            if char == "|" and slashes == 0:
                 pipes.append(index)
             slashes = 0
         cuts = [-1] + pipes + [len(text)]
@@ -829,7 +829,7 @@ def _inline_code_spans(value, closing_fences=None):
             return False
         parts, pipes = cell_parts(content)
         return (len(content) - len(content.lstrip(" ")) <= 3
-                and last_row["indent"] <= 3 and bool(pipes or last_row["has_pipe"])
+                and last_row["indent"] <= 3 and bool(pipes)
                 and len(parts) == len(last_row["parts"]) and bool(parts)
                 and all(re.fullmatch(r"[ \t]*:?-+:?[ \t]*", part) for part in parts))
 
