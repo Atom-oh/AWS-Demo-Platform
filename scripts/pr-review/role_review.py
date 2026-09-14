@@ -766,6 +766,64 @@ def sensitive_key(value):
     return isinstance(value, str) and SENSITIVE_KEY.fullmatch(re.sub(r"[^A-Za-z0-9]+", "_", value))
 
 
+def _scrub_fallback_values(value, key):
+    """Consume complete fallback values without losing quoted continuation lines."""
+    operator = re.compile(r"\|\||\?\?|\bor\b")
+    if not operator.search(value):
+        return value
+    opening = {"(": ")", "[": "]", "{": "}"}
+    def next_content(index):
+        while index < len(value) and value[index].isspace():
+            index += 1
+        return index
+    pieces, cursor = [], 0
+    for match in re.finditer(key, value):
+        if match.start() < cursor:
+            continue
+        newline = value.find("\n", match.end())
+        line_end = len(value) if newline < 0 else newline
+        following = next_content(line_end)
+        if not operator.search(value, match.end(), line_end) and not operator.match(value, following):
+            continue
+        index, quote, escaped, stack = match.end(), None, False, []
+        line_start = index
+        while index < len(value):
+            char = value[index]
+            if escaped:
+                escaped = False
+            elif quote:
+                if char == "\\":
+                    escaped = True
+                elif value.startswith(quote, index):
+                    index += len(quote)
+                    quote = None
+                    continue
+            elif char in "\"'`":
+                quote = char * 3 if char != "`" and value.startswith(char * 3, index) else char
+                index += len(quote)
+                continue
+            elif char in opening:
+                stack.append(opening[char])
+            elif char in ")]}" and stack:
+                if char != stack.pop():
+                    index = len(value)
+                    break
+            elif char == "\n" and not stack:
+                previous = value[line_start:index].rstrip()
+                following = next_content(index)
+                if not (re.search(r"(?:\|\||\?\?|\bor|\\)$", previous) or operator.match(value, following)):
+                    break
+                index = line_start = following
+                continue
+            if char == "\n":
+                line_start = index + 1
+            index += 1
+        pieces.extend((value[cursor:match.start()], "[REDACTED]"))
+        cursor = index
+    pieces.append(value[cursor:])
+    return "".join(pieces)
+
+
 def _scrub_markdown_containers(value, key):
     """Remove complete containers; an uncertain boundary consumes the remainder."""
     opening = re.compile(key + r"[\[({]")
@@ -856,9 +914,10 @@ def scrub(value, keep=(), markdown=False):
             return match.group()
     # Decode nested JSON strings/escaped keys before applying key/value patterns.
     value = re.sub(r'"(?:\\.|[^"\\])*"', quoted, value)
-    quoted_keys = re.findall(r"""(["'])([^"'\r\n]+)\1(?=\s*[:=])""", value)
+    quoted_keys = {key for _, key in re.findall(r"""(["'])([^"'\r\n]+)\1(?=\s*[:=])""", value)}
     identifiers = [SENSITIVE_KEY.pattern] + [
-        re.escape(key) for _, key in quoted_keys if sensitive_key(key)
+        re.escape(key) for key in sorted(quoted_keys)
+        if not SENSITIVE_KEY.fullmatch(key) and sensitive_key(key)
     ]
     identifier = "(?:" + "|".join(identifiers) + ")"
     quote = r"""\\*["']"""
@@ -880,8 +939,8 @@ def scrub(value, keep=(), markdown=False):
         r"""(?im)^[ \t]*[+-]?[ \t]*(?:set-)?cookie["']?[ \t]*:[^\r\n]*""",
         r"""(?i:x-origin-verify)["']?\s*:\s*["']?[^\s"',;}\]]+""",
         container,
-        key + r"[^\r\n]*(?:\|\||\?\?|\bor\b)[^\r\n]*",
         key + r"[|>][-+]?[ \t]*\r?\n(?:[+-]?[ \t]+[^\r\n]*(?:\r?\n|\Z))+",
+        _scrub_fallback_values,
         rf"(?i:\b(?:header)?name)(?:{quote})?\s*[:=]\s*(?:{quote})?" + identifier
         + rf"(?:{quote})?[\s,]*[+-]?[ \t]*(?:{quote})?(?i:(?:header)?value)(?:{quote})?\s*[:=]\s*"
         + rf"(?:(?P<named>{quote}).*?(?P=named)|[^\s,}}\]]+)",
@@ -889,7 +948,9 @@ def scrub(value, keep=(), markdown=False):
         key + r"""[^\s"',;}\]]+""",
     )
     for pattern in patterns:
-        if markdown and pattern == container:
+        if pattern is _scrub_fallback_values:
+            value = _scrub_fallback_values(value, key)
+        elif markdown and pattern == container:
             value = _scrub_markdown_containers(value, key)
         else:
             value = re.sub(pattern, "[REDACTED]", value, flags=re.S)

@@ -247,6 +247,15 @@ class RoleReviewTests(unittest.TestCase):
             for operator in ("||", "??", "or")
         ]
         cases += [
+            f'password: "{operator}\n{secret}"\nPUBLIC_KEEP'
+            for operator in ("||", "??", "or")
+        ]
+        cases += [
+            f'password = settings.PASSWORD{before}{operator}{after}"{secret}"\nPUBLIC_KEEP'
+            for operator in ("||", "??", "or")
+            for before, after in ((" ", "\n    "), ("\n    ", " "))
+        ]
+        cases += [
             prefix + json.dumps({key: secret}) + suffix
             for key in ("/prod/db/password", "password[0]", "api key (prod)")
             for prefix, suffix in (("", ""), ("Evidence: ", "\nPUBLIC_KEEP"))
@@ -277,6 +286,16 @@ class RoleReviewTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout, text)
+
+    def test_repeated_quoted_sensitive_keys_remain_bounded(self):
+        secret = "SYNTHETIC_REPEATED_PRIVATE_VALUE"
+        text = "Evidence: " + json.dumps([{"password": secret}] * 300)
+        result = subprocess.run(
+            [sys.executable, "-c", "import role_review,sys; print(role_review.scrub(sys.stdin.read()), end='')"],
+            input=text, text=True, capture_output=True, cwd=ENGINE.parent, timeout=5,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn(secret, result.stdout)
 
     def test_credential_pattern_matrix(self):
         cases = [
