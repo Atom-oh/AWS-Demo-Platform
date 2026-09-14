@@ -766,9 +766,42 @@ def sensitive_key(value):
     return isinstance(value, str) and SENSITIVE_KEY.fullmatch(re.sub(r"[^A-Za-z0-9]+", "_", value))
 
 
-def _assignment_spans(value, key):
+def _inline_code_spans(value):
+    spans, offset, fence = [], 0, None
+    for line in value.splitlines(keepends=True):
+        marker = re.match(r" {0,3}(`{3,}|~{3,})(.*)", line)
+        if fence:
+            if (marker and marker[1][0] == fence[0] and len(marker[1]) >= fence[1]
+                    and not marker[2].strip()):
+                fence = None
+        elif marker and (marker[1][0] == "~" or "`" not in marker[2]):
+            fence = (marker[1][0], len(marker[1]))
+        elif not line.startswith(("    ", "\t")):
+            runs = list(re.finditer(r"`+", line))
+            following, last = {}, {}
+            for index in range(len(runs) - 1, -1, -1):
+                width = len(runs[index].group())
+                following[index] = last.get(width)
+                last[width] = index
+            index = 0
+            while index < len(runs):
+                close = following[index]
+                if close is None:
+                    index += 1
+                else:
+                    spans.append((offset + runs[index].end(), offset + runs[close].start()))
+                    index = close + 1
+        offset += len(line)
+    return spans
+
+
+def _assignment_spans(value, key, markdown=False):
     """Find complete assignments without changing another detector's input."""
     operator = re.compile(r"\|\||\?\?|\bor\b")
+    tail_operator = re.compile(r"(?:\|\||\?\?|\bor|\\|(?:^|\s)[+*/%&|^?:<>=!-])$")
+    head_operator = re.compile(r"(?:\|\||\?\?|\bor\b|[+*/%&|^?:<>=!.(\[-])")
+    code_spans = _inline_code_spans(value) if markdown else []
+    code_index = 0
     opening = {"(": ")", "[": "]", "{": "}"}
     def next_content(index):
         while index < len(value) and value[index].isspace():
@@ -778,11 +811,21 @@ def _assignment_spans(value, key):
     for match in re.finditer(key, value):
         if match.start() < cursor:
             continue
+        while code_index < len(code_spans) and code_spans[code_index][1] < match.start():
+            code_index += 1
+        code_end = (
+            code_spans[code_index][1]
+            if code_index < len(code_spans) and code_spans[code_index][0] <= match.start()
+            else None
+        )
         index, quote, escaped, stack = match.end(), None, False, []
         line_start = index
         continuation_pending = False
         while index < len(value):
             char = value[index]
+            if (markdown and index == code_end and index > match.end() and not quote
+                    and not stack and not tail_operator.search(value[line_start:index].rstrip())):
+                break
             if escaped:
                 escaped = False
             elif quote:
@@ -797,6 +840,14 @@ def _assignment_spans(value, key):
                 quote = char * 3 if char != "`" and value.startswith(char * 3, index) else char
                 index += len(quote)
                 continue
+            elif markdown and char in " \t\r" and not stack and index > match.end():
+                following = index
+                while following < len(value) and value[following] in " \t\r":
+                    following += 1
+                if (following < len(value) and value[following] != "\n"
+                        and not tail_operator.search(value[line_start:index].rstrip())
+                        and not head_operator.match(value, following)):
+                    break
             elif (not stack and (index == match.end() or value[index - 1].isspace())
                   and (char == "#" or value.startswith("//", index))):
                 previous = value[line_start:index].rstrip()
@@ -989,7 +1040,7 @@ def scrub(value, keep=(), markdown=False):
     spans = []
     for pattern in patterns:
         if pattern is _assignment_spans:
-            spans.extend(_assignment_spans(value, key))
+            spans.extend(_assignment_spans(value, key, markdown))
         elif markdown and pattern == container:
             spans.extend(_markdown_container_spans(value, key))
         else:
