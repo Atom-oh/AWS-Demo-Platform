@@ -246,6 +246,7 @@ class RoleReviewTests(unittest.TestCase):
             f'password = (previous {operator}\n    "{secret}")'
             for operator in ("||", "??", "or")
         ]
+        cases += [f"password=prefix{closer}{secret}" for closer in ("}", "]")]
         cases += [
             f'password: "{operator}\n{secret}"\nPUBLIC_KEEP'
             for operator in ("||", "??", "or")
