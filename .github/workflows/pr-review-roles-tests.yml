@@ -3,11 +3,15 @@ name: PR review protocol tests
 on:
   pull_request:
     paths:
+      - 'CLAUDE.md'
+      - 'AGENTS.md'
       - 'scripts/pr-review/**'
       - '.github/workflows/pr-review*.yml'
   push:
     branches: [main]
     paths:
+      - 'CLAUDE.md'
+      - 'AGENTS.md'
       - 'scripts/pr-review/**'
       - '.github/workflows/pr-review*.yml'
 
@@ -24,3 +28,21 @@ jobs:
           persist-credentials: false
       - name: Test scope and execution without provider calls
         run: python3 -m unittest discover -s scripts/pr-review -p 'test_*role*.py' -v
+      - name: Validate generated reviewer context
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import re
+          from pathlib import Path
+          context = Path("AGENTS.md").read_bytes()
+          digest = hashlib.sha256(Path("CLAUDE.md").read_bytes()).hexdigest()[:12]
+          assert context.strip() and len(context) <= 12288, "Invalid reviewer context size"
+          marker = re.search(rb"claude-md-sha:\s*([0-9a-f]{12})", context.splitlines()[0])
+          assert marker and marker.group(1).decode() == digest, "Stale reviewer context"
+          print(f"Reviewer context verified: {digest}, {len(context)} bytes")
+          PY
+      - name: Check shell syntax
+        run: |
+          for script in scripts/pr-review/*.sh; do
+            bash -n "$script"
+          done

@@ -2,6 +2,11 @@
 
 ## Status
 
+**2026-09-13 scoped supersession:** [ADR-020](ADR-020-specialist-review-protocol.md)
+replaces repeated per-model lenses, permissive dropout counts and unconditional
+chair invocation. The historical execution description below is not the current
+coverage contract. Context, artifact isolation and runner ownership still apply.
+
 Accepted (2026-08-06), corrected by the same-day PR #88 review. Supersedes ADR-016
 for execution topology and the roster changes described here, not panel/chair
 architecture or runner-image ownership. Later model selections are in ADR-014;

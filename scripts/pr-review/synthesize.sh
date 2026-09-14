@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
+# ROLE_REVIEW=1 publishes specialist results, invoking a chair only when required.
+# The legacy unconditional chair implementation follows that branch.
 # Chair synthesis. Args: <diff> <workdir> <pr_number> <pr_title> <out review.md>
 set -euo pipefail
+
+if [ "${ROLE_REVIEW:-0}" = 1 ]; then
+  exec python3 "$(dirname "$0")/synthesize_roles.py" --work "$2" --output "$5"
+fi
 DIR="$(cd "$(dirname "$0")" && pwd)"; . "$DIR/lib.sh"
 DIFF="$1"; WORK="$2"; PR_NUMBER="$3"; PR_TITLE="$4"; OUT="$5"
 SLOT="$WORK/slot"

@@ -1,8 +1,8 @@
 # Specialist review protocol
 
-Executors are staged; legacy review remains active until separate activation/E2E
-review. `prepare_roles.py` validates inputs, `run_role.py` runs a specialist,
-`synthesize_roles.py` adjudicates, and `restore_role_frames.py` restores frames.
+CI selects `ROLE_REVIEW=1`. Trusted inputs feed specialist executors; validated
+results feed aggregation and, when needed, the chair. See
+[the project contract](../../docs/pr-review-specialists.md).
 
 | Tag | Requested model | Scope |
 | --- | --- | --- |
@@ -125,9 +125,11 @@ throttling alone may use the configured fallback.
 
 ## Executor inputs and limits
 
-- `run-specialists.sh`: ADP entrypoint; uses the context cap above and requires
-  `HEAD_SHA`, `BASE_SHA` and `GH_REPO`.
-- `prepare_roles.py`: immutable Git scope; requires `AGENTS.md` at BASE and HEAD,
+- `run-specialists.sh DIFF UNUSED WORK`: uses the context cap above, `HEAD_SHA`,
+  `BASE_SHA`, and `GH_REPO` or `GITHUB_REPOSITORY`. The second argument preserves
+  the legacy calling shape; roles replace lens files. Default ADP preparation
+  rebuilds the diff from immutable Git objects.
+- `prepare_roles.py`: the default ADP path requires `AGENTS.md` at BASE and HEAD,
   checks size and generated-source hashes, and retains only BASE instructions.
   `role-input-scope.json` supplies BASE exclusions.
 - `prepare_context_roles.py`: optional BASE-verified hook; may not raise the cap.
@@ -138,6 +140,8 @@ throttling alone may use the configured fallback.
   attempts (`PANEL_RETRIES`) and 60/120 seconds (`KIRO_PREFLIGHT_TIMEOUT`).
 - `synthesize_roles.py`: reads legacy `CHAIR_*` defaults; positive environment
   values apply even without a legacy default. Project policies declare maxima;
-  the absolute timeout ceiling is 1,500 seconds.
+  the absolute timeout ceiling is 1,500 seconds. ADP defaults to a 600-second
+  timeout and has no explicit turn/fast-fail default. The chair uses
+  Read/Grep/Glob and denies Bash.
 - `role-controls.sh`: uses the canonical `lib.sh` control stripper. Private JSON
   reaches protocol validation before credential redaction.

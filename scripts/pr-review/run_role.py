@@ -315,8 +315,20 @@ def run(work, tag):
                     command[2] = framed_prompt
                     delivered = payload
                 code, output, error = execute(command, cwd, environment, delivered, timeout)
+                if tag == "codex":
+                    echoed = normalize_transport(delivered).replace("\r\n", "\n").replace("\r", "\n")
+                    error = normalize_transport(error).replace("\r\n", "\n").replace("\r", "\n")
+                    if echoed:
+                        error = error.replace(echoed, "[omitted echoed review input]")
                 error = preserve_stdout_error(output, error)
-                hard_limit = account_limit(code, output, error)
+                diagnostics = error
+                if tag == "codex":
+                    diagnostics = "\n".join(
+                        line for line in normalize_transport(error).splitlines()
+                        if not line.lstrip().startswith(("+", "-", ">", "|", "```", "diff --git", "@@"))
+                    )
+                # Codex JSONL tool data is untrusted; inspect native errors below.
+                hard_limit = account_limit(0 if tag == "codex" else code, output, diagnostics)
                 if tag == "codex" and not hard_limit:
                     output, event_error, complete = codex_response(output, final_output)
                     hard_limit = account_limit(code, "", event_error)

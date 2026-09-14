@@ -39,7 +39,7 @@ The marker is the first 12 hexadecimal characters of SHA-256 over the UTF-8
 
 Local Kiro steering points at `AGENTS.md`; CI Kiro runs in an isolated directory
 without read tools. `prepare-inputs.sh` explicitly fetches the digest at the event's
-base SHA and embeds it for every lens and the chair. PR-head instructions remain
+base SHA and supplies it to applicable specialists and conditional adjudication. PR-head instructions remain
 untrusted diff data. The local bridge alone cannot supply CI context.
 
 Keep generated guidance concise and point to module guides rather than duplicating
@@ -73,3 +73,5 @@ product UI and its test assertions may be Korean. Keep historical records concis
 retaining dates, rationale, limitations and links. Obsolete code transcripts remain
 in Git history rather than repeated in every review context. Templates are aids,
 not mandatory sections in every document.
+
+- [Specialist PR review](pr-review-specialists.md): current role routing, coverage and synthesis.

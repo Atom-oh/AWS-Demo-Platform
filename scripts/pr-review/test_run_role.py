@@ -274,6 +274,15 @@ class RoleRecordingTests(unittest.TestCase):
                 if event:
                     rc, output, error = self.fake_codex(command, cwd, environment, input_text, timeout)
                     lines = output.splitlines()
+                    if event == "tool":
+                        lines.insert(1, json.dumps({"type": "item.completed", "item": {
+                            "type": "command_execution",
+                            "aggregated_output": "Error: insufficient credits",
+                        }}))
+                        lines[-1] = json.dumps({"type": "turn.failed", "error": {
+                            "message": "Connection closed",
+                        }})
+                        return 1, "\n".join(lines), error
                     lines.insert(1, json.dumps({'type': 'error', 'message': 'You have reached the limit for overages'}))
                     return rc, "\n".join(lines), error
                 if stderr:
@@ -304,6 +313,38 @@ class RoleRecordingTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertFalse(result["valid"])
         self.assertIn("quota_diagnostic", result["failure_codes"])
+
+    def test_failed_codex_tool_text_is_not_quota(self):
+        calls, result = self.quota_case("codex", event="tool")
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(result["valid"], result["failure_codes"])
+
+    def echoed_codex(self, suffix=""):
+        self.harness.context.write_text("Trusted example: insufficient credits.\n")
+        diff = fixture.patch(self.path, after="Monthly request limit reached")
+        diff = diff.replace("@@ -1 +1 @@", "@@ -1,2 +1,2 @@\n MONTHLY_REQUEST_COUNT")
+        self.harness.prepare(diff)
+        calls = []
+        def echo(command, cwd, environment, input_text, timeout):
+            calls.append(command)
+            code, output, error = self.fake_codex(command, cwd, environment, input_text, timeout)
+            self.assertIn("--json", command)
+            return code, output, error + "\n" + input_text + suffix
+        self.run_recording(execute=echo)
+        return calls, self.harness.read("slot/codex-result.json")
+
+    def test_codex_echoed_diff_is_not_quota(self):
+        calls, result = self.echoed_codex()
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(result["valid"], result["failure_codes"])
+        self.assert_private_response_removed()
+
+    def test_codex_real_quota_survives_echo_removal(self):
+        calls, result = self.echoed_codex("\nError: insufficient credits\n")
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(result["valid"])
+        self.assertIn("quota_diagnostic", result["failure_codes"])
+        self.assert_private_response_removed()
 
     def test_quota_evidence(self):
         for tag in ("claude-self", "kiro-sol", "codex"):

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Runs only one model's lens×model cells. Args: <diff> <lenses_dir> <workdir> <model_tag>
+# ROLE_REVIEW=1 runs one specialist; the legacy lens path remains below.
+# Args: <diff> <lenses_dir> <workdir> <model_tag>
 # model_tag: codex | kiro-fable | kiro-sol | claude-self (see lib.sh PANEL_TAGS)
 # Each *.txt in lenses_dir is one lens (filename stem = lens tag, e.g. L2/L3/L4/L5). The
 # workflow calls this script once per per-model parallel job (ADR-015); the chair job's
@@ -12,6 +13,14 @@
 # immediately and leave a flag.
 # One model's 4 lenses run in parallel (&+wait) — wall clock ~= the slowest lens.
 set -uo pipefail
+
+# CI selects specialists; the legacy implementation remains available to its regression fixtures.
+if [ "${ROLE_REVIEW:-0}" = 1 ]; then
+  ROLE_DIR="$(cd "$(dirname "$0")" && pwd)"
+  . "$ROLE_DIR/lib.sh"
+  ensure_slots "$3" || exit 1
+  exec python3 "$ROLE_DIR/run_role.py" --work "$3" --tag "$4"
+fi
 DIFF="$(realpath "$1" 2>/dev/null)" \
   || { echo "run-panel.sh: realpath failed to resolve diff path: $1" >&2; exit 1; }
 LENSES_DIR="$2"; WORK="$3"; MODEL_TAG="$4"
@@ -284,7 +293,7 @@ for lens_file in "${LENS_FILES[@]}"; do
     # model — no region pinning needed, unlike the prior gpt-5.6-sol/bedrock-mantle setup.
     if command -v codex >/dev/null 2>&1; then
       ( try_panel codex "$SLOT/codex-$lens.md" "$SLOT/codex-$lens.err" \
-          timeout "$T" codex exec -s read-only --skip-git-repo-check "$LENS_PROMPT" ) &
+          timeout "$T" codex exec --model global.openai.gpt-6-astra -s read-only --skip-git-repo-check "$LENS_PROMPT" ) &
     else echo "[skip] codex/$lens (binary absent)" >&2; : > "$SLOT/codex-$lens.md"; fi
   elif [ -n "$KIRO_TAG" ]; then
     # Kiro's non-interactive `chat` ignores stdin and reads only the prompt arg.

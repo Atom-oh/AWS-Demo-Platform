@@ -1,6 +1,7 @@
 """Private-frame transport tests."""
 
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -15,12 +16,12 @@ class ArtifactTransportTests(unittest.TestCase):
         self.harness = fixture.RoleReviewTests()
         self.harness.setUp()
         self.addCleanup(self.harness.tearDown)
-        self.harness.prepare()
+        diff = fixture.patch("infra/network.tf")
+        plan = self.harness.prepare(diff)
         self.harness.finish()
-        chair = self.harness.root / "chair"
-        shutil.copytree(self.harness.work, chair)
-        shutil.rmtree(chair / "requests")
-        self.harness.work = chair
+        producer = self.harness.work
+        self.assertEqual(plan, self.harness.prepare(diff, case="chair"))
+        shutil.copytree(producer / "slot", self.harness.work / "slot", dirs_exist_ok=True)
 
     def restore(self, expected):
         result = subprocess.run(
@@ -50,6 +51,38 @@ class ArtifactTransportTests(unittest.TestCase):
         self.restore(2)
         self.assertEqual("altered input", path.read_text())
         self.harness.assert_blocked()
+
+    def shell_report(self):
+        binary = self.harness.root / "bin"
+        binary.mkdir()
+        marker = self.harness.root / "unexpected-chair"
+        fake = binary / "claude"
+        fake.write_text(f"#!{sys.executable}\nfrom pathlib import Path\nPath({str(marker)!r}).touch()\n")
+        fake.chmod(0o755)
+        env = dict(os.environ, ROLE_REVIEW="1",
+                   PATH=str(binary) + os.pathsep + os.environ["PATH"])
+        directory = Path(__file__).parent
+        output = self.harness.work / "review.md"
+        for command in (
+            ["bash", str(directory / "aggregate.sh"), "unused", str(self.harness.work)],
+            ["bash", str(directory / "synthesize.sh"), "unused", str(self.harness.work),
+             "1", "fixture", str(output)],
+        ):
+            result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(marker.exists(), "Deterministic paths must not call a chair")
+        return output.read_text()
+
+    def test_shell_clean_publication(self):
+        self.assertTrue(self.shell_report().endswith("VERDICT: PASS\n"))
+
+    def test_shell_restore_failure_publication(self):
+        path = self.harness.work / "slot/codex-request.json"
+        receipt = json.loads(path.read_text())
+        receipt["head_sha"] = "c" * 40
+        path.write_text(json.dumps(receipt))
+        self.assertTrue(self.shell_report().endswith("VERDICT: FAIL\n"))
+        self.assertTrue((self.harness.work / "role-frame-restore.flag").exists())
 
 
 if __name__ == "__main__":

@@ -1,10 +1,8 @@
 name: AI Code Review
 
-# Lens×model matrix panel review for every PR: Codex + Kiro x2 + Claude self-review, each
-# across lenses L2-L5 (4 models x 4 lenses = 16 cells), run as 4 parallel per-model `panel`
-# jobs; a `chair` job aggregates the artifacts and posts a synthesized, fail-closed
-# VERDICT comment. Direct CLI invocation (not marketplace actions) — see ADR-016/011/
-# 013/014/015 for design history.
+# ADR-020 specialist review: one request per applicable model in isolated jobs.
+# The chair job restores frames, validates coverage and publishes a deterministic
+# result or invokes conditional adjudication. Earlier ADRs retain runner ownership.
 
 on:
   pull_request_target:
@@ -16,6 +14,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  ROLE_REVIEW: "1"
+  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  GH_REPO: ${{ github.repository }}
+  REVIEW_CONTEXT_CAP: "12288"
   # claude-fable-5-1 is a global inference profile — its "global." prefix only affects
   # Bedrock's internal routing, NOT the SigV4 signing region: AWS_REGION must still match
   # ANTHROPIC_BEDROCK_BASE_URL's endpoint or signing fails (caught by PR #114's review
@@ -43,7 +46,7 @@ jobs:
       pull-requests: read
       contents: read
     strategy:
-      fail-fast: false # one vendor failing shouldn't stop the others; chair's coverage floor judges the gaps
+      fail-fast: false # preserve all diagnostics; missing required roles block aggregation
       matrix:
         model: [codex, kiro-fable, kiro-sol, claude-self]
     steps:
@@ -56,17 +59,23 @@ jobs:
       # run-panel.sh's preflight; --trust-tools= is ignored by kiro-cli 2.11.1).
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
+
+      - name: Prepare fresh review workspace
+        run: |
+          test ! -L /tmp/pr-review
+          rm -rf -- /tmp/pr-review
+          mkdir -p /tmp/pr-review
 
       - name: Verify panel CLI present (pre-installed on runner)
         run: |
-          # Missing CLI is non-blocking: run-panel.sh leaves that cell empty and
-          # aggregate.sh's degraded floor catches it.
+          # Continue to reporting; an unavailable required CLI blocks role coverage.
           for c in codex kiro-cli claude; do
             command -v "$c" >/dev/null 2>&1 || echo "::warning::$c not found on runner (image needs rebuild)"
           done
 
-      - name: Prepare diff + lens prompts (SHA-pinned, same inputs across all panel/chair jobs)
+      - name: Prepare pinned review inputs
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -75,16 +84,12 @@ jobs:
             "${{ github.event.pull_request.head.sha }}" "${{ github.event.pull_request.base.sha }}" \
             /tmp/pr-review
 
-      - name: "Run panel cell (model: ${{ matrix.model }}, all lenses)"
+      - name: "Run specialist (model: ${{ matrix.model }})"
         env:
-          # claude-self does extra read-only tool calls (gh/Read/Grep/Glob)
-          # on top of the diff, so it needs more headroom than the other panelists,
-          # which only process the diff text — PR #92 saw it hit 300s on all 4 lenses
-          # on a large (65-file) diff. 480x2=960s stays under the 20min job timeout.
+          # Retain existing per-model budgets; 480x2 stays below the job ceiling.
           PANEL_TIMEOUT: ${{ matrix.model == 'claude-self' && '480' || '300' }}
           PANEL_RETRIES: ${{ matrix.model == 'claude-self' && '2' || '3' }}
-          # Only claude-self uses this token (read-only gh tools); codex/kiro run
-          # with no tool access, so we don't expose the token to their process env.
+          # Legacy host token; specialist executors remove it from every model child.
           GH_TOKEN: ${{ matrix.model == 'claude-self' && github.token || '' }}
         run: |
           bash scripts/pr-review/run-panel.sh /tmp/pr-review/pr-diff-truncated.txt \
@@ -118,7 +123,7 @@ jobs:
         with:
           name: pr-review-slot-${{ matrix.model }}
           path: /tmp/pr-review/slot
-          if-no-files-found: warn # a total cell wipeout is judged by the chair's coverage floor, not blocked here
+          if-no-files-found: warn # aggregation emits FAIL for missing required roles
           retention-days: 1
 
   chair:
@@ -137,7 +142,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
+
+      - name: Prepare fresh review workspace
+        run: |
+          test ! -L /tmp/pr-review
+          rm -rf -- /tmp/pr-review
+          mkdir -p /tmp/pr-review
 
       - name: Verify Claude Code CLI present (pre-installed on runner)
         run: |
@@ -218,11 +230,16 @@ jobs:
           REPO: ${{ github.repository }}
           GATE_RESULT: ${{ steps.gate.outputs.result }}
         run: |
+          CURRENT_HEAD="$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.head.sha')"
+          if [ "$CURRENT_HEAD" != "$HEAD_SHA" ]; then
+            echo "::error::PR head changed; this review belongs to an older commit"
+            exit 1
+          fi
           MARKER="<!-- aws-demo-platform-pr-review -->"
           if [ "$GATE_RESULT" = "fail" ] && [ "${chair_failed:-0}" = "1" ]; then
             # Chair itself failed (timeout/connection error, not a code issue) — still
             # fail-closed BLOCKED, but worded differently from a real CRITICAL/MAJOR fail.
-            STATUS_BADGE="**Status: BLOCKED** — review generation failed (model timeout/error) — not a code issue, re-run the workflow"
+            STATUS_BADGE="**Status: BLOCKED** — review incomplete (input, coverage or execution failure)"
           elif [ "$GATE_RESULT" = "fail" ]; then
             STATUS_BADGE="**Status: BLOCKED** — CRITICAL/MAJOR issues must be resolved before merge"
           else
@@ -238,10 +255,11 @@ jobs:
           fi
           {
             echo "$MARKER"
-            echo "## 🤖 AI Code Review (${chair_used:-Claude Fable 5} chair · lens×model matrix: Codex + Kiro x2 + Claude self-review, L2-L5)"
+            echo "## AI Code Review — specialists"
+            echo "_Synthesis: ${chair_used:-pending}_"
             echo ""
-            echo "_Cells (model/lens): ${panel_responded:-solo}_"
-            [ "${panel_truncated:-0}" = "1" ] && echo "_⚠️ diff truncated to first 3000 lines — review is partial._"
+            echo "_Specialist coverage: ${panel_responded:-solo}_"
+            [ "${panel_truncated:-0}" = "1" ] && echo "_⚠️ input exceeded the legacy line cap — specialist review is blocked._"
             echo ""
             echo "$STATUS_BADGE"
             echo ""

@@ -1,9 +1,7 @@
-# Review protocol module
+# Specialist review module
 
-[Live review guidance](../../docs/pr-review.md) owns the legacy shell workflow;
-run `bash tests/run-all.sh` from the repository root when changing it.
-[README.md](README.md) owns the staged protocol library's interfaces and tests.
-The legacy workflow remains active until a separate activation change. Keep
-protocol instructions, documentation and review output in English. Preserve the
-project's trusted context, source-custody and budget constraints when adding an
-executor. Run the documented offline tests; model execution is separate evidence.
+[README.md](README.md) and the [project review contract](../../docs/pr-review-specialists.md)
+own this module. CI uses `ROLE_REVIEW=1`; retain exact base/head input provenance,
+project filtering/custody, complete role coverage, nonce framing and invocation
+budgets. Failed or missing coverage cannot become a clean review. Instructions,
+documentation and review output are English. Run the documented offline tests.

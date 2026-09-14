@@ -1,8 +1,19 @@
 #!/usr/bin/env bash
+# ROLE_REVIEW=1 restores frames and aggregates required specialist roles.
+# The legacy coverage-floor implementation follows that branch.
 # Aggregates artifacts from the 4 panel jobs (downloaded by the chair job into
 # $WORK/slot) and applies the coverage-floor verdict. Args: <lenses_dir> <workdir>
 # Coverage floor requires the full 4-model set, so it can only run here (not in run-panel.sh).
 set -uo pipefail
+
+if [ "${ROLE_REVIEW:-0}" = 1 ]; then
+  ROLE_DIR="$(cd "$(dirname "$0")" && pwd)"
+  ROLE_STATUS=0
+  python3 "$ROLE_DIR/restore_role_frames.py" --work "$2" || : > "$2/role-frame-restore.flag"
+  python3 "$ROLE_DIR/role_review.py" aggregate --work "$2" || ROLE_STATUS=$?
+  if [ "$ROLE_STATUS" -eq 0 ] || [ "$ROLE_STATUS" -eq 2 ]; then exit 0; fi
+  exit "$ROLE_STATUS"
+fi
 LENSES_DIR="$1"; WORK="$2"
 [ -n "$LENSES_DIR" ] || { echo "aggregate.sh: lenses_dir (\$1) must not be empty" >&2; exit 1; }
 [ -n "$WORK" ] || { echo "aggregate.sh: workdir (\$2) must not be empty" >&2; exit 1; }

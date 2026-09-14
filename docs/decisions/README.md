@@ -21,15 +21,16 @@ Historical names, cost estimates and catalog probes are not current guarantees.
 | [012](ADR-012-ai-trader-web-oidc-plan-apply-split.md) | External ai-trader-web plan/apply trust split | This repo owns IAM; external workflow/protections need verification |
 | [013](ADR-013-pr-review-gpt56-model-bump.md) | Independent Codex/Kiro access paths | Original model IDs superseded; see PR review map |
 | [014](ADR-014-pr-review-opus5-model-bump.md) | Anthropic selections and catalog recovery | Dated updates; Kiro aliases differ from Bedrock IDs |
-| [015](ADR-015-pr-review-per-model-parallel-jobs.md) | Per-model jobs, roster structure, artifacts and coverage floor | Supersedes 016's topology/roster, not its ownership decision |
-| [016](ADR-016-multi-ai-pr-review-panel.md) | Panel/chair architecture, shared context and runner-image ownership | Partially amended; retains context-delivery and compatibility updates |
+| [015](ADR-015-pr-review-per-model-parallel-jobs.md) | Per-model job isolation and artifacts | Supersedes 016's topology; matrix and dropout floor superseded by 020 |
+| [016](ADR-016-multi-ai-pr-review-panel.md) | Shared context and runner-image ownership | Topology/roster amended by 015; repeated lenses and unconditional chair amended by 020 |
 | [017](ADR-017-demo-scale-job-operation.md) | Async scale and HPA restoration | Accepted partial-failure limits; inspect before next off cycle |
 | [018](ADR-018-grafana-private-origin.md) | Grafana private path and credential rollout | Split repo/state ownership and producer-first readiness |
 | [019](ADR-019-externally-managed-projects.md) | Registration without resource control | External management enforced by API, worker and UI |
-| [020](ADR-020-specialist-review-protocol.md) | Staged specialist review protocol library | [Module contract](../../scripts/pr-review/README.md); legacy workflow remains active until separate activation |
+| [020](ADR-020-specialist-review-protocol.md) | Specialist responsibilities, strict coverage and conditional chair | Supersedes repeated lens matrix and permissive dropout floor |
 
-[PR review](../pr-review.md) maps configured slots, trusted inputs and actual
-coverage behavior. [Review and release](../runbooks/review-and-release.md) defines
+[Specialist review](../pr-review-specialists.md) maps slots and responsibilities.
+[PR review](../pr-review.md) defines trusted inputs and current coverage.
+[Review and release](../runbooks/review-and-release.md) defines
 operator checks. [Historical specs/plans](../superpowers/) are not additional merge
 gates; the August review hardening spec remains a proposal where not implemented.
 

@@ -6,6 +6,7 @@
 # so all jobs see the same diff even if new commits land mid-run.
 set -euo pipefail
 HEAD_SHA="$1"; BASE_SHA="$2"; WORK="$3"
+export HEAD_SHA BASE_SHA
 [ -n "$HEAD_SHA" ] || { echo "prepare-inputs.sh: head_sha (\$1) must not be empty" >&2; exit 1; }
 [ -n "$BASE_SHA" ] || { echo "prepare-inputs.sh: base_sha (\$2) must not be empty" >&2; exit 1; }
 [ -n "$WORK" ] || { echo "prepare-inputs.sh: workdir (\$3) must not be empty" >&2; exit 1; }
@@ -125,4 +126,9 @@ if [ "$TOTAL_LINES" -gt "$MAX_LINES" ]; then
     echo "WARNING: diff was ${TOTAL_LINES} lines; only the first ${MAX_LINES} were reviewed." >> "$f"
   done
   : > "$WORK/diff-truncated.flag"
+fi
+
+# Prepare the specialist contract under the same read-only GitHub token.
+if [ "${ROLE_REVIEW:-0}" = 1 ]; then
+  python3 "$(dirname "$0")/prepare_roles.py" --work "$WORK"
 fi
