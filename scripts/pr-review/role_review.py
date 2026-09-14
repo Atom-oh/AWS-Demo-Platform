@@ -911,13 +911,21 @@ def scrub(value, keep=(), markdown=False):
             return match.group()
     # Decode nested JSON strings/escaped keys before applying key/value patterns.
     value = re.sub(r'"(?:\\.|[^"\\])*"', quoted, value)
-    quoted_keys = {key for _, key in re.findall(r"""(["'])([^"'\r\n]+)\1(?=\s*[:=])""", value)}
-    identifiers = [SENSITIVE_KEY.pattern] + [
-        re.escape(key) for key in sorted(quoted_keys)
-        if not SENSITIVE_KEY.fullmatch(key) and sensitive_key(key)
-    ]
-    identifier = "(?:" + "|".join(identifiers) + ")"
     quote = r"""\\*["']"""
+    label = rf"""(?<!\\)(?P<label_quote>{quote})(?P<label>[^"'\r\n]+)(?P=label_quote)"""
+    def normalize_label(match):
+        spelling = match["label"]
+        if SENSITIVE_KEY.fullmatch(spelling) or not sensitive_key(spelling):
+            return match.group()
+        prefix = match.groupdict().get("label_prefix") or ""
+        return prefix + match["label_quote"] + "password" + match["label_quote"]
+    paired_label = (
+        rf"(?P<label_prefix>(?i:\b(?:header)?name)(?:{quote})?\s*[:=]\s*)" + label
+        + rf"(?=[\s,]*[+-]?[ \t]*(?:{quote})?(?i:(?:header)?value)(?:{quote})?\s*[:=])"
+    )
+    value = re.sub(paired_label, normalize_label, value)
+    value = re.sub(label + r"(?=\s*[:=])", normalize_label, value)
+    identifier = SENSITIVE_KEY.pattern
     key = identifier + rf"(?:{quote})?\s*[:=]\s*"
     container = key + r"[\[({].*"
     patterns = (

@@ -261,6 +261,8 @@ class RoleReviewTests(unittest.TestCase):
             f'password = prior || "{secret}"; PUBLIC_KEEP',
             f'The new secret: name="PASSWORD", value="{secret}"\nPUBLIC_KEEP',
             f'''curl -d "password="'{secret}'"&user=demo" https://example.invalid''',
+            'Evidence: ' + json.dumps({"api key (prod)": secret})
+            + f'; name="api key (prod)", value="{secret}"\nPUBLIC_KEEP',
         ]
         cases += [
             prefix + json.dumps({key: secret}) + suffix
@@ -297,6 +299,18 @@ class RoleReviewTests(unittest.TestCase):
     def test_repeated_quoted_sensitive_keys_remain_bounded(self):
         secret = "SYNTHETIC_REPEATED_PRIVATE_VALUE"
         text = "Evidence: " + json.dumps([{"password": secret}] * 300)
+        result = subprocess.run(
+            [sys.executable, "-c", "import role_review,sys; print(role_review.scrub(sys.stdin.read()), end='')"],
+            input=text, text=True, capture_output=True, cwd=ENGINE.parent, timeout=5,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn(secret, result.stdout)
+
+    def test_distinct_quoted_sensitive_keys_remain_bounded(self):
+        secret = "SYNTHETIC_DISTINCT_VALUE"
+        text = "Evidence: " + json.dumps([
+            {f"api key (prod-{index:04d})": secret} for index in reversed(range(5000))
+        ])
         result = subprocess.run(
             [sys.executable, "-c", "import role_review,sys; print(role_review.scrub(sys.stdin.read()), end='')"],
             input=text, text=True, capture_output=True, cwd=ENGINE.parent, timeout=5,
