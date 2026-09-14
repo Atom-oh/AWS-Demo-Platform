@@ -102,6 +102,53 @@ class RoleExecutionTests(unittest.TestCase):
         self.assertNotEqual(code, 0)
         self.assertEqual(role_review.diagnostic_failure(error), "quota_diagnostic")
 
+    def test_preflight_rejects_canary_disclosure_on_either_stream(self):
+        for destination in ("stdout", "stderr"):
+            for rendering in ("raw", "ansi-split", "osc-hidden"):
+                with self.subTest(destination=destination, rendering=rendering):
+                    cli = self.executable(
+                        "import pathlib,sys\n"
+                        "canary=pathlib.Path('preflight-canary.txt').read_text().strip()\n"
+                        "value=canary\n"
+                        f"rendering={rendering!r}\n"
+                        "if rendering=='ansi-split':\n"
+                        " value=canary[:24]+'\\x1b[31m'+canary[24:]+'\\x1b[0m'\n"
+                        "elif rendering=='osc-hidden':\n"
+                        " value='\\x1b]0;'+canary+'\\x07'\n"
+                        "print('NO_TOOLS')\n"
+                        f"print(value, file=sys.{destination})\n"
+                    )
+                    ok, code, error = self.runner.preflight(
+                        cli, "claude-opus-5", self.root, {"PATH": os.environ["PATH"]}, 2)
+                    canary = (self.root / "preflight-canary.txt").read_text().strip()
+                    self.assertFalse(ok)
+                    self.assertNotEqual(code, 0)
+                    self.assertNotIn(canary[:24], error)
+                    self.assertNotIn(canary[24:], error)
+                    self.assertIn("canary", error.lower())
+
+    def test_preflight_preserves_quota_with_canary_disclosure(self):
+        for split in (False, True):
+            with self.subTest(split=split):
+                cli = self.executable(
+                    "import pathlib,sys\n"
+                    "canary=pathlib.Path('preflight-canary.txt').read_text().strip()\n"
+                    f"split={split!r}\n"
+                    "value=canary[:24]+'\\x1b[31m'+canary[24:]+'\\x1b[0m' if split else canary\n"
+                    "print('NO_TOOLS')\n"
+                    "print(value, file=sys.stderr)\n"
+                    "print('Monthly request limit reached', file=sys.stderr)\n"
+                )
+                ok, code, error = self.runner.preflight(
+                    cli, "claude-opus-5", self.root, {"PATH": os.environ["PATH"]}, 2)
+                canary = (self.root / "preflight-canary.txt").read_text().strip()
+                self.assertFalse(ok)
+                self.assertNotEqual(code, 0)
+                self.assertNotIn(canary[:24], error)
+                self.assertNotIn(canary[24:], error)
+                self.assertIn("canary", error.lower())
+                self.assertEqual(role_review.diagnostic_failure(error), "quota_diagnostic")
+
     def test_codex_events(self):
         self.assertTrue(hasattr(self.runner, "codex_response"))
         reply = message('{"review":"exact"}')
