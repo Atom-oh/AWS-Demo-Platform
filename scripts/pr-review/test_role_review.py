@@ -266,6 +266,8 @@ class RoleReviewTests(unittest.TestCase):
             f"password = prior  # don't use token='prefix,{secret}'",
             f"password = prior  // don't use token='prefix,{secret}'",
             f"password=https://example.invalid/#{secret}\nPUBLIC_KEEP",
+            f'password = previous ||\n  // local fallback\n  "{secret}"\nPUBLIC_KEEP',
+            f'password = previous || // local fallback\n  "{secret}"\nPUBLIC_KEEP',
         ]
         cases += [
             prefix + json.dumps({key: secret}) + suffix
@@ -320,6 +322,13 @@ class RoleReviewTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0)
         self.assertNotIn(secret, result.stdout)
+
+    def test_label_normalization_preserves_invalid_container_rejection(self):
+        import role_review
+        for key in ('"pwd\\q"', 'f"pwd{1+}"'):
+            with self.subTest(key=key):
+                text = f'credentials = {{{key}: "SYNTHETIC_VALUE"}}\n\nVERDICT: PASS\n'
+                self.assertNotIn("VERDICT: PASS", role_review.scrub(text, markdown=True))
 
     def test_credential_pattern_matrix(self):
         cases = [

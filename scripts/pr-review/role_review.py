@@ -780,6 +780,7 @@ def _scrub_assignment_values(value, key):
             continue
         index, quote, escaped, stack = match.end(), None, False, []
         line_start = index
+        continuation_pending = False
         while index < len(value):
             char = value[index]
             if escaped:
@@ -792,11 +793,19 @@ def _scrub_assignment_values(value, key):
                     quote = None
                     continue
             elif char in "\"'`":
+                continuation_pending = False
                 quote = char * 3 if char != "`" and value.startswith(char * 3, index) else char
                 index += len(quote)
                 continue
             elif (not stack and (index == match.end() or value[index - 1].isspace())
                   and (char == "#" or value.startswith("//", index))):
+                previous = value[line_start:index].rstrip()
+                if continuation_pending or re.search(r"(?:\|\||\?\?|\bor|\\)$", previous):
+                    newline = value.find("\n", index)
+                    index = len(value) if newline < 0 else next_content(newline)
+                    line_start = index
+                    continuation_pending = True
+                    continue
                 break
             elif char in ";," and not stack:
                 break
@@ -811,10 +820,13 @@ def _scrub_assignment_values(value, key):
                 following = next_content(index)
                 if not (re.search(r"(?:\|\||\?\?|\bor|\\)$", previous) or operator.match(value, following)):
                     break
+                continuation_pending = True
                 index = line_start = following
                 continue
             if char == "\n":
                 line_start = index + 1
+            elif not char.isspace():
+                continuation_pending = False
             index += 1
         if index == match.end():
             continue
@@ -915,10 +927,16 @@ def scrub(value, keep=(), markdown=False):
     # Decode nested JSON strings/escaped keys before applying key/value patterns.
     value = re.sub(r'"(?:\\.|[^"\\])*"', quoted, value)
     quote = r"""\\*["']"""
-    label = rf"""(?<!\\)(?P<label_quote>{quote})(?P<label>[^"'\r\n]+)(?P=label_quote)"""
+    label = rf"""(?<![\\A-Za-z0-9_])(?P<label_quote>{quote})(?P<label>[^"'\r\n]+)(?P=label_quote)"""
     def normalize_label(match):
         spelling = match["label"]
         if SENSITIVE_KEY.fullmatch(spelling) or not sensitive_key(spelling):
+            return match.group()
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error")
+                ast.literal_eval(match["label_quote"][-1] + spelling + match["label_quote"][-1])
+        except (SyntaxError, ValueError, RecursionError, Warning):
             return match.group()
         prefix = match.groupdict().get("label_prefix") or ""
         return prefix + match["label_quote"] + "password" + match["label_quote"]
