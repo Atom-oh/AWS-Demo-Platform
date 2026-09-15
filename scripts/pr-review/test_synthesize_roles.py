@@ -10,6 +10,16 @@ import synthesize_roles
 
 
 class SynthesisTests(unittest.TestCase):
+    def test_complete_primary_fail_survives_format_failure_without_fallback(self):
+        calls, text = self.run_chair([
+            (0, "A blocking candidate remains. `bad code`\nVERDICT: FAIL\n", ""),
+            (0, "Fallback would clear the candidate.\nVERDICT: PASS\n", ""),
+        ])
+        self.assertEqual(calls, 1)
+        self.assertTrue(text.endswith("VERDICT: FAIL\n"))
+        self.assertNotIn("bad code", text)
+        self.assertIn("withheld", text)
+
     def setUp(self):
         self.module = synthesize_roles
         self.temp = tempfile.TemporaryDirectory()
@@ -39,11 +49,11 @@ class SynthesisTests(unittest.TestCase):
         fence = "`" * max(3, longest + 1)
         return f"{fence}text\n{example}\n{fence}\n"
 
-    def assert_format_rejected(self, report, secret="private-value"):
+    def assert_format_rejected(self, report, secret="private-value", blocking=False):
         reply = (0, report, "")
         calls, text = self.run_chair([reply, reply])
-        self.assertEqual(calls, 2)
-        self.assertIn("failed the review format contract", text)
+        self.assertEqual(calls, 1 if blocking else 2)
+        self.assertIn("withheld" if blocking else "failed the review format contract", text)
         self.assertNotIn(secret, text)
         self.assertTrue(text.endswith("VERDICT: FAIL\n"))
 
@@ -308,7 +318,7 @@ class SynthesisTests(unittest.TestCase):
                     example = (quote + "Checked `" + prefix + "password=" + quote
                                + "private-value" + quote + "`; MAJOR rollback evidence. "
                                + "See `service`." + quote)
-                    self.assert_format_rejected(example + "\nPUBLIC_AFTER\nVERDICT: FAIL\n")
+                    self.assert_format_rejected(example + "\nPUBLIC_AFTER\nVERDICT: FAIL\n", blocking=True)
 
     def test_quote_ownership_preserves_valid_code_citations(self):
         import role_review
@@ -388,14 +398,14 @@ class SynthesisTests(unittest.TestCase):
             with self.subTest(block=block):
                 self.assert_format_rejected(
                     "Checked `env password='private-value'`; "
-                    "MAJOR rollback evidence.\n\n" + block + "\nVERDICT: FAIL\n")
+                    "MAJOR rollback evidence.\n\n" + block + "\nVERDICT: FAIL\n", blocking=True)
 
     def test_inline_command_citations_are_format_rejected(self):
         for prefix in ("env ", "curl -d ", "USER=demo ", "export\n"):
             with self.subTest(prefix=prefix):
                 self.assert_format_rejected(
                     "Checked `" + prefix + "password='private-value'`; "
-                    "MAJOR rollback evidence. See `service` and `validate()`.\nVERDICT: FAIL\n")
+                    "MAJOR rollback evidence. See `service` and `validate()`.\nVERDICT: FAIL\n", blocking=True)
 
     def test_fenced_commands_preserve_following_findings_and_references(self):
         for prefix in ("env ", "curl -d ", "USER=demo ", "export\n"):
@@ -445,7 +455,7 @@ class SynthesisTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assert_format_rejected(
                     "Checked `password=" + value + "`; MAJOR rollback evidence. "
-                    "See `service` and `validate()`.\nVERDICT: FAIL\n")
+                    "See `service` and `validate()`.\nVERDICT: FAIL\n", blocking=True)
 
     def test_backtick_values_are_protected_before_markdown_boundaries(self):
         examples = (

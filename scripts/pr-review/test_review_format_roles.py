@@ -98,6 +98,11 @@ class ReviewFormatTests(unittest.TestCase):
             "password=",
             "See auth.ts:42; password='synthetic-private'",
             "Authorization: caller checked; password='synthetic-private'",
+            "`config.password`: 'synthetic-private'",
+            "`/config/token` = 'synthetic-private'",
+            "password: !!str synthetic-private",
+            "token: &saved synthetic-private",
+            "config.password: synthetic-private",
         ):
             for field in ("check", "condition", "evidence", "uncertainty"):
                 with self.subTest(text=text, field=field):

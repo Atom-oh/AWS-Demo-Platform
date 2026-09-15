@@ -157,6 +157,7 @@ Untrusted evidence is delimited with the random boundary {nonce}.
         started = time.monotonic()
         code, text, error = execute(command, Path.cwd(), environment, input_text, timeout)
         original_valid = valid(normalize_transport(text), code)
+        original_blocked = original_valid and normalize_transport(text).strip().splitlines()[-1] == "VERDICT: FAIL"
         original_format = format_violation(normalize_transport(text), SENSITIVE_KEY)
         text = scrub(text)
         error = preserve_stdout_error(text, error)
@@ -170,6 +171,13 @@ Untrusted evidence is delimited with the random boundary {nonce}.
             diagnostic = "quota_diagnostic"
         text = scrub_decoded(text, markdown=True)
         format_failed = bool(original_format or format_violation(text, SENSITIVE_KEY))
+        if original_blocked and format_failed and diagnostic is None:
+            output.write_text(
+                "The primary chair returned FAIL. Malformed details were withheld; "
+                "a valid blocking review remains required.\n\nVERDICT: FAIL\n"
+            )
+            record_status("Primary blocked; details withheld", True)
+            return
         if original_valid and valid(text, code) and diagnostic is None and not format_failed:
             output.write_text(text.rstrip() + "\n")
             record_status(model)
