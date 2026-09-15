@@ -66,6 +66,12 @@ class ReviewFormatTests(unittest.TestCase):
             "Checked `token`\n===\nThe caller verifies its scope.",
             "Token\n=\nThe caller verifies its scope.",
             "See `Authorization`:\nThe caller is checked.",
+            "Authorization: The caller is checked.",
+            "**Secrets/credentials:** none introduced.",
+            "See [auth.ts](web/lib/auth.ts:42) for the missing guard.",
+            "The guard at auth.ts:42 is missing.",
+            "Checked `web/lib/token.ts`: the guard is missing.",
+            "Per `docs/decisions/002-auth-and-login.md`: signup is closed.",
         ):
             with self.subTest(text=text):
                 response, plan = self.response(text)
@@ -90,6 +96,8 @@ class ReviewFormatTests(unittest.TestCase):
             "Set `password`\n= 'synthetic-private'.",
             "Authorization: Bearer synthetic-private",
             "password=",
+            "See auth.ts:42; password='synthetic-private'",
+            "Authorization: caller checked; password='synthetic-private'",
         ):
             for field in ("check", "condition", "evidence", "uncertainty"):
                 with self.subTest(text=text, field=field):
