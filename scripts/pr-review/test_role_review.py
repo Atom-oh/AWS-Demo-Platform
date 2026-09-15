@@ -396,6 +396,8 @@ class RoleReviewTests(unittest.TestCase):
             '{"password": [["nested-private"]]}',
         }
         rejected |= {f"_{text}_" for text in rejected}
+        # A complete fenced JSON body now retains the structured masker's boundary.
+        rejected.remove('{"password": [["nested-private"]]}')
         for index, (text, secret) in enumerate(cases):
             with self.subTest(kind=text.split("=", 1)[0][:24]):
                 self.work = self.root / f"decoded-pattern-{index}"

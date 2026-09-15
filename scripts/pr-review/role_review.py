@@ -14,7 +14,7 @@ import sys
 import tempfile
 import unicodedata
 import warnings
-from review_format import FORMAT_INSTRUCTIONS, format_violation
+from review_format import FENCE as REVIEW_FENCE, FORMAT_INSTRUCTIONS, format_violation
 
 
 MAX_DIFF_BYTES = 95000
@@ -1440,6 +1440,36 @@ def _redact_spans(value, spans):
     return "".join(pieces)
 
 
+def mask_fenced_json(text):
+    """Mask complete JSON bodies before prose filtering can erase their labels."""
+    output, cursor, offset = [], 0, 0
+    fence, start = None, None
+    for line in text.splitlines(keepends=True):
+        end = offset + len(line)
+        marker = REVIEW_FENCE.fullmatch(line.rstrip("\r\n"))
+        if fence is None:
+            if marker and re.fullmatch(r"[A-Za-z0-9_.+-]*[ \t]*", marker[2]):
+                fence, start = marker[1], end
+        elif (marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence)
+              and not marker[2].strip()):
+            body = text[start:offset]
+            try:
+                decoded = strict_json(body)
+            except Invalid:
+                decoded = None
+            if isinstance(decoded, (dict, list)):
+                leading = body[:len(body) - len(body.lstrip())]
+                trailing = body[len(body.rstrip()):]
+                # Example data is not protocol metadata. Never inherit its path exemptions.
+                masked = leading + canonical(scrub(decoded)) + trailing
+                output.extend((text[cursor:start], masked))
+                cursor = offset
+            fence, start = None, None
+        offset = end
+    output.append(text[cursor:])
+    return "".join(output)
+
+
 def scrub(value, keep=(), markdown=False):
     """Keep only caller-validated structural fields; scrub free-text JSON too."""
     if isinstance(value, list):
@@ -1463,6 +1493,7 @@ def scrub(value, keep=(), markdown=False):
             return canonical(scrub(decoded, markdown=markdown))
     except Invalid:
         pass
+    value = mask_fenced_json(value)
     def quoted(match):
         try:
             return canonical(scrub(strict_json(match.group()), markdown=markdown))

@@ -123,9 +123,14 @@ spans, malformed fences and sensitive assignments outside fences fail coverage w
 `unsupported_review_format`. This intentionally replaces earlier acceptance of inline
 assignment examples. Protocol paths and identifiers retain their own validation.
 The guard does not attempt to identify every unmarked line as a programming language.
+Bare colon section labels and Setext equals underlines are prose. Same-line empty
+equals assignments and assignments with values still require a code block.
 
 Confidentiality filtering still hides supported credential values. Uncertain expression
 boundaries can consume the remaining reply, including its verdict, and remain failures.
+Complete fenced JSON objects/arrays use the existing structured masker before prose
+filtering can erase sensitive named-field labels. Example JSON never inherits protocol
+path exemptions. Non-JSON examples retain the existing conservative filtering.
 Original and filtered verdict checks, provider diagnostics and required coverage remain
 mandatory. Fenced formatting alone does not guarantee confidentiality or approval.
 Low-level Markdown boundary regressions below remain useful for the existing filter;

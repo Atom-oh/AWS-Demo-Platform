@@ -60,6 +60,12 @@ class ReviewFormatTests(unittest.TestCase):
             "Example:\n```sh\npassword='synthetic'\n```\nThe caller rejects it.",
             "Example:\n~~~~js\nconst text = `template`;\n~~~~\nChecked the caller.",
             "Example:\n````md\n```sh\npassword='synthetic'\n```\n````\nChecked.",
+            "Authorization:\nThe handler checks the caller.",
+            "**Authorization:**\nThe handler checks the caller.",
+            "origin-verify:\nThe origin gate remains enforced.",
+            "Checked `token`\n===\nThe caller verifies its scope.",
+            "Token\n=\nThe caller verifies its scope.",
+            "See `Authorization`:\nThe caller is checked.",
         ):
             with self.subTest(text=text):
                 response, plan = self.response(text)
@@ -82,6 +88,8 @@ class ReviewFormatTests(unittest.TestCase):
             "Set `password` = 'synthetic-private'.",
             "Set `api_key`: 'synthetic-private'.",
             "Set `password`\n= 'synthetic-private'.",
+            "Authorization: Bearer synthetic-private",
+            "password=",
         ):
             for field in ("check", "condition", "evidence", "uncertainty"):
                 with self.subTest(text=text, field=field):
