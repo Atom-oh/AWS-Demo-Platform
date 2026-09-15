@@ -14,6 +14,7 @@ import sys
 import tempfile
 import unicodedata
 import warnings
+from review_format import FORMAT_INSTRUCTIONS, format_violation
 
 
 MAX_DIFF_BYTES = 95000
@@ -63,6 +64,7 @@ FAILURE_CODES = {
     "invalid_json_wrapper", "empty_response", "model_selection_diagnostic",
     "model_fallback_diagnostic", "quota_diagnostic", "agent_preflight_diagnostic",
     "duplicate_record", "invalid_invocation_nonce", "invalid_issued_request",
+    "unsupported_review_format",
 }
 TERMINAL_CODES = {"model_selection_diagnostic", "model_fallback_diagnostic",
                   "quota_diagnostic", "agent_preflight_diagnostic"}
@@ -317,7 +319,8 @@ def prompt(tag, role, head, base, paths, context):
         "expected path exactly once. checks needs at least one {path,evidence} with a "
         "changed path and concrete nonempty evidence. findings: [{severity,path,condition,evidence}], "
         "severity CRITICAL/MAJOR/MINOR/INFO. uncertainties: nonempty strings, or [] if none. "
-        "Never disclose credential values; identify locations instead.\n\n"
+        "Never disclose credential values; identify locations instead.\n"
+        f"{FORMAT_INSTRUCTIONS} Encode newlines inside JSON strings normally.\n\n"
         f"TRUSTED BASE CONTEXT ({base}):\n{context}\nEND TRUSTED BASE CONTEXT\n"
     )
 
@@ -682,6 +685,10 @@ def validate_response(response, plan, tag):
     uncertainties = response["uncertainties"]
     if not isinstance(uncertainties, list) or any(not nonempty(x) for x in uncertainties):
         raise Invalid("invalid_uncertainties")
+    prose = [check["evidence"] for check in checks] + uncertainties
+    prose += [finding[field] for finding in findings for field in ("condition", "evidence")]
+    if any(format_violation(text, SENSITIVE_KEY) for text in prose):
+        raise Invalid("unsupported_review_format")
 
 
 def validate_result(result, plan, tag, nonce=None):
@@ -1705,9 +1712,10 @@ def aggregate(args):
                       "Failure codes:"] + [f"- `{code}`" for code in sorted(set(failures))]
         else:
             for finding in findings:
-                # One line per finding prevents model text forging a verdict line.
+                # Canonical JSON escapes model newlines; the outer fence keeps
+                # embedded examples literal without creating a verdict line.
                 text = canonical(finding)
-                lines.append("- " + text)
+                lines.extend(["```json", text, "```"])
             if not findings:
                 lines.append("NOT_APPLICABLE: trusted project policy excludes all changed files; no model review was performed."
                              if plan and not any(r["required"] for r in plan["roles"].values()) else

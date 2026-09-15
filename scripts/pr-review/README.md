@@ -110,14 +110,26 @@ The model table targets CI's Bedrock Runtime provider. Local Mantle uses
 
 React edits retain `kiro-sol`; altered or missing receipt-bound history blocks.
 
-Chair publication hides supported credential values while retaining review evidence.
-Complete supported assignments can preserve surrounding prose; uncertain container
-or expression boundaries consume the remaining reply, including its verdict.
-This is a conservative publication filter, not a general language parser. Avoid
-sensitive assignment examples in summaries; use synthetic values and explicit code
-fences when a code example is necessary. Boundary hints keep ticks in recognized
-quoted fragments and source comments line-local. Table cells have separate inline scopes.
-Existing same-line citations and supported multiline Markdown remain covered by tests.
+Review prose uses English. Inline backticks are only for single-line, whitespace-free
+symbol/path references; an empty `()` suffix is allowed. Put executable or configuration
+examples in closed top-level fenced code blocks, with each fence on its own line
+starting at column one.
+Do not nest example fences in lists or blockquotes. Use a longer outer fence when
+the example contains a fence. Reproducers use synthetic values, never credentials.
+
+`review_format.py` checks explicit delimiters and sensitive assignments before and
+after confidentiality filtering. Unsupported inline commands/assignments, multiline
+spans, malformed fences and sensitive assignments outside fences fail coverage with
+`unsupported_review_format`. This intentionally replaces earlier acceptance of inline
+assignment examples. Protocol paths and identifiers retain their own validation.
+The guard does not attempt to identify every unmarked line as a programming language.
+
+Confidentiality filtering still hides supported credential values. Uncertain expression
+boundaries can consume the remaining reply, including its verdict, and remain failures.
+Original and filtered verdict checks, provider diagnostics and required coverage remain
+mandatory. Fenced formatting alone does not guarantee confidentiality or approval.
+Low-level Markdown boundary regressions below remain useful for the existing filter;
+they do not expand the narrower publication contract.
 
 The rendering target is GitHub PR Markdown. Synthetic `POST /markdown` requests
 with `mode: gfm` verified these behaviors on 2026-09-14:
