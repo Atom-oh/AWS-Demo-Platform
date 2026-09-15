@@ -14,6 +14,7 @@ import sys
 import tempfile
 import unicodedata
 import warnings
+from review_format import FENCE as REVIEW_FENCE, FORMAT_INSTRUCTIONS, format_violation
 
 
 MAX_DIFF_BYTES = 95000
@@ -63,6 +64,7 @@ FAILURE_CODES = {
     "invalid_json_wrapper", "empty_response", "model_selection_diagnostic",
     "model_fallback_diagnostic", "quota_diagnostic", "agent_preflight_diagnostic",
     "duplicate_record", "invalid_invocation_nonce", "invalid_issued_request",
+    "unsupported_review_format",
 }
 TERMINAL_CODES = {"model_selection_diagnostic", "model_fallback_diagnostic",
                   "quota_diagnostic", "agent_preflight_diagnostic"}
@@ -317,7 +319,8 @@ def prompt(tag, role, head, base, paths, context):
         "expected path exactly once. checks needs at least one {path,evidence} with a "
         "changed path and concrete nonempty evidence. findings: [{severity,path,condition,evidence}], "
         "severity CRITICAL/MAJOR/MINOR/INFO. uncertainties: nonempty strings, or [] if none. "
-        "Never disclose credential values; identify locations instead.\n\n"
+        "Never disclose credential values; identify locations instead.\n"
+        f"{FORMAT_INSTRUCTIONS} Encode newlines inside JSON strings normally.\n\n"
         f"TRUSTED BASE CONTEXT ({base}):\n{context}\nEND TRUSTED BASE CONTEXT\n"
     )
 
@@ -682,6 +685,10 @@ def validate_response(response, plan, tag):
     uncertainties = response["uncertainties"]
     if not isinstance(uncertainties, list) or any(not nonempty(x) for x in uncertainties):
         raise Invalid("invalid_uncertainties")
+    prose = [check["evidence"] for check in checks] + uncertainties
+    prose += [finding[field] for finding in findings for field in ("condition", "evidence")]
+    if any(format_violation(text, SENSITIVE_KEY) for text in prose):
+        raise Invalid("unsupported_review_format")
 
 
 def validate_result(result, plan, tag, nonce=None):
@@ -766,32 +773,361 @@ def sensitive_key(value):
     return isinstance(value, str) and SENSITIVE_KEY.fullmatch(re.sub(r"[^A-Za-z0-9]+", "_", value))
 
 
-def _inline_code_spans(value):
-    spans, offset, fence = [], 0, None
-    for line in value.splitlines(keepends=True):
-        marker = re.match(r" {0,3}(`{3,}|~{3,})(.*)", line)
-        if fence:
-            if (marker and marker[1][0] == fence[0] and len(marker[1]) >= fence[1]
-                    and not marker[2].strip()):
-                fence = None
-        elif marker and (marker[1][0] == "~" or "`" not in marker[2]):
-            fence = (marker[1][0], len(marker[1]))
-        elif not line.startswith(("    ", "\t")):
-            runs = list(re.finditer(r"`+", line))
-            following, last = {}, {}
-            for index in range(len(runs) - 1, -1, -1):
-                width = len(runs[index].group())
-                following[index] = last.get(width)
-                last[width] = index
-            index = 0
-            while index < len(runs):
-                close = following[index]
-                if close is None:
-                    index += 1
-                else:
-                    spans.append((offset + runs[index].end(), offset + runs[close].start()))
-                    index = close + 1
-        offset += len(line)
+def _inline_code_spans(value, closing_fences=None):
+    """Track ordered Markdown containers before interpreting inline delimiters."""
+    if "`" not in value and (closing_fences is None or "~~~" not in value):
+        return []
+    spans, pending = [], []
+    quoted_line_ends = {}
+    # Quoted ticks stay line-local; preserve existing same-line Markdown pairs.
+    quoted_fragment = re.compile(
+        r"(?<![\w\\])'(?:\\[^\r\n]|[^'\\\r\n])*'"
+        r'|(?<!\\)"(?:\\[^\r\n]|[^"\\\r\n])*"'
+    )
+    comment_line_ends, block_comment_end = {}, 0
+    comment_token = re.compile(
+        quoted_fragment.pattern + r"|[A-Za-z][A-Za-z0-9+.-]*://[^\s<>`\"']*|/\*|//"
+    )
+    containers, next_quotes = (), (0,)
+    offset, block, paragraph = 0, None, False
+    table_active, last_row = False, None
+    quote_marker = re.compile(r" {0,3}> ?")
+    fence_marker = re.compile(r" {0,3}(`{3,}|~{3,})(.*)")
+    list_marker = re.compile(r"( {0,3})([-+*]|[0-9]{1,9}[.)])(?= |$)")
+    atx_marker = re.compile(r" {0,3}#{1,6}(?: |$)")
+    setext_marker = re.compile(r" {0,3}(?:-+|=+) *$")
+    theme_start = re.compile(r" {0,3}([-*_])")
+    theme_patterns = {char: re.compile(r" {0,3}(?:" + re.escape(char) + r" *){3,}")
+                      for char in "-*_"}
+
+    def flush():
+        nonlocal paragraph, table_active, last_row
+        following, last = {}, {}
+        for index in range(len(pending) - 1, -1, -1):
+            start, end, region = pending[index]
+            key = (region, end - start)
+            following[index] = last.get(key)
+            last[key] = index
+        index = 0
+        while index < len(pending):
+            start, end, _ = pending[index]
+            slash_start = start
+            while slash_start and value[slash_start - 1] == "\\":
+                slash_start -= 1
+            close = following[index]
+            owner_end = quoted_line_ends.get(start)
+            comment_end = comment_line_ends.get(start)
+            if (close is None or (start - slash_start) % 2
+                    or (owner_end is not None and pending[close][1] > owner_end)
+                    or (comment_end is not None and pending[close][1] > comment_end)):
+                index += 1
+            else:
+                spans.append((end, pending[close][0]))
+                index = close + 1
+        pending.clear()
+        quoted_line_ends.clear()
+        comment_line_ends.clear()
+        paragraph = False
+        table_active, last_row = False, None
+
+    def comment_ranges(raw, content):
+        nonlocal block_comment_end
+        line_end = offset + len(raw)
+        if content.lstrip(" ").startswith("#"):
+            return [(offset, line_end)]
+        ranges = []
+        position = 0
+        if block_comment_end > offset:
+            ranges.append((offset, min(block_comment_end, line_end)))
+            position = min(len(raw), block_comment_end - offset)
+        while position < len(raw):
+            token = comment_token.search(raw, position)
+            if token is None:
+                break
+            if token[0] == "//":
+                ranges.append((offset + token.start(), line_end))
+                break
+            if token[0] == "/*":
+                close = value.find("*/", offset + token.end())
+                block_comment_end = close + 2 if close >= 0 else line_end
+                ranges.append((offset + token.start(), min(block_comment_end, line_end)))
+                position = min(len(raw), block_comment_end - offset)
+            else:
+                position = token.end()
+        return ranges
+
+    def cell_parts(text):
+        pipes, slashes = [], 0
+        for index, char in enumerate(text):
+            if char == "\\":
+                slashes += 1
+                continue
+            if char == "|" and slashes == 0:
+                pipes.append(index)
+            slashes = 0
+        cuts = [-1] + pipes + [len(text)]
+        parts = [text[left + 1:right] for left, right in zip(cuts, cuts[1:])]
+        if pipes and not parts[0].strip(" \t"):
+            parts.pop(0)
+        if pipes and parts and not parts[-1].strip(" \t"):
+            parts.pop()
+        return parts, pipes
+
+    def table_delimiter(content):
+        if table_active or last_row is None:
+            return False
+        parts, pipes = cell_parts(content)
+        return (len(content) - len(content.lstrip(" ")) <= 3
+                and last_row["indent"] <= 3 and bool(pipes)
+                and len(parts) == len(last_row["parts"]) and bool(parts)
+                and all(re.fullmatch(r"[ \t]*:?-+:?[ \t]*", part) for part in parts))
+
+    def table_tokens(row):
+        result, cell = [], 0
+        for start, end in row["ticks"]:
+            while cell < len(row["pipes"]) and row["pipes"][cell] < start - row["offset"]:
+                cell += 1
+            result.append((start, end, ("cell", row["offset"], cell)))
+        return result
+
+    def blank(line):
+        return not line.strip(" \r\n")
+
+    def html_start(line, complete):
+        text = line.rstrip("\r\n")
+        indent = len(text) - len(text.lstrip(" "))
+        if indent > 3:
+            return None
+        text = text[indent:]
+        if not text.startswith("<"):
+            return None
+        if re.match(r"<(?:pre|script|style|textarea)(?= |>|$)", text, re.I | re.ASCII):
+            return ("tags", None)
+        for start, end in (("<!--", "-->"), ("<?", "?>"), ("<![CDATA[", "]]>")):
+            if text.startswith(start):
+                return ("literal", end)
+        if re.match(r"<![A-Za-z]", text):
+            return ("literal", ">")
+        if re.match(
+            r"</?(?:address|article|aside|base|basefont|blockquote|body|caption|center|"
+            r"col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|"
+            r"footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|"
+            r"link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|"
+            r"section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?= |/?>|$)",
+            text, re.I | re.ASCII,
+        ):
+            return ("blank", None)
+        if complete and re.fullmatch(
+            r"(?:</[A-Za-z][A-Za-z0-9-]* *>|"
+            r"<(?!(?:pre|script|style|textarea)(?= |/?>|$))[A-Za-z][A-Za-z0-9-]*"
+            r"(?: +[A-Za-z_:][A-Za-z0-9_.:-]*"
+            r"(?: *= *(?:[^ \"'=<>`]+|'[^']*'|\"[^\"]*\"))?)* */?>) *",
+            text, re.I | re.ASCII,
+        ):
+            return ("blank", None)
+        return None
+
+    def html_ends(rule, line):
+        kind, end = rule
+        if kind == "blank":
+            return blank(line)
+        if kind == "tags":
+            return re.search(r"</(?:pre|script|style|textarea)>", line, re.I | re.ASCII) is not None
+        return end in line
+
+    def container_metadata(path):
+        nearest = len(path)
+        result = [nearest] * (nearest + 1)
+        for index in range(len(path) - 1, -1, -1):
+            if path[index][0] == "quote":
+                nearest = index
+            result[index] = nearest
+        return tuple(result)
+
+    def consume(path, metadata, line, end, tail):
+        position, index = 0, 0
+        while index < len(path):
+            if position >= tail:
+                # Blank content satisfies remaining list indentation, not quotes.
+                return metadata[index], position
+            node = path[index]
+            if node[0] == "quote":
+                match = quote_marker.match(line, position, end)
+                if not match:
+                    return index, position
+                position = match.end()
+            else:
+                width = node[1]
+                if not line.startswith(" " * width, position):
+                    return index, position
+                position += width
+            index += 1
+        return index, position
+
+    def item_at(line, position, end, tail):
+        match = list_marker.match(line, position, end)
+        if not match:
+            return None
+        after = match.end()
+        count = 0
+        while count < 5 and after + count < end and line[after + count] == " ":
+            count += 1
+        empty = after >= tail
+        padding = 1 if empty or count >= 5 else count
+        marker = match[2]
+        ordered = marker[0].isdigit()
+        style = ("ordered", marker[-1]) if ordered else ("bullet", marker)
+        node = ("list", after - position + padding, style)
+        return node, min(after + padding, end), empty, int(marker[:-1]) if ordered else None
+
+    def item_can_start(item, in_paragraph, sibling):
+        return (not in_paragraph or item[0][2] == sibling
+                or (not item[2] and (item[3] is None or item[3] == 1)))
+
+    def thematic(line, position, end, cache):
+        match = theme_start.match(line, position, end)
+        if not match:
+            return False
+        char = match[1]
+        if char not in cache:
+            last = end - 1
+            while last >= 0 and line[last] in (" ", char):
+                last -= 1
+            cache[char] = last
+        if cache[char] >= position:
+            return False
+        return theme_patterns[char].fullmatch(line, position, end) is not None
+
+    def is_heading(line, position, end, cache):
+        if table_delimiter(line[position:end]):
+            return False
+        return (atx_marker.match(line, position, end)
+                or thematic(line, position, end, cache)
+                or (paragraph and setext_marker.match(line, position, end)))
+
+    def interrupts(line, position, end, tail, cache, sibling):
+        if quote_marker.match(line, position, end) or is_heading(line, position, end, cache):
+            return True
+        marker = fence_marker.match(line, position, end)
+        if marker and (marker[1][0] == "~" or "`" not in marker[2]):
+            return True
+        item = item_at(line, position, end, tail)
+        if item and item_can_start(item, paragraph, sibling):
+            return True
+        return html_start(line[position:end], False) is not None
+
+    for raw_line in value.splitlines(keepends=True):
+        line = raw_line.expandtabs(4)
+        end = len(line.rstrip("\r\n"))
+        tail = len(line[:end].rstrip(" "))
+        themes = {}
+        if block is not None:
+            matched, position = consume(block["path"], block["metadata"], line, end, tail)
+            if matched == len(block["path"]):
+                if block["kind"] == "fence":
+                    marker = fence_marker.match(line, position, end)
+                    if (marker and marker[1][0] == block["char"]
+                            and len(marker[1]) >= block["width"] and not marker[2].strip(" ")):
+                        if closing_fences is not None:
+                            closing_fences.add(offset + raw_line.index(marker[1]))
+                            closing_fences.add(offset + len(raw_line) - len(raw_line.lstrip(" \t")))
+                        block = None
+                elif html_ends(block["rule"], line[position:end]):
+                    block = None
+                offset += len(raw_line)
+                continue
+            block = None
+            flush()
+
+        matched, position = consume(containers, next_quotes, line, end, tail)
+        sibling = (containers[matched][2] if matched < len(containers)
+                   and containers[matched][0] == "list" else None)
+        if matched < len(containers):
+            lazy = paragraph and not table_active and position < tail and not interrupts(
+                line, position, end, tail, themes, sibling)
+            if not lazy:
+                containers = containers[:matched]
+                next_quotes = container_metadata(containers)
+                flush()
+        added = None
+        while position < tail:
+            if is_heading(line, position, end, themes):
+                break
+            quote = quote_marker.match(line, position, end)
+            if quote:
+                node, following = ("quote",), quote.end()
+            else:
+                item = item_at(line, position, end, tail)
+                if not item or not item_can_start(item, paragraph, sibling):
+                    break
+                node, following = item[0], item[1]
+            if added is None:
+                added = list(containers)
+                flush()
+            added.append(node)
+            position, sibling = following, None
+        if added is not None:
+            containers = tuple(added)
+            next_quotes = container_metadata(containers)
+        if position >= tail:
+            flush()
+            offset += len(raw_line)
+            continue
+
+        content = line[position:end]
+        marker = fence_marker.match(line, position, end)
+        heading = is_heading(line, position, end, themes)
+        html = html_start(content, not paragraph)
+        if marker and (marker[1][0] == "~" or "`" not in marker[2]):
+            flush()
+            block = {"kind": "fence", "path": containers, "metadata": next_quotes,
+                     "char": marker[1][0], "width": len(marker[1])}
+        elif html is not None:
+            flush()
+            if not html_ends(html, content):
+                block = {"kind": "html", "path": containers, "metadata": next_quotes, "rule": html}
+        elif len(content) - len(content.lstrip(" ")) < 4 or paragraph:
+            if heading:
+                flush()
+            ticks = []
+            fragments = iter(quoted_fragment.finditer(raw_line))
+            fragment = next(fragments, None)
+            for match in re.finditer(r"`+", raw_line):
+                while fragment is not None and fragment.end() <= match.start():
+                    fragment = next(fragments, None)
+                start = offset + match.start()
+                if fragment is not None and fragment.start() < match.start():
+                    quoted_line_ends[start] = offset + len(raw_line)
+                ticks.append((start, offset + match.end()))
+            parts, pipes = cell_parts(content)
+            row = {"offset": offset, "ticks": ticks, "parts": parts,
+                   "pipes": cell_parts(raw_line.rstrip("\r\n"))[1],
+                   "has_pipe": bool(pipes), "indent": len(content) - len(content.lstrip(" "))}
+            if table_delimiter(content):
+                header = {start: region for start, _, region in table_tokens(last_row)}
+                pending[:] = [(start, end, header.get(start, region))
+                              for start, end, region in pending]
+                flush()
+                table_active = True
+                block_comment_end = 0
+            if table_active:
+                pending.extend(table_tokens(row))
+            else:
+                ranges, range_index = comment_ranges(raw_line, content), 0
+                for start, end in ticks:
+                    while range_index < len(ranges) and ranges[range_index][1] <= start:
+                        range_index += 1
+                    if range_index < len(ranges) and ranges[range_index][0] <= start:
+                        comment_line_ends[start] = offset + len(raw_line)
+                    pending.append((start, end, None))
+            last_row = row
+            paragraph = True
+            if heading:
+                flush()
+        else:
+            flush()
+        offset += len(raw_line)
+    flush()
     return spans
 
 
@@ -832,14 +1168,85 @@ def _json_enclosing_closers(value):
     return closers
 
 
-def _assignment_spans(value, key, markdown=False):
+def _empty_inline_assignment(value, start, value_start, code_span):
+    """Prove a standalone empty example before accepting a zero-value boundary."""
+    if code_span is None or code_span[1] != value_start:
+        return False
+    body = value[code_span[0]:code_span[1]]
+    if "\n" in body or "\r" in body:
+        return False
+    if value[code_span[0]:start].strip(" \t") not in ("", "export"):
+        return False
+    following = value_start
+    while following < len(value) and value[following] == "`":
+        following += 1
+    while following < len(value) and value[following] in " \t":
+        following += 1
+    return following == len(value) or value[following] == ";"
+
+
+def _backtick_value_spans(value, key, markdown=True):
+    """Protect closed literal values independently of Markdown presentation."""
+    if "`" not in value:
+        return []
+    prefix = re.compile(r'''(?:\\.|[^\s"'`,;\\]|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')*''', re.S)
+    literal = re.compile(r"`(?:\\.|[^`\\])*`", re.S)
+    spans, cursor, code_index = [], 0, 0
+    code_spans = None
+    for match in re.finditer(key, value):
+        if match.start() < cursor:
+            continue
+        before = prefix.match(value, match.end())
+        position = before.end()
+        cursor = position
+        if position == len(value) or value[position] != "`":
+            continue
+        quoted = literal.match(value, position)
+        if quoted is None:
+            # No later unescaped closing tick can start another complete value.
+            break
+        if markdown:
+            if code_spans is None:
+                code_spans = _inline_code_spans(value)
+            while code_index < len(code_spans) and code_spans[code_index][1] < match.start():
+                code_index += 1
+            code_span = (code_spans[code_index]
+                         if code_index < len(code_spans)
+                         and code_spans[code_index][0] <= match.start() else None)
+            literal_opener = (code_span is not None and code_span[0] >= 2
+                              and value[code_span[0] - 2] in "\"'"
+                              and value[code_span[0]:code_span[0] + 1]
+                              == value[code_span[0] - 2])
+            if (code_span is not None and position == code_span[1]
+                    and position > match.end() and not literal_opener):
+                continue  # This tick belongs to the current nonempty citation.
+            if _empty_inline_assignment(value, match.start(), match.end(), code_span):
+                continue
+        spans.append((match.start(), quoted.end()))
+        cursor = quoted.end()
+    return spans
+
+
+def _assignment_spans(value, key, markdown=False, backtick_spans=()):
     """Find complete assignments without changing another detector's input."""
     json_closers = _json_enclosing_closers(value)
     operator = re.compile(r"\|\||\?\?|\bor\b")
     tail_operator = re.compile(r"(?:\|\||\?\?|\bor|\\|(?:^|\s)[+*/%&|^?:<>=!-])$")
     head_operator = re.compile(r"(?:\|\||\?\?|\bor\b|[+*/%&|^?:<>=!.(\[-])")
-    code_spans = _inline_code_spans(value) if markdown else []
-    code_index = 0
+    closing_fences = set()
+    code_spans = _inline_code_spans(value, closing_fences) if markdown else []
+    code_boundaries = set()
+    for start, end in code_spans:
+        if (start >= 2 and value[start - 2] in "\"'"
+                and value[start:start + 1] == value[start - 2]):
+            continue  # The opening tick is a one-character quoted literal.
+        following = end
+        while following < len(value) and value[following] == "`":
+            following += 1
+        if (following == len(value) or value[following].isspace()
+                or value[following] in ";,.!?)]}:*_~"):
+            code_boundaries.add(end)
+    code_index = backtick_index = 0
     opening = {"(": ")", "[": "]", "{": "}"}
     def next_content(index):
         while index < len(value) and value[index].isspace():
@@ -849,6 +1256,8 @@ def _assignment_spans(value, key, markdown=False):
     for match in re.finditer(key, value):
         if match.start() < cursor:
             continue
+        if match.end() in closing_fences:
+            continue  # Whitespace after an empty assignment reached its closing fence.
         while code_index < len(code_spans) and code_spans[code_index][1] < match.start():
             code_index += 1
         code_end = (
@@ -856,13 +1265,26 @@ def _assignment_spans(value, key, markdown=False):
             if code_index < len(code_spans) and code_spans[code_index][0] <= match.start()
             else None
         )
+        if code_end not in code_boundaries:
+            code_end = None  # Adjacent value text still belongs to the assignment.
+        while (backtick_index < len(backtick_spans)
+               and backtick_spans[backtick_index][1] <= match.start()):
+            backtick_index += 1
+        if (code_end is not None and backtick_index < len(backtick_spans)
+                and backtick_spans[backtick_index][0] <= match.start() < code_end
+                < backtick_spans[backtick_index][1]):
+            # The apparent Markdown end opens a literal; scan its complete value.
+            code_end = None
+        code_span = (code_spans[code_index] if code_end is not None else None)
+        empty_inline = _empty_inline_assignment(value, match.start(), match.end(), code_span)
         index, quote, escaped, stack = match.end(), None, False, []
         line_start = index
         continuation_pending = False
         while index < len(value):
             char = value[index]
-            if (markdown and index == code_end and index > match.end() and not quote
-                    and not stack and not tail_operator.search(value[line_start:index].rstrip())):
+            if (markdown and index == code_end and (index > match.end() or empty_inline)
+                    and not quote and not stack
+                    and not tail_operator.search(value[line_start:index].rstrip())):
                 break
             if escaped:
                 escaped = False
@@ -1018,6 +1440,36 @@ def _redact_spans(value, spans):
     return "".join(pieces)
 
 
+def mask_fenced_json(text):
+    """Mask complete JSON bodies before prose filtering can erase their labels."""
+    output, cursor, offset = [], 0, 0
+    fence, start = None, None
+    for line in text.splitlines(keepends=True):
+        end = offset + len(line)
+        marker = REVIEW_FENCE.fullmatch(line.rstrip("\r\n"))
+        if fence is None:
+            if marker and re.fullmatch(r"[A-Za-z0-9_.+-]*[ \t]*", marker[2]):
+                fence, start = marker[1], end
+        elif (marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence)
+              and not marker[2].strip()):
+            body = text[start:offset]
+            try:
+                decoded = strict_json(body)
+            except Invalid:
+                decoded = None
+            if isinstance(decoded, (dict, list)):
+                leading = body[:len(body) - len(body.lstrip())]
+                trailing = body[len(body.rstrip()):]
+                # Example data is not protocol metadata. Never inherit its path exemptions.
+                masked = leading + canonical(scrub(decoded)) + trailing
+                output.extend((text[cursor:start], masked))
+                cursor = offset
+            fence, start = None, None
+        offset = end
+    output.append(text[cursor:])
+    return "".join(output)
+
+
 def scrub(value, keep=(), markdown=False):
     """Keep only caller-validated structural fields; scrub free-text JSON too."""
     if isinstance(value, list):
@@ -1041,6 +1493,7 @@ def scrub(value, keep=(), markdown=False):
             return canonical(scrub(decoded, markdown=markdown))
     except Invalid:
         pass
+    value = mask_fenced_json(value)
     def quoted(match):
         try:
             return canonical(scrub(strict_json(match.group()), markdown=markdown))
@@ -1095,11 +1548,12 @@ def scrub(value, keep=(), markdown=False):
         key + rf"(?P<quote>{quote}).*?(?P=quote)",
         key + r"""[^\s"',;}\]]+""",
     )
-    spans, credential_spans = [], []
+    backtick_spans = _backtick_value_spans(value, key, markdown)
+    spans, credential_spans = list(backtick_spans), []
     before_container = True
     for pattern in patterns:
         if pattern is _assignment_spans:
-            spans.extend(_assignment_spans(value, key, markdown))
+            spans.extend(_assignment_spans(value, key, markdown, backtick_spans))
         elif pattern == container:
             spans.extend(_credential_tail_spans(value, key, credential_spans, markdown))
             before_container = False
@@ -1289,9 +1743,10 @@ def aggregate(args):
                       "Failure codes:"] + [f"- `{code}`" for code in sorted(set(failures))]
         else:
             for finding in findings:
-                # One line per finding prevents model text forging a verdict line.
+                # Canonical JSON escapes model newlines; the outer fence keeps
+                # embedded examples literal without creating a verdict line.
                 text = canonical(finding)
-                lines.append("- " + text)
+                lines.extend(["```json", text, "```"])
             if not findings:
                 lines.append("NOT_APPLICABLE: trusted project policy excludes all changed files; no model review was performed."
                              if plan and not any(r["required"] for r in plan["roles"].values()) else
