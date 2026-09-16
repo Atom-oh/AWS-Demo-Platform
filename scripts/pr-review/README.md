@@ -115,20 +115,25 @@ and empty `()` suffixes. Put synthetic code/config examples in closed column-one
 fences on separate lines; no list/blockquote nesting. Use a longer outer fence
 for embedded fences. Never include credentials.
 
-`review_format.py` validates before/after redaction; malformed fences, multiline
+[`review_format.py`](review_format.py) validates before/after redaction; malformed fences, multiline
 spans, inline commands and unfenced sensitive assignments fail coverage with
 `unsupported_review_format`. Colon headings and Setext underlines remain prose;
 empty same-line assignments require fences. Protocol identifiers keep separate
 validation. This is a delimiter contract, not a programming-language detector.
+See its [standalone unit tests](test_review_format_unit_roles.py); unchanged
+dependencies may be absent from a PR diff.
 
 Complete fenced JSON uses structured masking without protocol-path exemptions;
 other examples retain conservative redaction. Uncertain expression boundaries
 may consume the remaining reply/verdict. Original/filtered verdict checks,
 provider diagnostics and coverage remain mandatory; formatting alone cannot pass.
 
-GFM fixtures in `test_*role*.py` preserve verified pipe escapes,
-Setext headings and raw-HTML table boundaries (synthetic renderer probes,
-2026-09-14). Retain input/HTML evidence for disputes; never relax privacy or gates.
+GFM fixtures in [test_synthesize_roles.py](test_synthesize_roles.py) preserve
+verified pipe escapes, Setext headings and raw-HTML table boundaries. GitHub
+rendering reverified on 2026-09-16 keeps a pipe immediately after two backslashes
+inside the same table cell and, when inline code is present, the same code span.
+Pipe handling does not use odd/even backslash parity. Retain input/HTML evidence
+for disputes; never relax privacy or gates.
 Hard Bedrock/Kiro account limits stop retries/fallback, including mixed stdout
 and diagnostics; transient throttling may use the configured fallback.
 
