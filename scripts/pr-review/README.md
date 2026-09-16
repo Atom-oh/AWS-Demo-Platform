@@ -110,47 +110,27 @@ The model table targets CI's Bedrock Runtime provider. Local Mantle uses
 
 React edits retain `kiro-sol`; altered or missing receipt-bound history blocks.
 
-Review prose uses English. Inline backticks are only for single-line, whitespace-free
-symbol/path references; an empty `()` suffix is allowed. Put executable or configuration
-examples in closed top-level fenced code blocks, with each fence on its own line
-starting at column one.
-Do not nest example fences in lists or blockquotes. Use a longer outer fence when
-the example contains a fence. Reproducers use synthetic values, never credentials.
+Review prose is English. Inline code permits whitespace-free symbol/path references
+and empty `()` suffixes. Put synthetic code/config examples in closed column-one
+fences on separate lines; no list/blockquote nesting. Use a longer outer fence
+for embedded fences. Never include credentials.
 
-`review_format.py` checks explicit delimiters and sensitive assignments before and
-after confidentiality filtering. Unsupported inline commands/assignments, multiline
-spans, malformed fences and sensitive assignments outside fences fail coverage with
-`unsupported_review_format`. This intentionally replaces earlier acceptance of inline
-assignment examples. Protocol paths and identifiers retain their own validation.
-The guard does not attempt to identify every unmarked line as a programming language.
-Bare colon section labels and Setext equals underlines are prose. Same-line empty
-equals assignments and assignments with values still require a code block.
+`review_format.py` validates before/after redaction; malformed fences, multiline
+spans, inline commands and unfenced sensitive assignments fail coverage with
+`unsupported_review_format`. Colon headings and Setext underlines remain prose;
+empty same-line assignments require fences. Protocol identifiers keep separate
+validation. This is a delimiter contract, not a programming-language detector.
 
-Confidentiality filtering still hides supported credential values. Uncertain expression
-boundaries can consume the remaining reply, including its verdict, and remain failures.
-Complete fenced JSON objects/arrays use the existing structured masker before prose
-filtering can erase sensitive named-field labels. Example JSON never inherits protocol
-path exemptions. Non-JSON examples retain the existing conservative filtering.
-Original and filtered verdict checks, provider diagnostics and required coverage remain
-mandatory. Fenced formatting alone does not guarantee confidentiality or approval.
-Low-level Markdown boundary regressions below remain useful for the existing filter;
-they do not expand the narrower publication contract.
+Complete fenced JSON uses structured masking without protocol-path exemptions;
+other examples retain conservative redaction. Uncertain expression boundaries
+may consume the remaining reply/verdict. Original/filtered verdict checks,
+provider diagnostics and coverage remain mandatory; formatting alone cannot pass.
 
-The rendering target is GitHub PR Markdown. Synthetic `POST /markdown` requests
-with `mode: gfm` verified these behaviors on 2026-09-14:
-
-- A pipe immediately following backslashes stays in its cell, including after two
-  backslashes. Ordinary odd/even escape parity is not the target behavior here.
-- A pipe-less `---` after `| heading |` is a Setext heading, not a table delimiter.
-- A raw block HTML tag starting an unbordered row terminates the table; escaped or
-  inline-code tags remain cells. Do not parse the raw HTML block as table content.
-
-The offline regression fixtures encode those results without network calls. Check
-renderer disputes using public synthetic input and retain the input/HTML pair;
-do not change privacy, coverage or verdict checks merely to obtain PASS.
-
-Amazon Bedrock/Kiro hard account limits stop retries and chair fallback, including
-stdout and mixed diagnostics. Transient throttling alone may use the configured fallback.
+GFM fixtures in `test_*role*.py` preserve verified pipe escapes,
+Setext headings and raw-HTML table boundaries (synthetic renderer probes,
+2026-09-14). Retain input/HTML evidence for disputes; never relax privacy or gates.
+Hard Bedrock/Kiro account limits stop retries/fallback, including mixed stdout
+and diagnostics; transient throttling may use the configured fallback.
 
 ## Executor inputs and limits
 
