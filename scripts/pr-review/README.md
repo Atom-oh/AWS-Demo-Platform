@@ -110,15 +110,32 @@ The model table targets CI's Bedrock Runtime provider. Local Mantle uses
 
 React edits retain `kiro-sol`; altered or missing receipt-bound history blocks.
 
-Chair Markdown redacts nested/multiline containers and handles quoted/escaped
-delimiters. Parse-only validation rejects malformed, unclosed or unsupported syntax.
-Uncertain boundaries consume the remaining reply, including its verdict.
-Conditional, call, index, concatenation and continuation tails are rejected.
-Plain paragraph text can preserve outside verdicts. Markdown bullets, headings,
-links or closing fences can look like continuations and fail closed. Avoid sensitive
-assignment examples in summaries. Amazon Bedrock/Kiro hard account limits stop
-retries and chair fallback, including stdout and mixed diagnostics. Transient
-throttling alone may use the configured fallback.
+Review prose is English. Inline code permits whitespace-free symbol/path references
+and empty `()` suffixes. Put synthetic code/config examples in closed column-one
+fences on separate lines; no list/blockquote nesting. Use a longer outer fence
+for embedded fences. Never include credentials.
+
+[`review_format.py`](review_format.py) validates before/after redaction; malformed fences, multiline
+spans, inline commands and unfenced sensitive assignments fail coverage with
+`unsupported_review_format`. Colon headings and Setext underlines remain prose;
+empty same-line assignments require fences. Protocol identifiers keep separate
+validation. This is a delimiter contract, not a programming-language detector.
+See its [standalone unit tests](test_review_format_unit_roles.py); unchanged
+dependencies may be absent from a PR diff.
+
+Complete fenced JSON uses structured masking without protocol-path exemptions;
+other examples retain conservative redaction. Uncertain expression boundaries
+may consume the remaining reply/verdict. Original/filtered verdict checks,
+provider diagnostics and coverage remain mandatory; formatting alone cannot pass.
+
+GFM fixtures in [test_synthesize_roles.py](test_synthesize_roles.py) preserve
+verified pipe escapes, Setext headings and raw-HTML table boundaries. GitHub
+rendering reverified on 2026-09-16 keeps a pipe immediately after two backslashes
+inside the same table cell and, when inline code is present, the same code span.
+Pipe handling does not use odd/even backslash parity. Retain input/HTML evidence
+for disputes; never relax privacy or gates.
+Hard Bedrock/Kiro account limits stop retries/fallback, including mixed stdout
+and diagnostics; transient throttling may use the configured fallback.
 
 ## Executor inputs and limits
 
