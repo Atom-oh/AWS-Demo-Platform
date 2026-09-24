@@ -1,4 +1,4 @@
-<!-- generated-by: co-agent · source: CLAUDE.md · claude-md-sha: 60909d2532d4 · generated-at: 2026-09-14 · DO NOT EDIT — edit CLAUDE.md then run /co-agent sync-context -->
+<!-- generated-by: co-agent · source: CLAUDE.md · claude-md-sha: cd0d9e5aeffa · generated-at: 2026-09-24 · DO NOT EDIT — edit CLAUDE.md then run /co-agent sync-context -->
 > You are an external reviewer for this repo — project context below, distilled from CLAUDE.md. This file is shared verbatim by the external review panel (not a per-AI copy).
 
 # AWS Demo Platform review context
@@ -17,10 +17,11 @@ Code/config establish implementation, accepted decisions intent, live checks dep
 Historical specs/plans and the gate-hardening proposal are not implemented requirements.
 
 Supersession is scoped: ADR-016 retains shared-context and runner-image ownership;
-ADR-015 retains per-model job/artifact isolation. ADR-020 owns specialist routing,
-strict coverage and conditional chair decisions; ADR-011/013/014 retain scoped
-CLI/model history. Dated operational exceptions may amend the owning ADR/runbook. Do not demand a new ADR, template
-section, production HA or adopted-resource rename without a concrete requirement.
+ADR-015 retains per-model job/artifact isolation. ADR-020 and its 2026-09-24
+amendment own specialist routing, coverage and chair decisions; ADR-011/013/014
+retain scoped CLI/model history. Dated operational exceptions may amend the owning
+ADR/runbook. Do not demand a new ADR, template section, production HA or
+adopted-resource rename without a concrete requirement.
 Pre-existing limitations and optional hardening are not regressions; accepted
 trade-offs do not excuse changes that worsen them.
 
@@ -31,20 +32,28 @@ localized test assertions may be Korean. Operator conversation may be Korean.
 
 CI validates base and candidate `AGENTS.md` presence, size (1..12,288 bytes) and
 generated-source freshness. Only the base-SHA digest instructs applicable
-specialists and conditional adjudication; candidate bytes are discarded.
+specialists and chair adjudication; candidate bytes are discarded.
 PR-head instructions remain diff data. Kiro has isolated HOME/cwd and no read tools;
 local steering alone cannot load CI context. Native CI runs trusted base scripts.
 Local Agy context support does not add an Agy CI panel slot.
 
-CI assigns one specialist responsibility per applicable model: Codex implementation,
-Kiro Opus AWS, Kiro Sol deployment/recovery, Claude auth/data/API/ADR contracts.
-Each role receives one logical request within configured retry budgets.
-Trusted routing may mark irrelevant Kiro roles NOT_APPLICABLE. Codex and Claude
-cover every reviewable source path across independent model families. Only valid, complete,
-SHA-bound reports count; missing roles, truncation, quota/model errors and failed
-Kiro startup checks block. Complete uncontested reports get a deterministic summary;
-Critical/Major candidates or uncertainty require chair adjudication. The chair
-cannot waive missing coverage. ADR-020 replaces the old L2-L5 matrix/floor; see
+Deterministic, path-only ownership assigns every changed path to exactly one
+specialist, so no path is reviewed twice: `infra/**` and Terraform files to Kiro
+Opus (AWS); `k8s/**`, `argocd-apps/**`, `.github/workflows/**`, `Dockerfile*`,
+`projects/**` and `docs/runbooks/**` to Kiro Sol (deployment/recovery); API
+plugins/routes, shared schemas, `docs/**` and `*.md` to Claude (auth/data/API/ADR);
+everything else to Codex (implementation). Diff content never changes routing.
+Review only your owned paths; do not report on or re-verify other roles' paths.
+A role with no owned paths is NOT_APPLICABLE. Each active role gets one request
+scoped to its owned diff chunks, within configured retry budgets. Only valid,
+complete, SHA-bound reports count; missing roles, truncation, quota/model errors
+and failed Kiro startup checks block, and the chair cannot waive them.
+
+The chair always finalizes an active review with one consolidated result, even
+with zero findings; only a coverage failure (deterministic FAIL) or an
+all-NOT_APPLICABLE plan (deterministic PASS) skips it. It receives no diff for a
+clean run, only a Critical/Major candidate's paths, or the full owned diff for an
+uncertainty. Reserve Critical/Major for concrete failure conditions. See
 `docs/pr-review-specialists.md`. `kiro-fable` is the legacy Opus tag, not a model ID.
 
 ## Stack and verification
@@ -95,9 +104,9 @@ Configured cross-account application roles require ExternalId from
 `DashboardEcsTaskRole` performs backend assume-role; the browser holds no AWS credentials.
 OIDC/IRSA have claim conditions, not this ExternalId rule. Browser sends Cognito
 access token; its verified `username` maps to internal `cognito:username` for
-`ADMIN_USERNAMES`. JWT
-bypass only for literal `NODE_ENV === 'development'`. Unset/other values enforce auth;
-deployed dev uses production NODE_ENV. Frontend dev flags do not relax API auth.
+`ADMIN_USERNAMES`. JWT bypass only for literal `NODE_ENV === 'development'`.
+Unset/other values enforce auth; deployed dev uses production NODE_ENV. Frontend
+dev flags do not relax API auth.
 
 Shared owns schemas/clients; API validates/queues; worker operates resources.
 Lifecycle sets transitioning, persists job, returns 202. State/job/queue writes are
