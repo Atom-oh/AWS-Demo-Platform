@@ -19,8 +19,8 @@ the provider's internal routing or weights.
 ## Routing and evidence
 
 Trusted, deterministic path ownership (`OWNERSHIP` in `role_review.py`) assigns
-every changed path to exactly one specialist — `infra/**` and `*.tf`/`*.tfvars`/
-`*.hcl` to `kiro-fable`; `k8s/**`, `argocd-apps/**`, `.github/workflows/**`,
+every changed path to exactly one specialist — `infra/**`, `*.tf`/`*.tfvars`/
+`*.hcl`, `accounts.yaml` and `atlantis.yaml` to `kiro-fable`; `k8s/**`, `argocd-apps/**`, `.github/workflows/**`,
 `Dockerfile*`, `projects/**` and `docs/runbooks/**` to `kiro-sol`; API
 plugins/routes, shared schemas, `docs/**` and `*.md` to `claude-self`; everything
 else defaults to `codex`. No two roles review the same path, and a role with no
