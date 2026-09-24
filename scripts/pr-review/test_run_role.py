@@ -207,7 +207,15 @@ class RoleRecordingTests(unittest.TestCase):
         self.harness = fixture.RoleReviewTests()
         self.harness.setUp()
         self.addCleanup(self.harness.tearDown)
-        self.path = "fixtures/password=abcdefghijklmnop.txt"
+        # One directory prefix per owning role, so re-preparing for a specific
+        # tag (see prepare_tag) always yields that tag as the sole required role.
+        self.owned_path = {
+            "codex": "fixtures/password=abcdefghijklmnop.txt",
+            "kiro-fable": "infra/password=abcdefghijklmnop.txt",
+            "kiro-sol": "k8s/password=abcdefghijklmnop.txt",
+            "claude-self": "docs/password=abcdefghijklmnop.txt",
+        }
+        self.path = self.owned_path["codex"]
         self.harness.prepare(fixture.patch(self.path))
         self.private_value = "synthetic_private_response_value"
         response = self.harness.response("codex", findings=[{
@@ -229,6 +237,10 @@ class RoleRecordingTests(unittest.TestCase):
             {"type": "turn.completed"},
         ]
         return (0, '\n'.join((json.dumps(event) for event in events)), 'Fixture diagnostic password=synthetic_diagnostic_value')
+
+    def prepare_tag(self, tag, path=None, **extra):
+        self.path = path or self.owned_path[tag]
+        self.harness.prepare(fixture.patch(self.path), **extra)
 
     def run_recording(self, record_error=None, record_code=None, tag="codex", execute=None):
         real_run = subprocess.run
@@ -281,8 +293,7 @@ class RoleRecordingTests(unittest.TestCase):
         self.assert_private_response_removed()
 
     def test_kiro_colors(self):
-        self.path = "fixtures/이한-password=abcdefghijklmnop.txt"
-        self.harness.prepare(fixture.patch(self.path))
+        self.prepare_tag("kiro-sol", path="k8s/이한-password=abcdefghijklmnop.txt")
         report = self.harness.response("kiro-sol", findings=[{
             "severity": "MINOR", "path": self.path, "condition": "On change",
             "evidence": f"password={self.private_value}",
@@ -307,9 +318,9 @@ class RoleRecordingTests(unittest.TestCase):
         self.assert_private_response_removed()
 
     def test_kiro_engine_compatibility_in_both_phases(self):
-        for tag, model in (("kiro-fable", "claude-opus-5"), ("kiro-sol", "gpt-5.6-sol")):
+        for tag, model in (("kiro-fable", "claude-fable-5.1"), ("kiro-sol", "gpt-5.6-sol")):
             with self.subTest(tag=tag):
-                self.harness.prepare(fixture.patch(self.path), case=f"engine-{tag}")
+                self.prepare_tag(tag, case=f"engine-{tag}")
                 calls = []
                 def provider(command, cwd, environment, input_text, timeout):
                     calls.append(command)
@@ -326,7 +337,7 @@ class RoleRecordingTests(unittest.TestCase):
                 self.assertEqual(len(calls), 2)
 
     def quota_case(self, tag, code=1, evidence=False, event=False, stderr=False):
-        self.harness.prepare(fixture.patch(self.path))
+        self.prepare_tag(tag)
         self.original = json.dumps(self.harness.response(tag, checks=[{
             "path": self.path, "evidence": 'Example: "Error: insufficient credits".',
         }])) + "\n"
@@ -420,6 +431,7 @@ class RoleRecordingTests(unittest.TestCase):
                 self.assertTrue(result["valid"], result["failure_codes"])
 
     def test_claude_quota(self):
+        self.prepare_tag("claude-self")
         calls = []
         def execute(command, *arguments):
             calls.append(command)
@@ -434,6 +446,7 @@ class RoleRecordingTests(unittest.TestCase):
         self.assert_private_response_removed()
 
     def test_kiro_quota(self):
+        self.prepare_tag("kiro-sol")
         calls = []
         def execute(command, *arguments):
             calls.append(command)
@@ -448,6 +461,7 @@ class RoleRecordingTests(unittest.TestCase):
         self.assert_private_response_removed()
 
     def test_quota_json(self):
+        self.prepare_tag("claude-self")
         response = self.harness.response("claude-self", checks=[{
             "path": self.path, "evidence": "Checked MONTHLY_REQUEST_COUNT handling."
         }])

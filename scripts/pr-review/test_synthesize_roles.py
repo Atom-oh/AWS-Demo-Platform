@@ -132,7 +132,9 @@ class SynthesisTests(unittest.TestCase):
         self.assertTrue(text.endswith("VERDICT: FAIL\n"))
 
     def test_boundary(self):
-        summary = '{"findings":["한글"]}'
+        # An uncertainty (rather than a path-scoped finding) sends the full raw
+        # diff unparsed, so this dummy non-unified-diff fixture stays valid input.
+        summary = '{"findings":[],"uncertainties":["한글"]}'
         context = "Trusted base context.\n" * 20
         diff = "Complete diff evidence.\n" * 20
         self.prepare_chair(summary, context, diff)
@@ -160,7 +162,7 @@ class SynthesisTests(unittest.TestCase):
                 self.assertEqual(invoke.call_count, 0)
 
     def test_no_chair(self):
-        (self.root / "chair-mode.txt").write_text("deterministic\n")
+        (self.root / "chair-mode.txt").write_text("not_applicable\n")
         (self.root / "deterministic-review.md").write_text("Scope complete.\nVERDICT: PASS\n")
         with patch.object(self.module, "execute", side_effect=AssertionError("Unexpected call")):
             self.module.synthesize(self.root, self.root / "review.md")
