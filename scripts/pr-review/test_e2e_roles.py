@@ -31,11 +31,10 @@ if name == "claude" and argv[1].startswith("You chair"):
           else "No blocking issue remains.\nVERDICT: PASS")
     raise SystemExit(0)
 model = argv[argv.index("--model") + 1]
-# kiro-fable and claude-self share a model id (both Opus 5.5); the CLI name
-# (kiro-cli vs claude) disambiguates them, matching run_role.py's own dispatch.
+# Keyed by (CLI, model), matching run_role.py's own per-CLI dispatch.
 tag = {
     ("codex", "global.openai.gpt-6-astra"): "codex",
-    ("kiro-cli", "global.anthropic.claude-opus-5-5"): "kiro-fable",
+    ("kiro-cli", "claude-fable-5.1"): "kiro-fable",
     ("kiro-cli", "gpt-5.6-sol"): "kiro-sol",
     ("claude", "global.anthropic.claude-opus-5-5"): "claude-self",
 }[(name, model)]
@@ -171,7 +170,7 @@ class EndToEndRoleTests(unittest.TestCase):
         self.assertEqual(sum(call["name"] == "kiro-cli" for call in calls), 2)
         kiro = [c for c in calls if c["name"] == "kiro-cli" and not c["args"][1].startswith("Kiro startup")]
         self.assertTrue(all(
-            c["args"][c["args"].index("--model") + 1] == "global.anthropic.claude-opus-5-5" for c in kiro
+            c["args"][c["args"].index("--model") + 1] == "claude-fable-5.1" for c in kiro
         ))
         self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: PASS\n"))
 

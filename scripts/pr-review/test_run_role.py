@@ -318,7 +318,7 @@ class RoleRecordingTests(unittest.TestCase):
         self.assert_private_response_removed()
 
     def test_kiro_engine_compatibility_in_both_phases(self):
-        for tag, model in (("kiro-fable", "global.anthropic.claude-opus-5-5"), ("kiro-sol", "gpt-5.6-sol")):
+        for tag, model in (("kiro-fable", "claude-fable-5.1"), ("kiro-sol", "gpt-5.6-sol")):
             with self.subTest(tag=tag):
                 self.prepare_tag(tag, case=f"engine-{tag}")
                 calls = []

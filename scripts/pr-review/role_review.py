@@ -23,7 +23,7 @@ MAX_REQUEST_BYTES = 131072
 ROLES = {
     "codex": ("implementation", "OpenAI", "global.openai.gpt-6-astra",
               "Implementation correctness, concurrency and tests"),
-    "kiro-fable": ("aws", "Anthropic", "global.anthropic.claude-opus-5-5",
+    "kiro-fable": ("aws", "Anthropic", "claude-fable-5.1",
                    "AWS, IAM, network and service constraints"),
     "kiro-sol": ("deployment", "OpenAI", "gpt-5.6-sol",
                  "Deployment, contracts, lifecycle and recovery"),

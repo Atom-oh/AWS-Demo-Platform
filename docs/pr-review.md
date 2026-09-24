@@ -26,9 +26,8 @@ Kiro uses an explicit empty catalog and a fixed no-PR-data canary before each
 active model. `--trust-tools=` alone is not a no-tools control. Failed startup,
 model selection, provider or quota checks do not count as review completion.
 The existing runner provider configuration is retained.
-`kiro-fable` is the compatibility tag for Claude Opus 5.5 (`global.anthropic.claude-opus-5-5`);
-`kiro-sol` uses `gpt-5.6-sol`. `claude-self` also runs Opus 5.5; the invoking CLI
-disambiguates the two. `role_review.py` declares specialist model IDs; legacy
+`kiro-fable` runs Kiro's `claude-fable-5.1`; `kiro-sol` uses `gpt-5.6-sol`.
+`claude-self` runs Bedrock `global.anthropic.claude-opus-5-5`. `role_review.py` declares specialist model IDs; legacy
 `lib.sh` roster values apply only to legacy fixtures.
 
 ## Review evidence

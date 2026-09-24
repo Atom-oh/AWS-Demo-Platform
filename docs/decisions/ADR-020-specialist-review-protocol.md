@@ -82,6 +82,7 @@ candidate needed adjudication. To keep this affordable, the chair receives no
 diff for a clean run, only the affected paths' hunks for a Critical/Major
 candidate, and the full owned diff only when a free-text uncertainty could
 concern any changed line. `claude-self` moves to Claude Opus 5.5
-(`global.anthropic.claude-opus-5-5`), sharing `kiro-fable`'s model ID; the
-invoking CLI (`claude` vs `kiro-cli`), not the model ID, disambiguates them. The
-chair's own primary/fallback models are unchanged.
+(`global.anthropic.claude-opus-5-5`) and the chair fallback follows it; the chair
+primary stays Fable 5.1. `kiro-fable` moves to Kiro's `claude-fable-5.1`, since the
+runner's Kiro catalog has no Opus 5.5 and Kiro uses dotted catalog IDs, not
+Bedrock profile IDs.

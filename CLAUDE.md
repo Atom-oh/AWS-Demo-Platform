@@ -157,10 +157,10 @@ reported separately. `scripts/setup.sh` installs local hooks.
 
 ## Review and Release
 
-CI uses specialist roles: Codex checks implementation, Kiro Opus checks AWS,
+CI uses specialist roles: Codex checks implementation, Kiro Fable checks AWS,
 Kiro Sol checks deployment/recovery, and Claude checks auth/data/API/ADR contracts.
 Deterministic path ownership assigns every changed path to exactly one role
-(infra/Terraform to Kiro Opus; k8s/ArgoCD/workflows/Dockerfiles/projects/runbooks
+(infra/Terraform to Kiro Fable; k8s/ArgoCD/workflows/Dockerfiles/projects/runbooks
 to Kiro Sol; API auth/routes/schemas/docs/ADRs to Claude; everything else to
 Codex) — no path is reviewed twice, and a role with no owned paths is
 NOT_APPLICABLE. Each active role receives one logical request, scoped to its
@@ -168,8 +168,8 @@ own owned diff chunks, within configured retry budgets.
 [ADR-020](docs/decisions/ADR-020-specialist-review-protocol.md) and its
 2026-09-24 amendment supersede the repeated L2-L5 matrix, its permissive
 coverage floor, and per-family full-diff review. [Specialist review](docs/pr-review-specialists.md)
-defines inputs, model aliases and limits. `kiro-fable` remains the legacy Opus
-tag; `claude-self` also runs Opus 5.5, disambiguated by CLI, not model ID.
+defines inputs, model aliases and limits. `kiro-fable` runs Kiro's
+`claude-fable-5.1`; `claude-self` runs Bedrock Opus 5.5.
 ADR-015 retains per-model job and artifact isolation; ADR-016 retains shared-context
 and runner-image ownership. Their earlier matrix/chair rules are superseded by ADR-020.
 Only complete, valid, SHA-bound results qualify for coverage. Missing roles,

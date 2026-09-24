@@ -1,4 +1,4 @@
-<!-- generated-by: co-agent · source: CLAUDE.md · claude-md-sha: cd0d9e5aeffa · generated-at: 2026-09-24 · DO NOT EDIT — edit CLAUDE.md then run /co-agent sync-context -->
+<!-- generated-by: co-agent · source: CLAUDE.md · claude-md-sha: 81d7f2790894 · generated-at: 2026-09-24 · DO NOT EDIT — edit CLAUDE.md then run /co-agent sync-context -->
 > You are an external reviewer for this repo — project context below, distilled from CLAUDE.md. This file is shared verbatim by the external review panel (not a per-AI copy).
 
 # AWS Demo Platform review context
@@ -39,7 +39,7 @@ Local Agy context support does not add an Agy CI panel slot.
 
 Deterministic, path-only ownership assigns every changed path to exactly one
 specialist, so no path is reviewed twice: `infra/**` and Terraform files to Kiro
-Opus (AWS); `k8s/**`, `argocd-apps/**`, `.github/workflows/**`, `Dockerfile*`,
+Fable (AWS); `k8s/**`, `argocd-apps/**`, `.github/workflows/**`, `Dockerfile*`,
 `projects/**` and `docs/runbooks/**` to Kiro Sol (deployment/recovery); API
 plugins/routes, shared schemas, `docs/**` and `*.md` to Claude (auth/data/API/ADR);
 everything else to Codex (implementation). Diff content never changes routing.
@@ -54,7 +54,7 @@ with zero findings; only a coverage failure (deterministic FAIL) or an
 all-NOT_APPLICABLE plan (deterministic PASS) skips it. It receives no diff for a
 clean run, only a Critical/Major candidate's paths, or the full owned diff for an
 uncertainty. Reserve Critical/Major for concrete failure conditions. See
-`docs/pr-review-specialists.md`. `kiro-fable` is the legacy Opus tag, not a model ID.
+`docs/pr-review-specialists.md`. `kiro-fable` runs Kiro's `claude-fable-5.1`; `claude-self` runs Bedrock Opus 5.5.
 
 ## Stack and verification
 
