@@ -26,11 +26,19 @@ if name == "kiro-cli" and argv[1].startswith("Kiro startup safety check."):
     print("NO_TOOLS")
     raise SystemExit(0)
 if name == "claude" and argv[1].startswith("You chair"):
-    print("The supplied candidate remains a concrete regression.\nVERDICT: FAIL")
+    severe = '"severity":"CRITICAL"' in stdin or '"severity":"MAJOR"' in stdin
+    print("The supplied candidate remains a concrete regression.\nVERDICT: FAIL" if severe
+          else "No blocking issue remains.\nVERDICT: PASS")
     raise SystemExit(0)
 model = argv[argv.index("--model") + 1]
-tag = {"global.openai.gpt-6-astra":"codex", "claude-opus-5":"kiro-fable",
-       "gpt-5.6-sol":"kiro-sol", "global.anthropic.claude-fable-5-1":"claude-self"}[model]
+# kiro-fable and claude-self share a model id (both Opus 5.5); the CLI name
+# (kiro-cli vs claude) disambiguates them, matching run_role.py's own dispatch.
+tag = {
+    ("codex", "global.openai.gpt-6-astra"): "codex",
+    ("kiro-cli", "global.anthropic.claude-opus-5-5"): "kiro-fable",
+    ("kiro-cli", "gpt-5.6-sol"): "kiro-sol",
+    ("claude", "global.anthropic.claude-opus-5-5"): "claude-self",
+}[(name, model)]
 plan = json.loads((root / "work/role-plan.json").read_text())
 role = plan["roles"][tag]
 paths = role["paths"]
@@ -141,34 +149,42 @@ class EndToEndRoleTests(unittest.TestCase):
         calls = self.root / "calls.jsonl"
         return [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
 
-    def test_react_change_retains_the_operations_specialist(self):
-        calls = self.run_pipeline("frontend/components/ProjectControls.tsx")
-        self.assertEqual(sorted(c["name"] for c in calls), ["claude", "codex", "kiro-cli", "kiro-cli"])
-        kiro = [c for c in calls if c["name"] == "kiro-cli"]
+    def test_deployment_change_retains_the_operations_specialist(self):
+        # k8s/** is kiro-sol's owned path; codex and claude-self have no owned
+        # path here and stay NOT_APPLICABLE — the chair still finalizes.
+        calls = self.run_pipeline("k8s/base/deployment.yaml")
+        self.assertEqual(sorted(c["name"] for c in calls), ["claude", "kiro-cli", "kiro-cli"])
+        kiro = [c for c in calls if c["name"] == "kiro-cli" and not c["args"][1].startswith("Kiro startup")]
         self.assertTrue(all(c["args"][c["args"].index("--model") + 1] == "gpt-5.6-sol" for c in kiro))
-        self.assertEqual(json.loads((self.work / "role-summary.json").read_text())["mode"], "deterministic")
+        self.assertEqual(json.loads((self.work / "role-summary.json").read_text())["mode"], "review")
 
-    def test_static_frontend_uses_two_reviews_and_no_chair(self):
+    def test_static_frontend_uses_codex_and_chair(self):
+        # An unmatched path defaults to codex alone; the chair always finalizes.
         calls = self.run_pipeline("frontend/components/Button.css")
         self.assertEqual(sorted(call["name"] for call in calls), ["claude", "codex"])
         self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: PASS\n"))
 
-    def test_aws_change_uses_four_reviews_and_two_safety_checks(self):
+    def test_infra_change_uses_kiro_fable_alone(self):
+        # infra/*.tf is kiro-fable's owned path; no other specialist duplicates it.
         calls = self.run_pipeline("infra/network.tf")
-        self.assertEqual(len(calls), 6)
-        self.assertEqual(sum(call["name"] == "kiro-cli" for call in calls), 4)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(sum(call["name"] == "kiro-cli" for call in calls), 2)
+        kiro = [c for c in calls if c["name"] == "kiro-cli" and not c["args"][1].startswith("Kiro startup")]
+        self.assertTrue(all(
+            c["args"][c["args"].index("--model") + 1] == "global.anthropic.claude-opus-5-5" for c in kiro
+        ))
         self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: PASS\n"))
 
     def test_nonzero_output_blocks_without_chair_override(self):
         (self.root / "failure").touch()
         calls = self.run_pipeline("frontend/components/Button.css")
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), 1)
         self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: FAIL\n"))
 
     def test_major_candidate_adds_exactly_one_chair_call(self):
         (self.root / "major").touch()
         calls = self.run_pipeline("frontend/components/Button.css")
-        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(calls), 2)
         self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: FAIL\n"))
 
     def test_codex_tool_echo_does_not_block_complete_review(self):
@@ -180,7 +196,7 @@ class EndToEndRoleTests(unittest.TestCase):
     def test_codex_native_error_blocks_otherwise_valid_review(self):
         (self.root / "native-error").touch()
         calls = self.run_pipeline("frontend/components/Button.css")
-        self.assertEqual(len(calls), 2)
+        self.assertEqual(len(calls), 1)
         self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: FAIL\n"))
 
     def test_codex_recovered_stream_error_keeps_complete_review(self):

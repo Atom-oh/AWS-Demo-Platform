@@ -95,7 +95,7 @@ from run_role import preflight
 from role_review import diagnostic_failure
 assert os.environ.get("KIRO_API_KEY"), "Configured Kiro credentials are required"
 with tempfile.TemporaryDirectory() as directory:
-    ok, code, error = preflight("kiro-cli", "claude-opus-5", Path(directory), os.environ, 60)
+    ok, code, error = preflight("kiro-cli", "global.anthropic.claude-opus-5-5", Path(directory), os.environ, 60)
     print({"ok": ok, "exit_code": code, "diagnostic": diagnostic_failure(error)})
     raise SystemExit(0 if ok else 1)
 PY

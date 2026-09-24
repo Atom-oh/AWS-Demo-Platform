@@ -50,3 +50,38 @@ collector must account for every path and record the policy hash; the report
 identifies excluded paths and claims no model review. Any reviewable source,
 unknown exclusion, source omission or failed collector remains blocking. New
 exclusions require their own reviewed policy change.
+
+## Amendment (2026-09-24): single-owner path partition, chair always finalizes
+
+Observed panel cost and latency remained high because Codex and Claude reviewed
+every path unconditionally, both Kiro roles ran on nearly every PR (frontend-only
+diffs were the sole opt-out), and a host-generated summary still repeated four
+lenses' worth of description text per role. This amendment supersedes this ADR's
+"Codex and Claude cover all reviewable source paths" decision and its
+uncontroversial-report/chair-adjudication split; the routing validation,
+custody-digest and coverage-failure decisions above remain unchanged.
+
+Deterministic, first-match-wins path ownership (`OWNERSHIP` in `role_review.py`)
+assigns every changed path to exactly one specialist by path, never by diff
+content: `infra/**` and Terraform files to `kiro-fable`; `k8s/**`,
+`argocd-apps/**`, `.github/workflows/**`, `Dockerfile*`, `projects/**` and
+`docs/runbooks/**` to `kiro-sol`; API auth/routes, shared schemas, `docs/**` and
+`*.md` to `claude-self`; everything else defaults to `codex`. `prepare` splits
+the raw diff into one chunk set per role, so each specialist's request carries
+only its owned hunks. A role with no owned paths is NOT_APPLICABLE — no CLI
+call, no Kiro startup check. This is a deliberate trade-off: a path is reviewed
+by its one owning specialist, not independently by every family, in exchange
+for materially fewer calls, smaller per-call token cost and no duplicate
+findings across roles.
+
+The chair now always finalizes an active (non-blocked, non-NOT_APPLICABLE)
+review, replacing the prior deterministic/review split — a clean run with zero
+findings still gets one chair-written consolidated result instead of a
+host-generated pass-through, and formatting stays consistent whether or not any
+candidate needed adjudication. To keep this affordable, the chair receives no
+diff for a clean run, only the affected paths' hunks for a Critical/Major
+candidate, and the full owned diff only when a free-text uncertainty could
+concern any changed line. `claude-self` moves to Claude Opus 5.5
+(`global.anthropic.claude-opus-5-5`), sharing `kiro-fable`'s model ID; the
+invoking CLI (`claude` vs `kiro-cli`), not the model ID, disambiguates them. The
+chair's own primary/fallback models are unchanged.

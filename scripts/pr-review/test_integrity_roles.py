@@ -20,11 +20,29 @@ class IntegrityTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.work = self.root / "work"
-        self.raw = (
-            "diff --git a/backend/worker.ts b/backend/worker.ts\n"
-            "--- a/backend/worker.ts\n+++ b/backend/worker.ts\n"
-            "@@ -1 +1 @@\n-return 1;\r\n+return 1;\n"
-        )
+        # One owned path per exercised role (codex/kiro-fable/claude-self), so each
+        # tag-specific test below finds its role required under path ownership.
+        self.chunks = {
+            "codex": (
+                "backend/worker.ts",
+                "diff --git a/backend/worker.ts b/backend/worker.ts\n"
+                "--- a/backend/worker.ts\n+++ b/backend/worker.ts\n"
+                "@@ -1 +1 @@\n-return 1;\r\n+return 1;\n",
+            ),
+            "kiro-fable": (
+                "infra/worker.tf",
+                "diff --git a/infra/worker.tf b/infra/worker.tf\n"
+                "--- a/infra/worker.tf\n+++ b/infra/worker.tf\n"
+                "@@ -1 +1 @@\n-old = 1\n+old = 2\n",
+            ),
+            "claude-self": (
+                "docs/worker.md",
+                "diff --git a/docs/worker.md b/docs/worker.md\n"
+                "--- a/docs/worker.md\n+++ b/docs/worker.md\n"
+                "@@ -1 +1 @@\n-old text\n+new text\n",
+            ),
+        }
+        self.raw = "".join(chunk for _, chunk in self.chunks.values())
         (self.root / "diff").write_bytes(self.raw.encode())
         (self.root / "context").write_text("Trusted context.\n")
         subprocess.run([
@@ -44,10 +62,11 @@ class IntegrityTests(unittest.TestCase):
         self.addCleanup(self.environment.stop)
 
     def response(self, tag):
+        path = self.plan["roles"][tag]["paths"][0]
         return json.dumps({
             "head_sha": self.plan["head_sha"], "role": self.plan["roles"][tag]["role"],
-            "scope_complete": True, "reviewed_paths": ["backend/worker.ts"],
-            "checks": [{"path": "backend/worker.ts", "evidence": "Checked changed return bytes."}],
+            "scope_complete": True, "reviewed_paths": [path],
+            "checks": [{"path": path, "evidence": "Checked changed return bytes."}],
             "findings": [], "uncertainties": [],
         })
 
@@ -86,9 +105,9 @@ class IntegrityTests(unittest.TestCase):
             return code, events, error
         return invoke
 
-    def chair(self, responses):
+    def chair(self, responses, summary='{"findings":[],"uncertainties":[]}\n'):
         (self.work / "chair-mode.txt").write_text("review\n")
-        (self.work / "role-summary.json").write_text('{"findings":[]}\n')
+        (self.work / "role-summary.json").write_text(summary)
         (self.work / "project-context.md").write_text("Trusted context.\n")
         with patch.object(synthesize_roles, "execute", side_effect=responses) as execute:
             with patch.object(synthesize_roles, "scrub", side_effect=lambda value: value):
@@ -139,10 +158,10 @@ class IntegrityTests(unittest.TestCase):
                     with patch.object(run_role, "execute", side_effect=invoke) as execute:
                         run_role.run(self.work, tag)
                 delivered = execute.call_args.args[3] if tag == "codex" else execute.call_args.args[0][2]
-                self.assertIn(self.raw.encode(), delivered.encode())
+                self.assertIn(self.chunks[tag][1].encode(), delivered.encode())
                 self.assertIn("BEGIN DIFF ", delivered)
                 self.assertIn("END DIFF ", delivered)
-                self.assertEqual((self.work / "roles" / f"{tag}.diff").read_bytes(), self.raw.encode())
+                self.assertEqual((self.work / "roles" / f"{tag}.diff").read_bytes(), self.chunks[tag][1].encode())
                 result = json.loads((self.work / "slot" / f"{tag}-result.json").read_text())
                 self.assertTrue(result["valid"], result)
                 self.assertEqual(len(result["invocation_nonce"]), 32)
@@ -175,7 +194,7 @@ class IntegrityTests(unittest.TestCase):
         self.assertEqual(environment["AWS_REGION"], "ap-northeast-2")
         self.assertNotIn("GH_TOKEN", environment)
         self.assertEqual(timeout, 10)
-        self.assertIn(self.raw, delivered)
+        self.assertIn(self.chunks["codex"][1], delivered)
         result = json.loads((self.work / "slot/codex-result.json").read_text())
         self.assertTrue(result["valid"], result)
 
@@ -288,8 +307,15 @@ class IntegrityTests(unittest.TestCase):
             "[warn] Falling back to default model", "model_fallback_diagnostic")
 
     def test_chair_receives_the_same_raw_diff_bytes(self):
-        execute, _ = self.chair([(0, "Evidence checked.\nVERDICT: FAIL\n", "")])
-        self.assertIn(self.raw, execute.call_args.args[3])
+        # A clean summary sends no diff at all (nothing to adjudicate); a Critical/
+        # Major candidate sends only that finding's owned chunk, not every role's.
+        summary = json.dumps({
+            "findings": [{"path": "backend/worker.ts", "severity": "MAJOR"}],
+            "uncertainties": [],
+        })
+        execute, _ = self.chair([(0, "Evidence checked.\nVERDICT: FAIL\n", "")], summary=summary)
+        self.assertIn(self.chunks["codex"][1], execute.call_args.args[3])
+        self.assertNotIn(self.chunks["kiro-fable"][1], execute.call_args.args[3])
 
 
 if __name__ == "__main__":

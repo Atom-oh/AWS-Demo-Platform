@@ -7,21 +7,29 @@ every review lens. The trusted workflow enables this protocol with
 | Slot | Configured model | Responsibility |
 | --- | --- | --- |
 | `codex` | `global.openai.gpt-6-astra` | Implementation, concurrency, errors and tests |
-| `kiro-fable` | `claude-opus-5` | AWS architecture, IAM, networking and service constraints |
+| `kiro-fable` | `global.anthropic.claude-opus-5-5` | AWS architecture, IAM, networking and service constraints |
 | `kiro-sol` | `gpt-5.6-sol` | Deployment order, component contracts, lifecycle and recovery |
-| `claude-self` | `global.anthropic.claude-fable-5-1` | Authentication, data boundaries, requirements, API and ADR consistency |
+| `claude-self` | `global.anthropic.claude-opus-5-5` | Authentication, data boundaries, requirements, API and ADR consistency |
 
 The legacy `kiro-fable` tag identifies the Opus slot. Kiro catalog aliases differ
-from Bedrock inference-profile IDs. These are configured model identities, not
-attestation of the provider's internal routing or weights.
+from Bedrock inference-profile IDs. `kiro-fable` and `claude-self` share the Opus
+5.5 model ID; the invoking CLI (`kiro-cli` vs `claude`) disambiguates them, not
+the model ID alone. These are configured model identities, not attestation of
+the provider's internal routing or weights.
 
 ## Routing and evidence
 
-Trusted code determines which roles apply. Codex and Claude review the full change
-boundary, retaining independent OpenAI/Anthropic checks for sensitive changes.
-Kiro roles run for applicable AWS and operational changes, including relevant
-documentation. Unfamiliar paths route conservatively. Only deterministic routing
-may record NOT_APPLICABLE; provider failures never do.
+Trusted, deterministic path ownership (`OWNERSHIP` in `role_review.py`) assigns
+every changed path to exactly one specialist — `infra/**` and `*.tf`/`*.tfvars`/
+`*.hcl` to `kiro-fable`; `k8s/**`, `argocd-apps/**`, `.github/workflows/**`,
+`Dockerfile*`, `projects/**` and `docs/runbooks/**` to `kiro-sol`; API
+plugins/routes, shared schemas, `docs/**` and `*.md` to `claude-self`; everything
+else defaults to `codex`. No two roles review the same path, and a role with no
+owned paths is NOT_APPLICABLE — this is the coverage reduction that keeps the
+panel cheap and fast without leaving any changed path unreviewed. Diff *content*
+(imports, ARNs, region strings) never affects routing; only the changed path
+does. Only deterministic routing may record NOT_APPLICABLE; provider failures
+never do.
 
 `prepare_roles.py` verifies the pinned base checkout, resolves the immutable merge
 base, fetches Git objects and generates a complete diff without executing head
@@ -53,15 +61,19 @@ Codex retains its read-only sandbox and configured Bedrock provider. Claude's
 specialist has no tools. The chair has bounded local read tools and no GitHub
 token. Review output is scrubbed before becoming a public artifact.
 
-Complete, valid results with no Critical/Major candidate or uncertainty receive
-a deterministic summary. Other valid results require chair adjudication. A
-coverage failure receives a deterministic failure; a chair cannot waive it.
-Minor/Info findings remain in the report.
+The chair always finalizes an active review — a consolidated Summary/Blocking
+issues/Non-blocking/Coverage write-up with one VERDICT line, not a separate
+host-generated pass-through — except a coverage/input failure (deterministic
+FAIL; the chair cannot waive it) or an all-NOT_APPLICABLE plan (deterministic
+PASS, no owned path to review). To keep the extra call cheap, the chair receives
+no diff at all for a clean run, only the affected paths' hunks for a Critical/
+Major candidate, and the full owned diff only when a free-text uncertainty could
+refer to any changed line.
 
-With all four roles active, the ordinary path uses four review calls and two
-Kiro startup checks. Adjudication adds one chair call; retries and fallback add
-calls only when needed. This reduces duplicate requests, but is not a measured
-wall-clock speedup. Per-role timing artifacts support before/after measurement.
+Path ownership means most PRs activate one or two roles, not four: only the
+owning specialist(s) run, each on its own owned-path slice of the diff, plus the
+mandatory chair call. Retries and fallback add calls only when needed. Per-role
+timing artifacts support before/after measurement.
 
 ## Maintenance and release
 
