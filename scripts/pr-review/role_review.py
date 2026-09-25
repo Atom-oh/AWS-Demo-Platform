@@ -595,6 +595,10 @@ def load_plan(work):
         ):
             raise Invalid("invalid_exclusions_policy")
         owned = set()
+        # Re-parse with the same approved metadata-only deletions prepare used.
+        metadata_only = plan.get("provenance", {}).get("path_only", [])
+        if not isinstance(metadata_only, list):
+            raise Invalid("invalid_plan_structure")
         for tag, (slug, family, model, _) in ROLES.items():
             role = plan["roles"][tag]
             if (role["role"], role["family"], role["model"]) != (slug, family, model):
@@ -612,7 +616,8 @@ def load_plan(work):
                 role_diff = (work / "roles" / f"{tag}.diff").read_bytes()
                 if role["request_digest"] != request_digest(plan, tag, role, body, role_diff):
                     raise Invalid("invalid_request_digest")
-                if role_diff and diff_paths(role_diff.decode("utf-8")) != sorted(role_paths):
+                if role_diff and diff_paths(role_diff.decode("utf-8"),
+                                            metadata_only=metadata_only) != sorted(role_paths):
                     raise Invalid("invalid_diff_digest")
             elif role_paths or (work / "roles" / f"{tag}.diff").exists():
                 raise Invalid("invalid_plan_scope")

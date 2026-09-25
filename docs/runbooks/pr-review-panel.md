@@ -15,8 +15,10 @@ not applicable; approved exclusions-only scope is recorded explicitly.
 
 CI prepares inputs independently in each model job. `run-panel.sh` dispatches one
 role to `run_role.py`. The chair job restores private frames, aggregates results
-and invokes `synthesize_roles.py` through the shell entrypoints. Valid clean
-results need no chair model; unresolved candidates or uncertainties do.
+and invokes `synthesize_roles.py` through the shell entrypoints. The chair
+finalizes every active review, including a clean one (it then receives no diff);
+only a blocked or all-NOT_APPLICABLE plan skips it. A role with no owned paths
+exits early as NOT_APPLICABLE, so an inactive job is not a failure.
 An aggregate exit of 2 produces a blocked report. The shell wrapper allows that
 report to reach publication; its exit 0 is not a review PASS. The final workflow
 checks the report verdict and current PR HEAD before publishing.

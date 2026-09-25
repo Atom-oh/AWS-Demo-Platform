@@ -525,6 +525,19 @@ class RoleReviewTests(unittest.TestCase):
                 self.prepare(raw, expected=2)
                 self.assert_blocked()
 
+    def test_metadata_only_deletion_survives_load_plan(self):
+        # A collector-approved metadata-only deletion (no hunks) must validate the
+        # same way in load_plan's per-role re-parse as it did in prepare.
+        raw = "diff --git a/old.py b/old.py\ndeleted file mode 100644\nindex 1234567..0000000\n"
+        metadata = self.root / "source.json"
+        metadata.write_text(json.dumps({
+            "head_sha": HEAD, "base_sha": BASE,
+            "diff_sha256": hashlib.sha256(raw.encode()).hexdigest(), "path_only": ["old.py"],
+        }))
+        plan = self.prepare(raw, extra=("--provenance", metadata))
+        self.assertEqual(plan["roles"]["codex"]["paths"], ["old.py"])
+        self.assertEqual(self.finish()["mode"], "review")
+
     def test_empty_blob_proof(self):
         raw = "diff --git a/empty b/empty\nnew file mode 100644\nindex 0000000..e69de29\n"
         self.assertTrue(self.prepare(raw)["input_complete"])
