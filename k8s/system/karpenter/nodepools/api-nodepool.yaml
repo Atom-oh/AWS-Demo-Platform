@@ -73,6 +73,7 @@ spec:
     - tags:
         karpenter.sh/discovery: multi-region-mall
   tags:
+    Project: multi-region-mall
     Environment: production
     ManagedBy: karpenter
     WorkloadType: api
