@@ -102,7 +102,8 @@ class MarkdownContainerTests(unittest.TestCase):
         harness = synthesis_fixture.SynthesisTests()
         harness.setUp()
         self.addCleanup(harness.doCleanups)
-        reply = (0, self.report(self.complete_cases()[0]), "")
+        reply = (0, "Finding:\n~~~text\n" + self.complete_cases()[0]
+                 + "\n~~~\nOutside container.\nVERDICT: PASS\n", "")
         calls, text = harness.run_chair([reply, reply])
         self.assertEqual(calls, 1)
         self.assertNotIn("S_", text)
