@@ -39,13 +39,16 @@ if name == "claude" and argv[1].startswith("You chair"):
           else "No blocking issue remains.\nVERDICT: PASS")
     raise SystemExit(0)
 model = argv[argv.index("--model") + 1]
-# Keyed by (CLI, model), matching run_role.py's own per-CLI dispatch.
+# Keyed by (CLI, model), matching run_role.py's own per-CLI dispatch; both Kiro
+# slots share one model, so their framed prompt's review tag selects the slot.
 tag = {
     ("codex", "global.openai.gpt-6-astra"): "codex",
-    ("kiro-cli", "claude-fable-5.1"): "kiro-fable",
-    ("kiro-cli", "gpt-5.6-sol"): "kiro-sol",
+    ("kiro-cli", "claude-opus-5.5"): "kiro",
     ("claude", "global.anthropic.claude-opus-5-5"): "claude-self",
 }[(name, model)]
+if tag == "kiro":
+    import re
+    tag = re.search(r"Review tag: (kiro-fable|kiro-sol)\b", argv[1]).group(1)
 plan = json.loads((root / "work/role-plan.json").read_text())
 role = plan["roles"][tag]
 paths = role["paths"]
@@ -164,7 +167,7 @@ class EndToEndRoleTests(unittest.TestCase):
         calls = self.run_pipeline("k8s/base/deployment.yaml")
         self.assertEqual(sorted(c["name"] for c in calls), ["claude", "kiro-cli", "kiro-cli"])
         kiro = [c for c in calls if c["name"] == "kiro-cli" and not c["args"][1].startswith("Kiro startup")]
-        self.assertTrue(all(c["args"][c["args"].index("--model") + 1] == "gpt-5.6-sol" for c in kiro))
+        self.assertTrue(all(c["args"][c["args"].index("--model") + 1] == "claude-opus-5.5" for c in kiro))
         self.assertEqual(json.loads((self.work / "role-summary.json").read_text())["mode"], "review")
 
     def test_static_frontend_uses_codex_and_chair(self):
@@ -180,7 +183,7 @@ class EndToEndRoleTests(unittest.TestCase):
         self.assertEqual(sum(call["name"] == "kiro-cli" for call in calls), 2)
         kiro = [c for c in calls if c["name"] == "kiro-cli" and not c["args"][1].startswith("Kiro startup")]
         self.assertTrue(all(
-            c["args"][c["args"].index("--model") + 1] == "claude-fable-5.1" for c in kiro
+            c["args"][c["args"].index("--model") + 1] == "claude-opus-5.5" for c in kiro
         ))
         self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: PASS\n"))
 

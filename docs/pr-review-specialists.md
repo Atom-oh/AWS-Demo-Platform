@@ -7,12 +7,12 @@ every review lens. The trusted workflow enables this protocol with
 | Slot | Configured model | Responsibility |
 | --- | --- | --- |
 | `codex` | `global.openai.gpt-6-astra` | Implementation, concurrency, errors and tests |
-| `kiro-fable` | `claude-fable-5.1` | AWS architecture, IAM, networking and service constraints |
-| `kiro-sol` | `gpt-5.6-sol` | Deployment order, component contracts, lifecycle and recovery |
+| `kiro-fable` | `claude-opus-5.5` | AWS architecture, IAM, networking and service constraints |
+| `kiro-sol` | `claude-opus-5.5` | Deployment order, component contracts, lifecycle and recovery |
 | `claude-self` | `global.anthropic.claude-opus-5-5` | Authentication, data boundaries, requirements, API and ADR consistency |
 
-`kiro-fable` runs Kiro's `claude-fable-5.1` (the Kiro catalog has no Opus 5.5 on
-the CI runner). Kiro catalog aliases (dotted) differ from Bedrock inference-profile
+Both Kiro slots run Kiro's `claude-opus-5.5`; the slot tags are historical names.
+Kiro catalog aliases (dotted) differ from Bedrock inference-profile
 IDs, so the same model name is not interchangeable across CLIs. These are configured model identities, not attestation of
 the provider's internal routing or weights.
 
