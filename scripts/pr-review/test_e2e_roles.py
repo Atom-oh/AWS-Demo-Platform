@@ -23,8 +23,13 @@ with (root / "calls.jsonl").open("a") as stream:
     stream.write(json.dumps({"name": name, "args": argv, "stdin": stdin}) + "\n")
 def kiro_events(text):
     assert argv[argv.index("--output-format") + 1] == "stream-json"
-    assert argv[argv.index("--agent-engine") + 1] == "v2" and "--legacy-ui" not in argv
-    print(json.dumps({"type":"runStarted","data":{"payloadSchema":"acp","engine":"v2"}}))
+    assert argv[argv.index("--agent-engine") + 1] == "v3" and "--legacy-ui" not in argv
+    print(json.dumps({"type":"runStarted","data":{"payloadSchema":"acp","engine":"v3"}}))
+    # v3's Kiro-internal startup call precedes every reply.
+    print(json.dumps({"type":"sessionUpdate","data":{"update":{"sessionUpdate":"tool_call",
+        "toolCallId":"startup","_meta":{"kiro":{"toolId":"fetch_cloud_config"}}}}}))
+    print(json.dumps({"type":"sessionUpdate","data":{"update":{"sessionUpdate":"tool_call_update",
+        "toolCallId":"startup","status":"completed"}}}))
     print(json.dumps({"type":"sessionUpdate","data":{"update":{
         "sessionUpdate":"agent_message_chunk","content":{"type":"text","text":text}}}}))
     print(json.dumps({"type":"runFinished","data":{"status":"success",

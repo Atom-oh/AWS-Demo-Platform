@@ -24,7 +24,8 @@ FAILURE = re.compile(
     r"Monthly request limit reached|MONTHLY_REQUEST_COUNT|UsageLimitReachedError|"
     r"ServiceQuotaExceededException|You have reached the limit for overages|"
     r"no agent with name|Falling back to user specified default|"
-    r"Json supplied at .* is invalid|failed to set model|using tool:",
+    r"Json supplied at .* is invalid|failed to set model|using tool:|"
+    r"needs upgrading for this agent engine",
     re.IGNORECASE,
 )
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -39,12 +40,15 @@ STDOUT_ACCOUNT_LIMIT = re.compile(
 QUOTA_ERROR = "\nUsageLimitReachedError"
 # Structured events carry the model's unrendered reply; the terminal UI renders
 # Markdown inside JSON strings (dropping `*`, `_`, backticks and link syntax).
-KIRO_ENGINE_ARGS = ("--no-interactive", "--output-format", "stream-json", "--agent-engine", "v2")
+KIRO_ENGINE_ARGS = ("--no-interactive", "--output-format", "stream-json", "--agent-engine", "v3")
+# v3 runs this Kiro-internal startup step as a tool call before the model replies.
+KIRO_INTERNAL_TOOLS = frozenset({"fetch_cloud_config"})
 AGENT = {
     "name": "inline-review",
     "description": "Review inline data without tools, hooks or external resources.",
     "tools": [], "allowedTools": [], "mcpServers": {}, "resources": [],
-    "hooks": {}, "useLegacyMcpJson": False,
+    # Universal format (both engines); v3 replaces an unconverted agent with "default".
+    "hooks": [], "useLegacyMcpJson": False, "permissions": {"rules": []},
 }
 
 
@@ -141,7 +145,8 @@ def codex_response(raw, final_path):
 
 def kiro_response(raw):
     """Validate Kiro ACP events; return (final text, diagnostics, complete, tool_used)."""
-    started = finished = failed = tool_used = False
+    started = finished = failed = tool_used = replied = False
+    internal = set()
     final = ""
     diagnostics = []
     for line in raw.splitlines():
@@ -171,7 +176,16 @@ def kiro_response(raw):
             if not isinstance(name, str):
                 failed = True
             elif name.startswith("tool_call"):
-                tool_used = failed = True
+                meta = update.get("_meta") if isinstance(update.get("_meta"), dict) else {}
+                kiro = meta.get("kiro") if isinstance(meta.get("kiro"), dict) else {}
+                call = update.get("toolCallId")
+                if (name == "tool_call" and not replied and isinstance(call, str)
+                        and kiro.get("toolId") in KIRO_INTERNAL_TOOLS):
+                    internal.add(call)
+                elif not (name == "tool_call_update" and call in internal):
+                    tool_used = failed = True
+            elif name in ("agent_message_chunk", "agent_thought_chunk"):
+                replied = True
         elif kind == "runFinished":
             finished = True
             text = data.get("finalText") if isinstance(data, dict) else None

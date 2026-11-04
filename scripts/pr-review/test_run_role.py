@@ -30,7 +30,7 @@ def stream(*events):
 def kiro_events(text, *middle, status="success", truncated=False):
     """Kiro ACP JSON Lines around a final reply."""
     return stream(
-        {"type": "runStarted", "data": {"payloadSchema": "acp", "engine": "v2"}},
+        {"type": "runStarted", "data": {"payloadSchema": "acp", "engine": "v3"}},
         *middle,
         {"type": "sessionUpdate", "data": {"update": {
             "sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}},
@@ -41,7 +41,7 @@ def kiro_events(text, *middle, status="success", truncated=False):
 
 def kiro_error(message):
     return stream(
-        {"type": "runStarted", "data": {"payloadSchema": "acp", "engine": "v2"}},
+        {"type": "runStarted", "data": {"payloadSchema": "acp", "engine": "v3"}},
         {"type": "runError", "data": {"stage": "prompt", "message": message}},
     ) + "\n"
 
@@ -167,6 +167,52 @@ class RoleExecutionTests(unittest.TestCase):
                 self.assertNotIn(canary[24:], error)
                 self.assertIn("canary", error.lower())
                 self.assertEqual(role_review.diagnostic_failure(error), "quota_diagnostic")
+
+    def kiro_tool(self, name, call="call-1", tool="fetch_cloud_config"):
+        update = {"sessionUpdate": name, "toolCallId": call}
+        if name == "tool_call":
+            update["_meta"] = {"kiro": {"toolId": tool}}
+        return {"type": "sessionUpdate", "data": {"update": update}}
+
+    def test_kiro_stream_returns_unrendered_final_text(self):
+        text = '{"evidence":"`repository/*` and **bold** and aws_caller_identity"}'
+        output, error, complete, tool_used = self.runner.kiro_response(kiro_events(text))
+        self.assertEqual((output, complete, tool_used), (text, True, False))
+
+    def test_kiro_internal_startup_tool_is_the_only_allowed_call(self):
+        start = self.kiro_tool("tool_call"), self.kiro_tool("tool_call_update")
+        self.assertTrue(self.runner.kiro_response(kiro_events("NO_TOOLS", *start))[2])
+        for events, case in (
+            ((self.kiro_tool("tool_call", tool="fs_read"),), "model tool"),
+            ((self.kiro_tool("tool_call_update", call="other"),), "unmatched update"),
+            ((self.kiro_tool("tool_call", tool=None),), "unnamed tool"),
+        ):
+            with self.subTest(case=case):
+                output, error, complete, tool_used = self.runner.kiro_response(kiro_events("NO_TOOLS", *events))
+                self.assertEqual((output, complete, tool_used), ("", False, True))
+        chunk = {"type": "sessionUpdate", "data": {"update": {
+            "sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "x"}}}}
+        late = self.runner.kiro_response(kiro_events("NO_TOOLS", chunk, *start))
+        self.assertEqual(late[2:], (False, True), "an allowlisted tool after the reply is not startup")
+
+    def test_kiro_stream_rejects_incomplete_or_failed_runs(self):
+        for raw in (kiro_events("x", status="error"), kiro_events("x", truncated=True),
+                    kiro_events("x").split("\n", 1)[1], kiro_events("x") + kiro_events("x"),
+                    kiro_error("model unavailable"), "not json\n" + kiro_events("x")):
+            with self.subTest(raw=raw[:40]):
+                self.assertFalse(self.runner.kiro_response(raw)[2])
+        self.assertIn("model unavailable", self.runner.kiro_response(kiro_error("model unavailable"))[1])
+
+    def test_kiro_agent_uses_universal_empty_format(self):
+        agent = self.runner.AGENT
+        self.assertEqual((agent["tools"], agent["allowedTools"], agent["mcpServers"], agent["resources"],
+                          agent["hooks"], agent["permissions"]), ([], [], {}, [], [], {"rules": []}))
+        self.assertFalse(agent["useLegacyMcpJson"])
+        cli = self.executable(
+            "import sys\n"
+            f"print({kiro_error('agent inline-review needs upgrading for this agent engine, using default')!r})\n")
+        ok, code, error = self.runner.preflight(cli, "claude-opus-5.5", self.root, os.environ.copy(), 2)
+        self.assertFalse(ok)
 
     def test_codex_events(self):
         self.assertTrue(hasattr(self.runner, "codex_response"))
@@ -344,7 +390,7 @@ class RoleRecordingTests(unittest.TestCase):
                 def provider(command, cwd, environment, input_text, timeout):
                     calls.append(command)
                     if ("--legacy-ui" in command or "--agent-engine" not in command
-                            or command[command.index("--agent-engine") + 1] != "v2"
+                            or command[command.index("--agent-engine") + 1] != "v3"
                             or command[command.index("--output-format") + 1] != "stream-json"):
                         return 1, "", f"[warn] failed to set model '{model}': Method not found"
                     self.assertEqual(command[command.index("--model") + 1], model)
