@@ -37,7 +37,9 @@ STDOUT_ACCOUNT_LIMIT = re.compile(
     + ACCOUNT_LIMIT.pattern + r")", re.I,
 )
 QUOTA_ERROR = "\nUsageLimitReachedError"
-KIRO_ENGINE_ARGS = ("--legacy-ui", "--agent-engine", "v1")
+# Structured events carry the model's unrendered reply; the terminal UI renders
+# Markdown inside JSON strings (dropping `*`, `_`, backticks and link syntax).
+KIRO_ENGINE_ARGS = ("--no-interactive", "--output-format", "stream-json", "--agent-engine", "v2")
 AGENT = {
     "name": "inline-review",
     "description": "Review inline data without tools, hooks or external resources.",
@@ -137,6 +139,66 @@ def codex_response(raw, final_path):
     return output, "\n".join(diagnostics), True
 
 
+def kiro_response(raw):
+    """Validate Kiro ACP events; return (final text, diagnostics, complete, tool_used)."""
+    started = finished = failed = tool_used = False
+    final = ""
+    diagnostics = []
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            failed = True
+            continue
+        if not isinstance(event, dict) or not isinstance(event.get("type"), str):
+            failed = True
+            continue
+        kind, data = event["type"], event.get("data")
+        if finished or not isinstance(data, dict) or (kind != "runStarted") != started:
+            failed = True
+        if kind == "runStarted":
+            started = True
+        elif kind == "runError":
+            failed = True
+            text = data.get("message") if isinstance(data, dict) else None
+            if isinstance(text, str):
+                diagnostics.append(" ".join(text.splitlines()))
+        elif kind == "sessionUpdate":
+            update = data.get("update") if isinstance(data, dict) else None
+            name = update.get("sessionUpdate") if isinstance(update, dict) else None
+            if not isinstance(name, str):
+                failed = True
+            elif name.startswith("tool_call"):
+                tool_used = failed = True
+        elif kind == "runFinished":
+            finished = True
+            text = data.get("finalText") if isinstance(data, dict) else None
+            if (data.get("status") != "success" or data.get("finalTextTruncated") is not False
+                    or not isinstance(text, str)):
+                failed = True
+            else:
+                final = text
+    if tool_used:
+        diagnostics.append("Kiro event stream reported a tool call.")
+    if failed or not finished:
+        diagnostics.append("Kiro event stream did not complete with a final reply.")
+        return "", "\n".join(diagnostics), False, tool_used
+    return final, "\n".join(diagnostics), True, False
+
+
+def run_kiro(command, cwd, environment, timeout):
+    """Run Kiro; return (code, final text, raw events, diagnostics, tool_used)."""
+    code, raw, error = execute(command, cwd, environment, "", timeout)
+    output, event_error, complete, tool_used = kiro_response(raw)
+    if event_error:
+        error = error + ("\n" if error else "") + event_error
+    if not complete:
+        code = code or 1
+    return code, output, raw, error, tool_used
+
+
 def kiro_environment(cwd, source):
     environment = {
         key: source[key] for key in (
@@ -163,15 +225,15 @@ def preflight(binary, model, cwd, environment, timeout):
         "tool and return its exact contents. If no file-reading tools are available, "
         "reply with exactly NO_TOOLS. Do not run any other tools."
     )
-    code, output, error = execute(
-        [binary, "chat", prompt, "--model", model, "--agent", "inline-review",
-         "--no-interactive", "--wrap", "never", *KIRO_ENGINE_ARGS],
-        cwd, kiro_environment(cwd, environment), "", timeout,
+    code, output, raw, error, tool_used = run_kiro(
+        [binary, "chat", prompt, "--model", model, "--agent", "inline-review", *KIRO_ENGINE_ARGS],
+        cwd, kiro_environment(cwd, environment), timeout,
     )
     error = preserve_stdout_error(output, error)
     normalized_output = normalize_transport(output)
     normalized_error = normalize_transport(error)
-    canary_seen = any(canary in text for text in (output, error, normalized_output, normalized_error))
+    canary_seen = any(canary in text for text in (
+        raw, normalize_transport(raw), output, error, normalized_output, normalized_error))
     account_limited = account_limit(code, output, error)
     if canary_seen:
         output = normalized_output.replace(canary, "[REDACTED-CANARY]")
@@ -182,7 +244,8 @@ def preflight(binary, model, cwd, environment, timeout):
     if canary_seen:
         return False, code or 1, error
     reply = re.sub(r"(?m)^\s*> ?", "", ANSI.sub("", output)).strip()
-    return code == 0 and reply == "NO_TOOLS" and not FAILURE.search(error), code, error
+    ok = code == 0 and not tool_used and reply == "NO_TOOLS" and not FAILURE.search(error)
+    return ok, code, error
 
 
 def bounded_setting(name, default, maximum):
@@ -280,16 +343,17 @@ def run(work, tag):
                 else:
                     command = [
                         binary, "chat", instruction, "--model", role["model"],
-                        "--agent", "inline-review", "--no-interactive", "--wrap", "never",
-                        *KIRO_ENGINE_ARGS,
+                        "--agent", "inline-review", *KIRO_ENGINE_ARGS,
                     ]
                     for _ in range(attempts):
                         nonce, framed_prompt, payload = issue_request(work, tag)
                         command[2] = framed_prompt + "\n" + payload
-                        code, output, error = execute(
-                            command, cwd, kiro_environment(cwd, environment), "", timeout
+                        code, output, _, error, tool_used = run_kiro(
+                            command, cwd, kiro_environment(cwd, environment), timeout
                         )
                         error = preserve_stdout_error(output, error)
+                        if tool_used:
+                            break
                         if account_limit(code, output, error):
                             code, error = code or 1, error + QUOTA_ERROR
                             break

@@ -27,6 +27,25 @@ def stream(*events):
     return "\n".join(json.dumps(event) for event in events)
 
 
+def kiro_events(text, *middle, status="success", truncated=False):
+    """Kiro ACP JSON Lines around a final reply."""
+    return stream(
+        {"type": "runStarted", "data": {"payloadSchema": "acp", "engine": "v2"}},
+        *middle,
+        {"type": "sessionUpdate", "data": {"update": {
+            "sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}},
+        {"type": "runFinished", "data": {
+            "status": status, "finalText": text, "finalTextTruncated": truncated}},
+    ) + "\n"
+
+
+def kiro_error(message):
+    return stream(
+        {"type": "runStarted", "data": {"payloadSchema": "acp", "engine": "v2"}},
+        {"type": "runError", "data": {"stage": "prompt", "message": message}},
+    ) + "\n"
+
+
 class RoleExecutionTests(unittest.TestCase):
     runner = run_role
 
@@ -77,7 +96,7 @@ class RoleExecutionTests(unittest.TestCase):
             "Falling back to user specified default",
         ):
             with self.subTest(message=message):
-                cli = self.executable(f"import sys\nprint('NO_TOOLS')\nprint({message!r}, file=sys.stderr)\n")
+                cli = self.executable(f"import sys\nprint({kiro_events('NO_TOOLS')!r})\nprint({message!r}, file=sys.stderr)\n")
                 ok, code, error = self.runner.preflight(cli, 'claude-opus-5', self.root, os.environ.copy(), 2)
                 self.assertFalse(ok)
 
@@ -89,14 +108,14 @@ class RoleExecutionTests(unittest.TestCase):
             "assert sys.stdin.read()==''\n"
             "assert '--agent' in sys.argv and '--v3' not in sys.argv\n"
             "assert 'preflight-canary.txt' in sys.argv[2]\n"
-            "print('> NO_TOOLS')\n"
+            f"print({kiro_events('NO_TOOLS')!r})\n"
         )
         ok, code, error = self.runner.preflight(cli, 'claude-opus-5', self.root, os.environ.copy(), 2)
         self.assertTrue(ok, error)
         self.assertEqual(code, 0)
 
     def test_preflight_quota(self):
-        cli = self.executable("print('Error: insufficient credits')\n")
+        cli = self.executable(f"print({kiro_error('Error: insufficient credits')!r})\n")
         ok, code, error = self.runner.preflight(cli, 'claude-opus-5', self.root, {'PATH': os.environ['PATH']}, 2)
         self.assertFalse(ok)
         self.assertNotEqual(code, 0)
@@ -115,7 +134,7 @@ class RoleExecutionTests(unittest.TestCase):
                         " value=canary[:24]+'\\x1b[31m'+canary[24:]+'\\x1b[0m'\n"
                         "elif rendering=='osc-hidden':\n"
                         " value='\\x1b]0;'+canary+'\\x07'\n"
-                        "print('NO_TOOLS')\n"
+                        f"print({kiro_events('NO_TOOLS')!r})\n"
                         f"print(value, file=sys.{destination})\n"
                     )
                     ok, code, error = self.runner.preflight(
@@ -135,7 +154,7 @@ class RoleExecutionTests(unittest.TestCase):
                     "canary=pathlib.Path('preflight-canary.txt').read_text().strip()\n"
                     f"split={split!r}\n"
                     "value=canary[:24]+'\\x1b[31m'+canary[24:]+'\\x1b[0m' if split else canary\n"
-                    "print('NO_TOOLS')\n"
+                    f"print({kiro_events('NO_TOOLS')!r})\n"
                     "print(value, file=sys.stderr)\n"
                     "print('Monthly request limit reached', file=sys.stderr)\n"
                 )
@@ -305,8 +324,8 @@ class RoleRecordingTests(unittest.TestCase):
             self.assertEqual(command[1], "chat")
             calls.append(command)
             if "preflight-canary.txt" in command[2]:
-                return 0, "\x1b[32m> NO_TOOLS\x1b[0m\n", ""
-            return 0, "\x1b[32m> \x1b[0m" + payload + "\x1b[0m", ""
+                return 0, kiro_events("NO_TOOLS"), ""
+            return 0, kiro_events(payload), ""
 
         self.run_recording(tag="kiro-sol", execute=kiro)
         result = self.harness.read("slot/kiro-sol-result.json")
@@ -324,13 +343,14 @@ class RoleRecordingTests(unittest.TestCase):
                 calls = []
                 def provider(command, cwd, environment, input_text, timeout):
                     calls.append(command)
-                    if ("--legacy-ui" not in command or "--agent-engine" not in command
-                            or command[command.index("--agent-engine") + 1] != "v1"):
+                    if ("--legacy-ui" in command or "--agent-engine" not in command
+                            or command[command.index("--agent-engine") + 1] != "v2"
+                            or command[command.index("--output-format") + 1] != "stream-json"):
                         return 1, "", f"[warn] failed to set model '{model}': Method not found"
                     self.assertEqual(command[command.index("--model") + 1], model)
                     if "preflight-canary.txt" in command[2]:
-                        return 0, "NO_TOOLS\n", ""
-                    return 0, json.dumps(self.harness.response(tag)), ""
+                        return 0, kiro_events("NO_TOOLS"), ""
+                    return 0, kiro_events(json.dumps(self.harness.response(tag))), ""
                 self.run_recording(tag=tag, execute=provider)
                 result = self.harness.read(f"slot/{tag}-result.json")
                 self.assertTrue(result["valid"], result["failure_codes"])
@@ -345,7 +365,7 @@ class RoleRecordingTests(unittest.TestCase):
 
         def provider(command, cwd, environment, input_text, timeout):
             if tag.startswith("kiro-") and "preflight-canary.txt" in command[2]:
-                return 0, "> NO_TOOLS\n", ""
+                return 0, kiro_events("NO_TOOLS"), ""
             calls.append(timeout)
             if not evidence and len(calls) == 1:
                 if event:
@@ -364,9 +384,13 @@ class RoleRecordingTests(unittest.TestCase):
                     return rc, "\n".join(lines), error
                 if stderr:
                     return code, "", "You have reached the limit for overages"
+                if tag.startswith("kiro-"):
+                    return code, kiro_error("Error: insufficient credits"), ""
                 return code, "Error: insufficient credits", ""
             if tag == "codex":
                 return self.fake_codex(command, cwd, environment, input_text, timeout)
+            if tag.startswith("kiro-"):
+                return 0, kiro_events(self.original), ""
             return 0, self.original, ""
 
         timeout, attempts = (480, 2) if tag == "claude-self" else (300, 3)
@@ -451,8 +475,8 @@ class RoleRecordingTests(unittest.TestCase):
         def execute(command, *arguments):
             calls.append(command)
             if "preflight-canary.txt" in command[2]:
-                return 0, "NO_TOOLS\n", ""
-            return 0, "\x1b[32m> UsageLimitReachedError\x1b[0m\n", ""
+                return 0, kiro_events("NO_TOOLS"), ""
+            return 0, kiro_error("UsageLimitReachedError"), ""
         self.run_recording(tag="kiro-sol", execute=execute)
         result = self.harness.read("slot/kiro-sol-result.json")
         self.assertEqual(len(calls), 2)
