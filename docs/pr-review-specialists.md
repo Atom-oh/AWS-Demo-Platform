@@ -6,7 +6,7 @@ every review lens. The trusted workflow enables this protocol with
 
 | Slot | Configured model | Responsibility |
 | --- | --- | --- |
-| `codex` | `global.openai.gpt-6-astra` | Implementation, concurrency, errors and tests |
+| `codex` | `global.openai.gpt-6.1-sol` | Implementation, concurrency, errors and tests |
 | `kiro-fable` | `claude-opus-5.5` | AWS architecture, IAM, networking and service constraints |
 | `kiro-sol` | `claude-opus-5.5` | Deployment order, component contracts, lifecycle and recovery |
 | `claude-self` | `global.anthropic.claude-opus-5-5` | Authentication, data boundaries, requirements, API and ADR consistency |

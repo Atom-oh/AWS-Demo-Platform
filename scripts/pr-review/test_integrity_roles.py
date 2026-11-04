@@ -188,7 +188,7 @@ class IntegrityTests(unittest.TestCase):
         command, cwd, environment, delivered, timeout = execute.call_args.args
         self.assertIn("--json", command)
         self.assertIn("--output-last-message", command)
-        self.assertEqual(command[command.index("--model") + 1], "global.openai.gpt-6-astra")
+        self.assertEqual(command[command.index("--model") + 1], "global.openai.gpt-6.1-sol")
         self.assertEqual(command[-1], "-")
         self.assertEqual(cwd, Path.cwd())
         self.assertEqual(environment["AWS_PROFILE"], "existing-bedrock")

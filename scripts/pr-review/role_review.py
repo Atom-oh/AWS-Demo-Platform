@@ -22,7 +22,7 @@ MAX_DIFF_LINES = 3000
 MAX_CONTEXT_BYTES = 24000
 MAX_REQUEST_BYTES = 131072
 ROLES = {
-    "codex": ("implementation", "OpenAI", "global.openai.gpt-6-astra",
+    "codex": ("implementation", "OpenAI", "global.openai.gpt-6.1-sol",
               "Implementation correctness, concurrency and tests"),
     # Both Kiro slots run the Kiro catalog's Opus 5.5 (dotted Kiro ID).
     "kiro-fable": ("aws", "Anthropic", "claude-opus-5.5",

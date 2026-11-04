@@ -6,7 +6,7 @@ results feed aggregation and, when needed, the chair. See
 
 | Tag | Requested model | Scope |
 | --- | --- | --- |
-| codex | `global.openai.gpt-6-astra` | Implementation/tests |
+| codex | `global.openai.gpt-6.1-sol` | Implementation/tests |
 | kiro-fable | `claude-opus-5.5` | AWS/IAM/network |
 | kiro-sol | `claude-opus-5.5` | Deployment/contracts/recovery |
 | claude-self | `global.anthropic.claude-opus-5-5` | Auth/data/API/ADR |
@@ -110,8 +110,8 @@ The trusted BASE collector supplies a schema-1 policy; its exact bytes must matc
 during aggregation. Missing or mismatched opt-in blocks. The collector, not this
 offline library, must establish complete Git scope and approved exclusions.
 
-The model table targets CI's Bedrock Runtime provider. Local Mantle uses
-`openai.gpt-6-astra` for Astra; provider-specific identifiers are not interchangeable.
+The model table targets CI's Bedrock Runtime provider. Local Mantle uses its
+own `openai.*` identifiers; provider-specific identifiers are not interchangeable.
 
 React edits retain `kiro-sol`; altered or missing receipt-bound history blocks.
 

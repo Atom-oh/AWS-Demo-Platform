@@ -42,7 +42,7 @@ model = argv[argv.index("--model") + 1]
 # Keyed by (CLI, model), matching run_role.py's own per-CLI dispatch; both Kiro
 # slots share one model, so their framed prompt's review tag selects the slot.
 tag = {
-    ("codex", "global.openai.gpt-6-astra"): "codex",
+    ("codex", "global.openai.gpt-6.1-sol"): "codex",
     ("kiro-cli", "claude-opus-5.5"): "kiro",
     ("claude", "global.anthropic.claude-opus-5-5"): "claude-self",
 }[(name, model)]
