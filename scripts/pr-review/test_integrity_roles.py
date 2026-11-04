@@ -12,6 +12,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_role
 import synthesize_roles
+from test_run_role import kiro_events
 
 
 class IntegrityTests(unittest.TestCase):
@@ -154,7 +155,7 @@ class IntegrityTests(unittest.TestCase):
                 with patch.object(run_role, "preflight", return_value=(True, 0, "")):
                     response = self.response(tag)
                     invoke = (self.codex_execute([(0, self.codex_events(response), "", response)])
-                              if tag == "codex" else lambda *args: (0, response, ""))
+                              if tag == "codex" else lambda *args: (0, kiro_events(response), ""))
                     with patch.object(run_role, "execute", side_effect=invoke) as execute:
                         run_role.run(self.work, tag)
                 delivered = execute.call_args.args[3] if tag == "codex" else execute.call_args.args[0][2]
@@ -187,7 +188,7 @@ class IntegrityTests(unittest.TestCase):
         command, cwd, environment, delivered, timeout = execute.call_args.args
         self.assertIn("--json", command)
         self.assertIn("--output-last-message", command)
-        self.assertEqual(command[command.index("--model") + 1], "global.openai.gpt-6-astra")
+        self.assertEqual(command[command.index("--model") + 1], "global.openai.gpt-6.1-sol")
         self.assertEqual(command[-1], "-")
         self.assertEqual(cwd, Path.cwd())
         self.assertEqual(environment["AWS_PROFILE"], "existing-bedrock")

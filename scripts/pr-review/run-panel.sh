@@ -289,11 +289,11 @@ for lens_file in "${LENS_FILES[@]}"; do
   # here — re-listing them created a second copy that silently drifted out of sync when a
   # Kiro model was added/renamed (PR#88 review MINOR).
   if [ "$MODEL_TAG" = codex ]; then
-    # global.openai.gpt-6-astra via amazon-bedrock-runtime (config.toml) is a global
+    # global.openai.gpt-6.1-sol via amazon-bedrock-runtime (config.toml) is a global
     # model — no region pinning needed, unlike the prior gpt-5.6-sol/bedrock-mantle setup.
     if command -v codex >/dev/null 2>&1; then
       ( try_panel codex "$SLOT/codex-$lens.md" "$SLOT/codex-$lens.err" \
-          timeout "$T" codex exec --model global.openai.gpt-6-astra -s read-only --skip-git-repo-check "$LENS_PROMPT" ) &
+          timeout "$T" codex exec --model global.openai.gpt-6.1-sol -s read-only --skip-git-repo-check "$LENS_PROMPT" ) &
     else echo "[skip] codex/$lens (binary absent)" >&2; : > "$SLOT/codex-$lens.md"; fi
   elif [ -n "$KIRO_TAG" ]; then
     # Kiro's non-interactive `chat` ignores stdin and reads only the prompt arg.

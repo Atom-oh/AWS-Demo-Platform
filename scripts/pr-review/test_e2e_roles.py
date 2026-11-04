@@ -21,9 +21,22 @@ if name == "gh":
 stdin = sys.stdin.read()
 with (root / "calls.jsonl").open("a") as stream:
     stream.write(json.dumps({"name": name, "args": argv, "stdin": stdin}) + "\n")
+def kiro_events(text):
+    assert argv[argv.index("--output-format") + 1] == "stream-json"
+    assert argv[argv.index("--agent-engine") + 1] == "v3" and "--legacy-ui" not in argv
+    print(json.dumps({"type":"runStarted","data":{"payloadSchema":"acp","engine":"v3"}}))
+    # v3's Kiro-internal startup call precedes every reply.
+    print(json.dumps({"type":"sessionUpdate","data":{"update":{"sessionUpdate":"tool_call",
+        "toolCallId":"startup","_meta":{"kiro":{"toolId":"fetch_cloud_config"}}}}}))
+    print(json.dumps({"type":"sessionUpdate","data":{"update":{"sessionUpdate":"tool_call_update",
+        "toolCallId":"startup","status":"completed"}}}))
+    print(json.dumps({"type":"sessionUpdate","data":{"update":{
+        "sessionUpdate":"agent_message_chunk","content":{"type":"text","text":text}}}}))
+    print(json.dumps({"type":"runFinished","data":{"status":"success",
+        "finalText":text,"finalTextTruncated":False}}))
 if name == "kiro-cli" and argv[1].startswith("Kiro startup safety check."):
     assert stdin == ""
-    print("NO_TOOLS")
+    kiro_events("NO_TOOLS")
     raise SystemExit(0)
 if name == "claude" and argv[1].startswith("You chair"):
     severe = '"severity":"CRITICAL"' in stdin or '"severity":"MAJOR"' in stdin
@@ -31,13 +44,16 @@ if name == "claude" and argv[1].startswith("You chair"):
           else "No blocking issue remains.\nVERDICT: PASS")
     raise SystemExit(0)
 model = argv[argv.index("--model") + 1]
-# Keyed by (CLI, model), matching run_role.py's own per-CLI dispatch.
+# Keyed by (CLI, model), matching run_role.py's own per-CLI dispatch; both Kiro
+# slots share one model, so their framed prompt's review tag selects the slot.
 tag = {
-    ("codex", "global.openai.gpt-6-astra"): "codex",
-    ("kiro-cli", "claude-fable-5.1"): "kiro-fable",
-    ("kiro-cli", "gpt-5.6-sol"): "kiro-sol",
+    ("codex", "global.openai.gpt-6.1-sol"): "codex",
+    ("kiro-cli", "claude-opus-5.5"): "kiro",
     ("claude", "global.anthropic.claude-opus-5-5"): "claude-self",
 }[(name, model)]
+if tag == "kiro":
+    import re
+    tag = re.search(r"Review tag: (kiro-fable|kiro-sol)\b", argv[1]).group(1)
 plan = json.loads((root / "work/role-plan.json").read_text())
 role = plan["roles"][tag]
 paths = role["paths"]
@@ -74,6 +90,8 @@ if name == "codex" and "--json" in argv:
         "input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}))
     if "--output-last-message" in argv:
         pathlib.Path(argv[argv.index("--output-last-message")+1]).write_text(body)
+elif name == "kiro-cli":
+    kiro_events(body)
 else:
     if (root / "tool-echo").exists() and tag == "codex":
         print("Monthly request limit reached", file=sys.stderr)
@@ -154,7 +172,7 @@ class EndToEndRoleTests(unittest.TestCase):
         calls = self.run_pipeline("k8s/base/deployment.yaml")
         self.assertEqual(sorted(c["name"] for c in calls), ["claude", "kiro-cli", "kiro-cli"])
         kiro = [c for c in calls if c["name"] == "kiro-cli" and not c["args"][1].startswith("Kiro startup")]
-        self.assertTrue(all(c["args"][c["args"].index("--model") + 1] == "gpt-5.6-sol" for c in kiro))
+        self.assertTrue(all(c["args"][c["args"].index("--model") + 1] == "claude-opus-5.5" for c in kiro))
         self.assertEqual(json.loads((self.work / "role-summary.json").read_text())["mode"], "review")
 
     def test_static_frontend_uses_codex_and_chair(self):
@@ -170,7 +188,7 @@ class EndToEndRoleTests(unittest.TestCase):
         self.assertEqual(sum(call["name"] == "kiro-cli" for call in calls), 2)
         kiro = [c for c in calls if c["name"] == "kiro-cli" and not c["args"][1].startswith("Kiro startup")]
         self.assertTrue(all(
-            c["args"][c["args"].index("--model") + 1] == "claude-fable-5.1" for c in kiro
+            c["args"][c["args"].index("--model") + 1] == "claude-opus-5.5" for c in kiro
         ))
         self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: PASS\n"))
 

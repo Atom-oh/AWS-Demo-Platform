@@ -6,12 +6,12 @@ results feed aggregation and, when needed, the chair. See
 
 | Tag | Requested model | Scope |
 | --- | --- | --- |
-| codex | `global.openai.gpt-6-astra` | Implementation/tests |
-| kiro-fable | `claude-fable-5.1` | AWS/IAM/network |
-| kiro-sol | `gpt-5.6-sol` | Deployment/contracts/recovery |
+| codex | `global.openai.gpt-6.1-sol` | Implementation/tests |
+| kiro-fable | `claude-opus-5.5` | AWS/IAM/network |
+| kiro-sol | `claude-opus-5.5` | Deployment/contracts/recovery |
 | claude-self | `global.anthropic.claude-opus-5-5` | Auth/data/API/ADR |
 
-`kiro-fable` uses the Kiro catalog's Fable 5.1 (dotted Kiro IDs, not Bedrock
+Both Kiro slots use the Kiro catalog's Opus 5.5 (dotted Kiro IDs, not Bedrock
 profile IDs). `ROLES` governs specialists; legacy files
 govern legacy execution. Kiro/Bedrock IDs differ. English is requested, not
 validated; configured IDs do not attest model weights.
@@ -110,8 +110,8 @@ The trusted BASE collector supplies a schema-1 policy; its exact bytes must matc
 during aggregation. Missing or mismatched opt-in blocks. The collector, not this
 offline library, must establish complete Git scope and approved exclusions.
 
-The model table targets CI's Bedrock Runtime provider. Local Mantle uses
-`openai.gpt-6-astra` for Astra; provider-specific identifiers are not interchangeable.
+The model table targets CI's Bedrock Runtime provider. Local Mantle uses its
+own `openai.*` identifiers; provider-specific identifiers are not interchangeable.
 
 React edits retain `kiro-sol`; altered or missing receipt-bound history blocks.
 
