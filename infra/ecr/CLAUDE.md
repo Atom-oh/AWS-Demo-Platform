@@ -23,3 +23,9 @@ Populate the GitHub `read:packages` credential out-of-band before enabling
 is false. That secret prefix is AWS-required. The image build must also select the
 cache as its base; a cache rule alone does not change the Dockerfile's upstream
 `ghcr.io/actions/actions-runner` default.
+
+The credential-free `ecr_public` rule (prefix `ecr-public`, upstream `public.ecr.aws`)
+is unconditional. Cached repositories (for example `ecr-public/docker/library/node`)
+are created on first pull with ECR defaults and are not Terraform-owned; consumers
+pin by digest. claude-code-usage-dashboard release builds select it through
+`build-release.py --base-image`.

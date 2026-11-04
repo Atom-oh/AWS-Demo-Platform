@@ -150,6 +150,19 @@ resource "aws_iam_role_policy" "ci_runner_ecr" {
           "ecr:DescribeRepositories"
         ]
         Resource = "arn:aws:ecr:${var.region}:${data.aws_caller_identity.current.account_id}:repository/*"
+      },
+      {
+        # The ecr-public pull-through cache (infra/ecr/pull-through-cache.tf) holds only
+        # upstream imports; runners may read it but never pre-create or push into it.
+        Effect = "Deny"
+        Action = [
+          "ecr:PutImage",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload",
+          "ecr:CreateRepository"
+        ]
+        Resource = "arn:aws:ecr:${var.region}:${data.aws_caller_identity.current.account_id}:repository/ecr-public/*"
       }
     ]
   })
