@@ -34,9 +34,8 @@ class FencedJsonTests(unittest.TestCase):
                 self.assertTrue(result["valid"])
                 self.assertNotIn(CANARY, json.dumps(result))
                 self.assertIn("PUBLIC_KEEP", json.dumps(result))
-                helper.record("claude-self")
                 helper.aggregate()
-                self.assertNotIn(CANARY, (helper.work / "deterministic-review.md").read_text())
+                self.assertNotIn(CANARY, (helper.work / "role-summary.json").read_text())
 
     def test_chair_keeps_review_prose_and_masks_named_values(self):
         for example in self.examples():

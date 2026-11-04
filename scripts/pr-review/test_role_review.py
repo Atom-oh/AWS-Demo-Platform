@@ -123,8 +123,17 @@ class RoleReviewTests(unittest.TestCase):
         self.assertEqual((self.work / "chair-mode.txt").read_text(), "blocked\n")
         self.assertTrue((self.work / "deterministic-review.md").read_text().endswith("VERDICT: FAIL\n"))
 
-    def test_frontend_independent_roles(self):
-        raw = patch() + patch("dashboard/frontend/app/styles.css", "blue", "green")
+    def test_path_ownership_partition(self):
+        # Each changed path is owned by exactly one specialist; every other role
+        # is NOT_APPLICABLE for it, eliminating duplicate cross-family review.
+        owned = {
+            "kiro-fable": "infra/network.tf",
+            "kiro-sol": "k8s/base/deployment.yaml",
+            "claude-self": "docs/aws.md",
+            "codex": FRONTEND,
+        }
+        chunks = {tag: patch(path, f"old-{tag}", f"new-{tag}") for tag, path in owned.items()}
+        raw = "".join(chunks.values())
         plan = self.prepare(raw)
         self.assertEqual(plan["schema_version"], 1)
         self.assertEqual(plan["head_sha"], HEAD)
@@ -132,44 +141,47 @@ class RoleReviewTests(unittest.TestCase):
         self.assertEqual(set(plan["roles"]), set(TAGS))
         self.assertEqual(plan["roles"]["codex"]["role"], "implementation")
         self.assertEqual(
-            {tag for tag, role in plan["roles"].items() if role["required"]},
-            {"codex", "claude-self"},
+            {tag for tag, role in plan["roles"].items() if role["required"]}, set(TAGS)
         )
-        self.assertNotEqual(plan["roles"]["codex"]["family"], plan["roles"]["claude-self"]["family"])
-        for tag in ("codex", "claude-self"):
+        for tag, path in owned.items():
             role = plan["roles"][tag]
-            self.assertEqual(set(role["paths"]), {FRONTEND, "dashboard/frontend/app/styles.css"})
-            self.assertEqual((self.work / f"roles/{tag}.diff").read_text(), raw)
+            self.assertEqual(role["paths"], [path])
+            self.assertEqual(role["reason"], "path_ownership")
+            self.assertEqual((self.work / f"roles/{tag}.diff").read_text(), chunks[tag])
             prompt = (self.work / f"roles/{tag}.txt").read_text()
             self.assertIn("Trusted base: preserve accepted ADR scopes.", prompt)
             self.assertIn("untrusted", prompt.lower())
             self.assertIn("scope_complete", prompt)
+            self.assertIn("only your owned paths", prompt)
             self.assertEqual(len(role["request_digest"]), 64)
-        self.assertFalse((self.work / "roles/kiro-fable.txt").exists())
-        self.assertEqual(self.finish()["mode"], "deterministic")
-        self.assertEqual(set((self.work / "responded.txt").read_text().split()), {"codex", "claude-self"})
+        summary = self.finish()
+        self.assertEqual(summary["mode"], "review")
+        self.assertEqual(set((self.work / "responded.txt").read_text().split()), set(TAGS))
 
-    def test_infra_doc_roles(self):
-        for path in ("docs/aws.md", "docs/runbooks/ecs.md", "docs/decisions/ADR-999.md"):
-            with self.subTest(path=path):
-                plan = self.prepare(patch(path, "old policy", "ECS IAM role and recovery"))
-                self.assertTrue(all(role["required"] for role in plan["roles"].values()))
+    def test_ownership_docs_and_runbooks(self):
+        plan = self.prepare(patch("docs/aws.md", "old policy", "current policy"))
+        self.assertEqual(plan["roles"]["claude-self"]["paths"], ["docs/aws.md"])
+        self.assertFalse(plan["roles"]["kiro-sol"]["required"])
+        self.work = self.root / "runbook"
+        plan = self.prepare(patch("docs/runbooks/ecs.md", "old runbook", "current runbook"))
+        self.assertEqual(plan["roles"]["kiro-sol"]["paths"], ["docs/runbooks/ecs.md"])
+        self.assertFalse(plan["roles"]["claude-self"]["required"])
 
-    def test_conservative_routing(self):
-        for raw in (
-            patch(after='import { S3Client } from "@aws-sdk/client-s3";'),
-            patch(after='const region = "us-west-2";'),
-            patch(after='const origin = "internal-app.ap-northeast-2.elb.amazonaws.com";'),
-            patch(after='const resource = "aws_iam_role";'),
-            patch(after='const externalId = "synthetic";'),
-            patch(after='const external_id = "synthetic";'),
-            patch("misc/unknown.xyz"),
-            patch("app/src/app/history/page.tsx"),
-            patch("dashboard/frontend/app/page.tsx"),
+    def test_default_owner_for_unmatched_paths(self):
+        # Ownership is purely path-based; diff body content never changes routing.
+        for path in (
+            "misc/unknown.xyz", "app/src/app/history/page.tsx",
+            "dashboard/frontend/app/page.tsx", "dashboard/backend/packages/worker/src/index.ts",
         ):
-            with self.subTest(raw=raw):
-                plan = self.prepare(raw)
-                self.assertTrue(all(role["required"] for role in plan["roles"].values()))
+            with self.subTest(path=path):
+                self.work = self.root / path.replace("/", "-")
+                plan = self.prepare(patch(
+                    path, "old", 'import { S3Client } from "@aws-sdk/client-s3"; arn:aws:iam::1:role/x'
+                ))
+                self.assertEqual(plan["roles"]["codex"]["paths"], [path])
+                for tag in ("kiro-fable", "kiro-sol", "claude-self"):
+                    self.assertFalse(plan["roles"][tag]["required"])
+                    self.assertEqual(plan["roles"][tag]["reason"], "no_owned_paths")
 
     def test_rename_destination(self):
         raw = (
@@ -177,7 +189,7 @@ class RoleReviewTests(unittest.TestCase):
             "similarity index 100%\nrename from docs/old name.md\nrename to docs/new name.md\n"
         )
         plan = self.prepare(raw)
-        self.assertEqual(plan["roles"]["codex"]["paths"], ["docs/new name.md"])
+        self.assertEqual(plan["roles"]["claude-self"]["paths"], ["docs/new name.md"])
 
     def test_scope_path_preservation(self):
         for index, path in enumerate((
@@ -232,9 +244,8 @@ class RoleReviewTests(unittest.TestCase):
         result = self.record("codex", raw=raw)
         self.assertTrue(result["valid"])
         self.assertNotIn(secret, json.dumps(result))
-        self.record("claude-self")
         self.aggregate()
-        self.assertNotIn(secret, (self.work / "deterministic-review.md").read_text())
+        self.assertNotIn(secret, (self.work / "role-summary.json").read_text())
 
     def test_sensitive_defaults_and_punctuated_keys_in_public_results(self):
         secret = "SYNTHETIC_REVIEW_PRIVATE_VALUE"
@@ -309,7 +320,7 @@ class RoleReviewTests(unittest.TestCase):
                         self.record(tag)
                 self.aggregate(expected=2 if invalid else 0)
                 self.assertNotIn(secret, json.dumps(self.summary()))
-                self.assertNotIn(secret, (self.work / "deterministic-review.md").read_text())
+                self.assertNotIn(secret, (self.work / "role-summary.json").read_text())
 
     def test_sensitive_words_in_plain_prose_remain_bounded(self):
         text = "The password is required and the token is optional. " * 80
@@ -411,9 +422,10 @@ class RoleReviewTests(unittest.TestCase):
                 if invalid:
                     self.assertEqual(result["failure_codes"], ["unsupported_review_format"])
                 self.assertNotIn(secret, json.dumps(result))
-                self.record("claude-self")
                 self.aggregate(expected=2 if invalid else 0)
-                self.assertNotIn(secret, (self.work / "deterministic-review.md").read_text())
+                self.assertNotIn(secret, (self.work / "role-summary.json").read_text())
+                if invalid:
+                    self.assertNotIn(secret, (self.work / "deterministic-review.md").read_text())
 
     def test_control_split_credentials(self):
         cases = [
@@ -534,9 +546,9 @@ class RoleReviewTests(unittest.TestCase):
                 result = self.record("codex", response, expected=2 if invalid else 0)
                 if invalid:
                     self.assertEqual(result["failure_codes"], ["unsupported_review_format"])
-                self.record("claude-self")
                 self.aggregate(expected=2 if invalid else 0)
-                for name in ("slot/codex-result.json", "role-summary.json", "deterministic-review.md"):
+                names = ["slot/codex-result.json", "role-summary.json"]
+                for name in names + (["deterministic-review.md"] if invalid else []):
                     self.assertNotIn(secret, (self.work / name).read_text())
 
     def test_truncated_patch_rejection(self):
@@ -551,6 +563,19 @@ class RoleReviewTests(unittest.TestCase):
             with self.subTest(raw=raw):
                 self.prepare(raw, expected=2)
                 self.assert_blocked()
+
+    def test_metadata_only_deletion_survives_load_plan(self):
+        # A collector-approved metadata-only deletion (no hunks) must validate the
+        # same way in load_plan's per-role re-parse as it did in prepare.
+        raw = "diff --git a/old.py b/old.py\ndeleted file mode 100644\nindex 1234567..0000000\n"
+        metadata = self.root / "source.json"
+        metadata.write_text(json.dumps({
+            "head_sha": HEAD, "base_sha": BASE,
+            "diff_sha256": hashlib.sha256(raw.encode()).hexdigest(), "path_only": ["old.py"],
+        }))
+        plan = self.prepare(raw, extra=("--provenance", metadata))
+        self.assertEqual(plan["roles"]["codex"]["paths"], ["old.py"])
+        self.assertEqual(self.finish()["mode"], "review")
 
     def test_empty_blob_proof(self):
         raw = "diff --git a/empty b/empty\nnew file mode 100644\nindex 0000000..e69de29\n"
@@ -574,7 +599,6 @@ class RoleReviewTests(unittest.TestCase):
             self.record("codex", stderr=stderr, rc=rc, expected=2)
             self.issue("codex")
             self.record("codex")
-            self.record("claude-self")
             self.assert_blocked()
             (self.work / "slot/role-codex-terminal.flag").unlink()
             self.assert_blocked()
@@ -644,9 +668,8 @@ class RoleReviewTests(unittest.TestCase):
                 result = self.record("codex", raw=json.dumps(response))
                 self.assertTrue(result["valid"])
                 self.assertNotIn(secret, json.dumps(result))
-                self.record("claude-self")
                 self.aggregate()
-                self.assertNotIn(secret, (self.work / "deterministic-review.md").read_text())
+                self.assertNotIn(secret, (self.work / "role-summary.json").read_text())
 
     def test_charset_split_credentials(self):
         for index, escape in enumerate(("\x1b(B", "\x1b)0", "\x1b#8", "\x1b%G")):
@@ -657,9 +680,8 @@ class RoleReviewTests(unittest.TestCase):
                 response = self.response("codex", checks=[{"path": FRONTEND, "evidence": evidence}])
                 result = self.record("codex", raw=json.dumps(response))
                 self.assertNotIn("B" * 18, json.dumps(result))
-                self.record("claude-self")
                 self.aggregate()
-                self.assertNotIn("B" * 18, (self.work / "deterministic-review.md").read_text())
+                self.assertNotIn("B" * 18, (self.work / "role-summary.json").read_text())
 
     def test_sdk_credential_fields(self):
         for index, key in enumerate(("SecretAccessKey", "SessionToken", "AccessKeyId")):
@@ -670,13 +692,11 @@ class RoleReviewTests(unittest.TestCase):
                 evidence = "Example:\n```json\n" + json.dumps({key: secret}) + "\n```"
                 response = self.response("codex", checks=[{"path": FRONTEND, "evidence": evidence}])
                 self.assertNotIn(secret, json.dumps(self.record("codex", response=response)))
-                self.record("claude-self")
                 self.aggregate()
-                self.assertNotIn(secret, (self.work / "deterministic-review.md").read_text())
+                self.assertNotIn(secret, (self.work / "role-summary.json").read_text())
 
     def test_concurrent_record_exclusion(self):
         self.prepare()
-        self.record("claude-self")
         spec = importlib.util.spec_from_file_location("record_race_test", ENGINE)
         engine = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(engine)
@@ -726,23 +746,22 @@ class RoleReviewTests(unittest.TestCase):
         self.prepare()
         self.record("codex", rc=1, expected=2)
         self.record("codex", expected=2)
-        self.record("claude-self")
         self.assert_blocked()
 
-    def test_report_routing_and_failures(self):
+    def test_report_routing_and_status(self):
         self.prepare()
-        self.finish()
-        report = (self.work / "deterministic-review.md").read_text()
-        for value in ("codex", "kiro-fable", "kiro-sol", "claude-self", "implementation",
-                      "clear_frontend_only", "inactive"):
-            self.assertIn(value, report)
+        summary = self.finish()
+        self.assertEqual(summary["mode"], "review")
+        self.assertEqual(summary["roles"]["codex"]["status"], "validated")
+        for tag in ("kiro-fable", "kiro-sol", "claude-self"):
+            self.assertEqual(summary["roles"][tag]["status"], "inactive")
+            self.assertEqual(summary["roles"][tag]["reason"], "no_owned_paths")
         self.work = self.root / "quota-report"
         self.prepare()
         self.record("codex", stderr="Error: quota exceeded for this account", expected=2)
         self.assert_blocked()
         report = (self.work / "deterministic-review.md").read_text()
         self.assertIn("quota", report)
-        self.assertIn("missing_result:claude-self", report)
 
     def test_source_omission_blocks(self):
         self.prepare()
@@ -765,9 +784,17 @@ class RoleReviewTests(unittest.TestCase):
         self.assertNotEqual(second["plan_digest"], third["plan_digest"])
 
     def test_oversized_diff_preserved(self):
-        prefix = patch()
-        raw = prefix + "+" + "x" * (95001 - len(prefix) - 1)
+        # A single valid hunk whose one added line is long enough to exceed the
+        # byte cap on its own (unlike test_line_and_diff_validity's line-count
+        # case): parses to one owned path, so codex's diff is still preserved
+        # for audit even though the byte-limit failure blocks the plan.
+        header = (
+            f"diff --git a/{FRONTEND} b/{FRONTEND}\n"
+            f"--- a/{FRONTEND}\n+++ b/{FRONTEND}\n@@ -1 +1 @@\n-old label\n+"
+        )
+        raw = header + "x" * (95001 - len(header))
         self.prepare(raw, expected=2)
+        self.assertGreater(len(raw.encode()), 95000)
         self.assertEqual((self.work / "roles/codex.diff").read_text(), raw)
         self.assert_blocked()
 
@@ -786,7 +813,10 @@ class RoleReviewTests(unittest.TestCase):
         self.prepare(expected=2)
         self.assert_blocked()
 
-    def test_nonblocking_findings(self):
+    def test_nonblocking_findings_still_go_to_chair(self):
+        # Minor/Info findings do not skip adjudication: the chair always finalizes
+        # an active review, so it can format one consolidated result. Only a
+        # coverage failure or an all-NOT_APPLICABLE plan bypasses it.
         self.prepare()
         findings = [
             {"severity": severity, "path": FRONTEND, "condition": "When the label is empty",
@@ -794,10 +824,9 @@ class RoleReviewTests(unittest.TestCase):
             for severity in ("MINOR", "INFO")
         ]
         summary = self.finish({"codex": self.response("codex", findings=findings)})
-        self.assertEqual(summary["mode"], "deterministic")
-        rendered = (self.work / "deterministic-review.md").read_text()
-        self.assertIn("MINOR", rendered)
-        self.assertTrue(rendered.endswith("VERDICT: PASS\n"))
+        self.assertEqual(summary["mode"], "review")
+        self.assertIn("MINOR", json.dumps(summary["findings"]))
+        self.assertFalse((self.work / "deterministic-review.md").exists())
 
     def test_findings_need_chair(self):
         for severity in ("CRITICAL", "MAJOR", None):
@@ -913,18 +942,18 @@ class RoleReviewTests(unittest.TestCase):
         self.assertTrue(result["valid"])
 
     def test_missing_result_blocks(self):
-        self.prepare()
+        self.prepare(patch() + patch("docs/aws.md", "old", "new"))
         finding = {"severity": "MAJOR", "path": FRONTEND, "condition": "When clicked", "evidence": "Fails."}
         self.record("codex", self.response("codex", findings=[finding]))
         self.assert_blocked()
+        self.assertIn("missing_result:claude-self", self.summary()["failures"])
 
     def test_stale_result_fingerprints(self):
         for key in ("plan_digest", "request_digest", "head_sha", "tag"):
             with self.subTest(key=key):
                 self.work = self.root / f"stale-{key}"
                 self.prepare()
-                for tag in ("codex", "claude-self"):
-                    self.record(tag)
+                self.record("codex")
                 p = self.work / "slot/codex-result.json"
                 data = json.loads(p.read_text())
                 data[key] = "wrong"
@@ -936,20 +965,18 @@ class RoleReviewTests(unittest.TestCase):
             with self.subTest(name=name):
                 self.work = self.root / name
                 self.prepare()
-                for tag in ("codex", "claude-self"):
-                    self.record(tag)
+                self.record("codex")
                 shutil_source = self.work / "slot/codex-result.json"
                 (self.work / f"slot/{name}-result.json").write_bytes(shutil_source.read_bytes())
                 self.assert_blocked()
 
     def test_corrupt_metadata_blocks(self):
         self.prepare()
-        for tag in ("codex", "claude-self"):
-            self.record(tag)
+        self.record("codex")
         (self.work / "slot/codex-result.json").write_text("{bad")
         self.assert_blocked()
         plan = self.plan()
-        plan["roles"]["claude-self"]["required"] = False
+        plan["roles"]["codex"]["required"] = False
         (self.work / "role-plan.json").write_text(json.dumps(plan))
         self.assert_blocked()
 
@@ -965,8 +992,7 @@ class RoleReviewTests(unittest.TestCase):
 
     def test_result_revalidation(self):
         self.prepare()
-        for tag in ("codex", "claude-self"):
-            self.record(tag)
+        self.record("codex")
         file = self.work / "slot/codex-result.json"
         result = self.read("slot/codex-result.json")
         result["response"]["scope_complete"] = False
@@ -1034,7 +1060,6 @@ class RoleReviewTests(unittest.TestCase):
                         "condition": "Historical unresolved condition", "evidence": "Verified candidate",
                     }]
                 self.record("codex", response=response)
-                self.record("claude-self")
                 self.aggregate()
                 self.assertEqual(self.summary()["mode"], "review")
                 result = self.work / "slot/codex-result.json"
@@ -1078,7 +1103,6 @@ class RoleReviewTests(unittest.TestCase):
         current.write_bytes(saved)
         self.issue("codex")
         self.record("codex")
-        self.record("claude-self")
         path = self.work / "slot/codex-attempts.json"
         history = json.loads(path.read_text())
         history[0]["response"]["findings"][0]["severity"] = "MINOR"
@@ -1088,16 +1112,20 @@ class RoleReviewTests(unittest.TestCase):
 
 
     def test_react_contract_review(self):
+        # .tsx/.jsx paths carry no ownership rule of their own; they default to
+        # codex like any other unmatched implementation path.
         for path in ("components/ProjectControls.tsx", "components/ScaleControl.jsx"):
             plan = self.prepare(patch(path, "disabled={blocked}", "disabled={false}"))
-            self.assertTrue(plan["roles"]["kiro-sol"]["required"])
-
+            self.assertEqual(plan["roles"]["codex"]["paths"], [path])
+            self.assertFalse(plan["roles"]["kiro-sol"]["required"])
 
     def test_validated_scope_paths(self):
         for path in ("infra/task-definition-worker.tf", "tests/surveyJob.test.tsx",
                      "fixtures/password=example.txt"):
-            self.prepare(patch(path))
-            report = self.finish({"codex": self.response("codex", findings=[{
+            self.work = self.root / path.replace("/", "-")
+            plan = self.prepare(patch(path))
+            owner = next(tag for tag, role in plan["roles"].items() if role["required"])
+            report = self.finish({owner: self.response(owner, findings=[{
                 "severity": "MINOR", "path": path, "condition": "On change", "evidence": "Verified",
             }])})
             self.assertEqual(report["findings"][0]["path"], path)

@@ -7,13 +7,14 @@ results feed aggregation and, when needed, the chair. See
 | Tag | Requested model | Scope |
 | --- | --- | --- |
 | codex | `global.openai.gpt-6-astra` | Implementation/tests |
-| kiro-fable | `claude-opus-5` | AWS/IAM/network |
+| kiro-fable | `claude-fable-5.1` | AWS/IAM/network |
 | kiro-sol | `gpt-5.6-sol` | Deployment/contracts/recovery |
-| claude-self | `global.anthropic.claude-fable-5-1` | Auth/data/API/ADR |
+| claude-self | `global.anthropic.claude-opus-5-5` | Auth/data/API/ADR |
 
-`kiro-fable` means Opus. `ROLES` governs specialists; legacy files govern legacy
-execution. Kiro/Bedrock IDs differ. English is requested, not validated; configured
-IDs do not attest model weights.
+`kiro-fable` uses the Kiro catalog's Fable 5.1 (dotted Kiro IDs, not Bedrock
+profile IDs). `ROLES` governs specialists; legacy files
+govern legacy execution. Kiro/Bedrock IDs differ. English is requested, not
+validated; configured IDs do not attest model weights.
 
 ## API and input
 
@@ -47,9 +48,11 @@ deletions. Verify eligibility before withholding bodies.
 
 ## Coverage and lifecycle
 
-Codex/Claude are required for reviewable source; trusted routing may deactivate
-irrelevant Kiro roles. App Router React is conservative. Failed output is never
-N/A. Parsing misses whole omissions/some cut prefixes: verify Git scope/hashes.
+`OWNERSHIP` assigns every changed path to exactly one role by path, not diff
+content; `prepare` partitions the raw diff per role so each specialist receives
+only its owned chunks. A role with no owned paths is NOT_APPLICABLE. Failed
+output is never N/A. Parsing misses whole omissions/some cut prefixes: verify
+Git scope/hashes.
 
 BASE-approved exclusions-only scope may yield NOT_APPLICABLE/PASS without models.
 Require empty diff/paths, `scope_exception: configured_exclusions_only`, lowercase
@@ -66,9 +69,11 @@ the first result and block. Finish writers before aggregation. Reissue archives
 failures block until new preparation. Summaries retain history. All `*.flag` files
 block except root `coverage-severe.flag`. `failure_codes` is canonical; `failures` aliases it.
 
-Exit 2 means blocked. Aggregate exit 0: `deterministic` permits the report when no
-blocking candidate/uncertainty exists (Minor/Info remain); `review` needs a chair.
-Blocked input yields deterministic FAIL; the chair cannot waive coverage failures.
+Exit 2 means blocked. Aggregate exit 0: `not_applicable` permits the report
+without a chair only when no role owns any path (e.g. an approved exclusions-only
+scope); `review` always needs a chair, even with zero findings, so it can publish
+one consolidated result. Blocked input yields deterministic FAIL; the chair
+cannot waive coverage failures.
 
 Publish scrubbed reports/receipts/metadata only; never raw `roles/*.diff` or
 `requests/*.input/.prompt`.
