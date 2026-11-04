@@ -54,6 +54,21 @@ spec:
               spec:
                 nodeSelector:
                   kubernetes.io/arch: arm64
+                # This scale set runs the repository's pull-request code in privileged dind, so it
+                # never shares a node with another runner, in particular the *-claude-arm review
+                # runners that hold Bedrock/AWS Pod Identity credentials on the same runner-arm
+                # pool. Required inter-pod anti-affinity is enforced in both directions.
+                affinity:
+                  podAntiAffinity:
+                    requiredDuringSchedulingIgnoredDuringExecution:
+                      - topologyKey: kubernetes.io/hostname
+                        labelSelector:
+                          matchExpressions:
+                            - key: actions.github.com/scale-set-name
+                              operator: Exists
+                            - key: actions.github.com/scale-set-name
+                              operator: NotIn
+                              values: ["claude-code-usage-dashboard-arm"]
                 initContainers:
                   - name: init-dind-externals
                     image: ghcr.io/actions/actions-runner:latest
