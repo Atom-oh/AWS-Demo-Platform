@@ -35,3 +35,12 @@ resource "aws_ecr_pull_through_cache_rule" "ghcr" {
 }
 
 # apply: post-#38 runner infra (Atlantis). See PR body for sequence.
+
+# ECR Public (public.ecr.aws) pull-through cache: credential-free, so it is always on.
+# Images pull as <registry>/ecr-public/<upstream path>, for example
+# ecr-public/docker/library/node@sha256:... for the official Docker library images.
+# The first pull creates the cached repository (ecr:CreateRepository + ecr:BatchImportUpstreamImage).
+resource "aws_ecr_pull_through_cache_rule" "ecr_public" {
+  ecr_repository_prefix = "ecr-public"
+  upstream_registry_url = "public.ecr.aws"
+}
