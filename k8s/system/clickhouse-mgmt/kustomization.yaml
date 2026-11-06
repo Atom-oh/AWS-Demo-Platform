@@ -4,3 +4,4 @@ kind: Kustomization
 resources:
   - clickhouse-installation.yaml
   - internal-nlb-services.yaml
+  - ttobak-user-externalsecret.yaml
