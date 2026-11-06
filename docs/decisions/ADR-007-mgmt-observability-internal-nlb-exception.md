@@ -92,6 +92,10 @@ The operator expanded the PVC online to 200 GiB, truncated the system log
 tables and ran `ALTER TABLE ... MATERIALIZE TTL` on the otel tables (usage fell
 to 24%). The CHI now sets 200 GiB and a 7-day TTL for the system log tables
 (`system_log_ttl.xml`), keeping merge headroom so the otel TTL keeps running.
+The file must not name `query_log`, `part_log` or `trace_log`: the operator
+defines their engine with a 30-day TTL, and ClickHouse 24.8 refuses to start
+(code 36, BAD_ARGUMENTS) when a separate `ttl` is set for such a table. That
+restart loop took ingest down briefly on 2026-11-06 until this was corrected.
 
 When `system_log_ttl.xml` first loads, ClickHouse renames each system log table
 whose definition changed to `<name>_N` (for example `query_log_0`) and creates a

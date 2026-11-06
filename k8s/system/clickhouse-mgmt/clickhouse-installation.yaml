@@ -46,13 +46,12 @@ spec:
     files:
       # ClickHouse's own system log tables have no retention by default; on
       # 2026-11-06 they held ~60 GB and filled the volume (all inserts failed).
-      # Keep 7 days of each. Loaded from config.d.
+      # Keep 7 days of each. Loaded from config.d. query_log, part_log and
+      # trace_log are omitted: the operator defines their engine (with a 30-day
+      # TTL), and ClickHouse rejects a separate <ttl> for such tables (code 36).
       system_log_ttl.xml: |
         <clickhouse>
-          <query_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></query_log>
           <query_views_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></query_views_log>
-          <part_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></part_log>
-          <trace_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></trace_log>
           <text_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></text_log>
           <metric_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></metric_log>
           <asynchronous_metric_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></asynchronous_metric_log>
