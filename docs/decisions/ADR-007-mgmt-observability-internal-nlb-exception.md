@@ -80,3 +80,24 @@ A single-cluster replacement needs its own verified cutover.
 
 See [project tolerance and ingress rules](../../CLAUDE.md),
 [architecture](../architecture.md) and [Grafana's separate route](ADR-018-grafana-private-origin.md).
+
+## Operational amendment: data volume retention
+
+Disk incident 2026-11-06 (operational amendment): the 100 GiB data volume
+reached 100% (`Cannot reserve 1.00 MiB`), rejecting every insert. About 60 GiB
+was ClickHouse system log tables without retention. Otel data past its 30-day
+TTL also remained, because TTL deletion runs as background merges that need
+free space; once the disk filled, no merge (and no TTL removal) could run.
+The operator expanded the PVC online to 200 GiB, truncated the system log
+tables and ran `ALTER TABLE ... MATERIALIZE TTL` on the otel tables (usage fell
+to 24%). The CHI now sets 200 GiB and a 7-day TTL for the system log tables
+(`system_log_ttl.xml`), keeping merge headroom so the otel TTL keeps running.
+
+When `system_log_ttl.xml` first loads, ClickHouse renames each system log table
+whose definition changed to `<name>_N` (for example `query_log_0`) and creates a
+new table with the TTL; the renamed tables never expire. After the rollout,
+list them with `SELECT name FROM system.tables WHERE database='system' AND
+match(name, '_log_[0-9]+$')` and drop them on each node; a table over
+`max_table_size_to_drop` (50 GB default) needs the documented override. No
+volume-usage alert exists yet; adding one (for example at 80%) is a follow-up.
+

@@ -44,6 +44,22 @@ spec:
     settings:
       format_schema_path: /etc/clickhouse-server/config.d/
     files:
+      # ClickHouse's own system log tables have no retention by default; on
+      # 2026-11-06 they held ~60 GB and filled the volume (all inserts failed).
+      # Keep 7 days of each. Loaded from config.d.
+      system_log_ttl.xml: |
+        <clickhouse>
+          <query_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></query_log>
+          <query_views_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></query_views_log>
+          <part_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></part_log>
+          <trace_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></trace_log>
+          <text_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></text_log>
+          <metric_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></metric_log>
+          <asynchronous_metric_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></asynchronous_metric_log>
+          <processors_profile_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></processors_profile_log>
+          <asynchronous_insert_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></asynchronous_insert_log>
+          <error_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></error_log>
+        </clickhouse>
       init_otel_schema.sql: |
         CREATE DATABASE IF NOT EXISTS otel;
 
@@ -137,7 +153,9 @@ spec:
             - ReadWriteOnce
           resources:
             requests:
-              storage: 100Gi
+              # Expanded online on 2026-11-06 (gp3, allowVolumeExpansion) after
+              # the 100Gi volume filled; PVCs cannot shrink.
+              storage: 200Gi
     serviceTemplates:
       - name: svc-template
         generateName: clickhouse-{chi}
