@@ -72,6 +72,13 @@ query metadata. This is not a platform-wide guarantee: the unauthenticated
 `default` user still can until it is locked. Locking `default` remains the separate
 coordinated hardening described below.
 
+Disk incident 2026-11-06: the 100Gi data volume reached 100% (`Cannot reserve
+1.00 MiB`), rejecting every insert. About 60 GB was ClickHouse system log tables
+without retention, and otel data past its 30-day TTL had not been removed. The
+operator expanded the PVC online to 200Gi, truncated the system log tables and
+ran `ALTER TABLE ... MATERIALIZE TTL` on the otel tables. The CHI now sets
+200Gi and a 7-day TTL for the system log tables (`system_log_ttl.xml`).
+
 A future hardening change must coordinate credentials/exporters or narrower
 source ranges. Inventory live consumers before removal: the owning
 [ClickHouse ApplicationSet](../../argocd-apps/system/appset-clickhouse.yaml)
