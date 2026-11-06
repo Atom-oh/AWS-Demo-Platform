@@ -72,6 +72,17 @@ query metadata. This is not a platform-wide guarantee: the unauthenticated
 `default` user still can until it is locked. Locking `default` remains the separate
 coordinated hardening described below.
 
+A future hardening change must coordinate credentials/exporters or narrower
+source ranges. Inventory live consumers before removal: the owning
+[ClickHouse ApplicationSet](../../argocd-apps/system/appset-clickhouse.yaml)
+uses pruning, so deleting the Service manifests can remove their load balancers.
+A single-cluster replacement needs its own verified cutover.
+
+See [project tolerance and ingress rules](../../CLAUDE.md),
+[architecture](../architecture.md) and [Grafana's separate route](ADR-018-grafana-private-origin.md).
+
+## Operational amendment: data volume retention
+
 Disk incident 2026-11-06 (operational amendment): the 100 GiB data volume
 reached 100% (`Cannot reserve 1.00 MiB`), rejecting every insert. About 60 GiB
 was ClickHouse system log tables without retention. Otel data past its 30-day
@@ -86,13 +97,7 @@ When `system_log_ttl.xml` first loads, ClickHouse renames each system log table
 whose definition changed to `<name>_N` (for example `query_log_0`) and creates a
 new table with the TTL; the renamed tables never expire. After the rollout,
 list them with `SELECT name FROM system.tables WHERE database='system' AND
-match(name, '_log_[0-9]+$')` and drop them. Watch volume usage; alert before 80%.
+match(name, '_log_[0-9]+$')` and drop them on each node; a table over
+`max_table_size_to_drop` (50 GB default) needs the documented override. No
+volume-usage alert exists yet; adding one (for example at 80%) is a follow-up.
 
-A future hardening change must coordinate credentials/exporters or narrower
-source ranges. Inventory live consumers before removal: the owning
-[ClickHouse ApplicationSet](../../argocd-apps/system/appset-clickhouse.yaml)
-uses pruning, so deleting the Service manifests can remove their load balancers.
-A single-cluster replacement needs its own verified cutover.
-
-See [project tolerance and ingress rules](../../CLAUDE.md),
-[architecture](../architecture.md) and [Grafana's separate route](ADR-018-grafana-private-origin.md).
