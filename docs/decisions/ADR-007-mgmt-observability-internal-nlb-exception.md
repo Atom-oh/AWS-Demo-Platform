@@ -60,7 +60,9 @@ returned `default` without credentials, confirming the exposure. The ClickHouse
 PrivateLink service also admits consumers whose traffic arrives from NLB
 addresses inside this range. New consumers therefore use credentialed users:
 `ttobak` (password via ESO from `/demo-platform/clickhouse/ttobak`, restricted
-to the `otel` database) is the first. Locking `default` remains the separate
+to the `otel` database) is the first. Its explicit `grants/query` limits it to
+SELECT, INSERT, ALTER and the exporter's CREATE privileges on `otel.*`, replacing
+the broad global privileges a users.xml user otherwise receives. Locking `default` remains the separate
 coordinated hardening described below.
 
 A future hardening change must coordinate credentials/exporters or narrower
