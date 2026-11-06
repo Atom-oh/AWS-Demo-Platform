@@ -32,8 +32,12 @@ spec:
         - "10.0.0.0/8"
       ttobak/profile: default
       ttobak/quota: default
-      ttobak/allow_databases/database:
-        - "otel"
+      # Explicit grants replace the broad implicit users.xml privileges (e.g.
+      # SYSTEM SHUTDOWN on *.*) and restrict the user to otel. ClickHouse rejects
+      # `grants` combined with allow_databases, so the allow-list is removed.
+      # The exporter's create_schema needs CREATE on otel.
+      ttobak/grants/query:
+        - "GRANT SELECT, INSERT, ALTER, CREATE DATABASE, CREATE TABLE, CREATE VIEW ON otel.*"
     profiles:
       default/max_memory_usage: "8000000000"
       default/max_query_size: "1073741824"

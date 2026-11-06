@@ -60,7 +60,16 @@ returned `default` without credentials, confirming the exposure. The ClickHouse
 PrivateLink service also admits consumers whose traffic arrives from NLB
 addresses inside this range. New consumers therefore use credentialed users:
 `ttobak` (password via ESO from `/demo-platform/clickhouse/ttobak`, restricted
-to the `otel` database) is the first. Locking `default` remains the separate
+to the `otel` database) is the first. Its explicit `grants/query` limits it to
+SELECT, INSERT, ALTER and the exporter's CREATE privileges on `otel.*`, replacing
+the broad global privileges a users.xml user otherwise receives. ClickHouse
+rejects `grants` combined with `allow_databases` (a 24.8 server with both exits
+at startup, code 36), so the user has grants only. Verified on the same
+24.8 image: the grants-only user lists no other databases and receives
+`ACCESS_DENIED` (497) for `system.query_log`, `system.processes` and
+`system.users`, so the `ttobak` credential itself cannot read other users'
+query metadata. This is not a platform-wide guarantee: the unauthenticated
+`default` user still can until it is locked. Locking `default` remains the separate
 coordinated hardening described below.
 
 A future hardening change must coordinate credentials/exporters or narrower
