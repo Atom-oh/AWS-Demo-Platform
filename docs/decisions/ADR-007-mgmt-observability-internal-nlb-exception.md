@@ -62,7 +62,9 @@ addresses inside this range. New consumers therefore use credentialed users:
 `ttobak` (password via ESO from `/demo-platform/clickhouse/ttobak`, restricted
 to the `otel` database) is the first. Its explicit `grants/query` limits it to
 SELECT, INSERT, ALTER and the exporter's CREATE privileges on `otel.*`, replacing
-the broad global privileges a users.xml user otherwise receives. Locking `default` remains the separate
+the broad global privileges a users.xml user otherwise receives. ClickHouse
+rejects `grants` combined with `allow_databases` (a 24.8 server with both exits
+at startup, code 36), so the user has grants only. Locking `default` remains the separate
 coordinated hardening described below.
 
 A future hardening change must coordinate credentials/exporters or narrower
