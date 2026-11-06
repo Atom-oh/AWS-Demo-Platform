@@ -55,6 +55,14 @@ under this configuration; actual reachability/authentication still needs runtime
 verification. This residual risk was accepted for the reused non-production hub,
 not as a general database security pattern.
 
+Runtime check on 2026-11-06: an HTTP query from the TGW-connected mgmt VPC
+returned `default` without credentials, confirming the exposure. The ClickHouse
+PrivateLink service also admits consumers whose traffic arrives from NLB
+addresses inside this range. New consumers therefore use credentialed users:
+`ttobak` (password via ESO from `/demo-platform/clickhouse/ttobak`, restricted
+to the `otel` database) is the first. Locking `default` remains the separate
+coordinated hardening described below.
+
 A future hardening change must coordinate credentials/exporters or narrower
 source ranges. Inventory live consumers before removal: the owning
 [ClickHouse ApplicationSet](../../argocd-apps/system/appset-clickhouse.yaml)

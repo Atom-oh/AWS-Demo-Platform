@@ -25,6 +25,15 @@ spec:
         - "10.0.0.0/8"
       default/profile: default
       default/quota: default
+      # Credentialed writer for ttobak's collector (via the ClickHouse
+      # PrivateLink). Limited to the otel database; password from ESO.
+      ttobak/k8s_secret_password: observability/clickhouse-ttobak/password
+      ttobak/networks/ip:
+        - "10.0.0.0/8"
+      ttobak/profile: default
+      ttobak/quota: default
+      ttobak/allow_databases/database:
+        - "otel"
     profiles:
       default/max_memory_usage: "8000000000"
       default/max_query_size: "1073741824"
