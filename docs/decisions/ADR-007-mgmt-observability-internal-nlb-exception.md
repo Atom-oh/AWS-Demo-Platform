@@ -67,7 +67,9 @@ rejects `grants` combined with `allow_databases` (a 24.8 server with both exits
 at startup, code 36), so the user has grants only. Verified on the same
 24.8 image: the grants-only user lists no other databases and receives
 `ACCESS_DENIED` (497) for `system.query_log`, `system.processes` and
-`system.users`, so other users' query metadata stays hidden. Locking `default` remains the separate
+`system.users`, so the `ttobak` credential itself cannot read other users'
+query metadata. This is not a platform-wide guarantee: the unauthenticated
+`default` user still can until it is locked. Locking `default` remains the separate
 coordinated hardening described below.
 
 A future hardening change must coordinate credentials/exporters or narrower
