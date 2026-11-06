@@ -72,12 +72,21 @@ query metadata. This is not a platform-wide guarantee: the unauthenticated
 `default` user still can until it is locked. Locking `default` remains the separate
 coordinated hardening described below.
 
-Disk incident 2026-11-06: the 100Gi data volume reached 100% (`Cannot reserve
-1.00 MiB`), rejecting every insert. About 60 GB was ClickHouse system log tables
-without retention, and otel data past its 30-day TTL had not been removed. The
-operator expanded the PVC online to 200Gi, truncated the system log tables and
-ran `ALTER TABLE ... MATERIALIZE TTL` on the otel tables. The CHI now sets
-200Gi and a 7-day TTL for the system log tables (`system_log_ttl.xml`).
+Disk incident 2026-11-06 (operational amendment): the 100 GiB data volume
+reached 100% (`Cannot reserve 1.00 MiB`), rejecting every insert. About 60 GiB
+was ClickHouse system log tables without retention. Otel data past its 30-day
+TTL also remained, because TTL deletion runs as background merges that need
+free space; once the disk filled, no merge (and no TTL removal) could run.
+The operator expanded the PVC online to 200 GiB, truncated the system log
+tables and ran `ALTER TABLE ... MATERIALIZE TTL` on the otel tables (usage fell
+to 24%). The CHI now sets 200 GiB and a 7-day TTL for the system log tables
+(`system_log_ttl.xml`), keeping merge headroom so the otel TTL keeps running.
+
+When `system_log_ttl.xml` first loads, ClickHouse renames each system log table
+whose definition changed to `<name>_N` (for example `query_log_0`) and creates a
+new table with the TTL; the renamed tables never expire. After the rollout,
+list them with `SELECT name FROM system.tables WHERE database='system' AND
+match(name, '_log_[0-9]+$')` and drop them. Watch volume usage; alert before 80%.
 
 A future hardening change must coordinate credentials/exporters or narrower
 source ranges. Inventory live consumers before removal: the owning
