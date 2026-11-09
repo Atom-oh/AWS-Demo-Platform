@@ -43,6 +43,18 @@ jobs:
           TAG="cli-${CLAUDE_VERSION}-$(date -u +%Y%m%dt%H%M%Sz)"
           IMAGE="$ECR_REGISTRY/$REPO:$TAG"
 
+          docker build --pull --platform=linux/arm64 \
+            --build-arg CLAUDE_VERSION="$CLAUDE_VERSION" \
+            -t "$IMAGE" docker/actions-runner-claude
+
+          # The runner executing this job has no AWS CLI; the image just built installs
+          # AWS CLI v2, so ECR calls run from it with this job's OIDC session env.
+          aws() {
+            docker run --rm -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
+              -e AWS_SESSION_TOKEN -e AWS_REGION -e AWS_DEFAULT_REGION \
+              --entrypoint aws "$IMAGE" "$@"
+          }
+
           # Refuse an existing tag. Only ImageNotFound means absent; any other failure stops.
           # --output text renders a null query result as the literal "None".
           read -r found code < <(aws ecr batch-get-image --repository-name "$REPO" \
@@ -52,10 +64,6 @@ jobs:
             echo "tag $TAG is not provably absent (images=$found failure=$code)" >&2
             exit 1
           fi
-
-          docker build --pull --platform=linux/arm64 \
-            --build-arg CLAUDE_VERSION="$CLAUDE_VERSION" \
-            -t "$IMAGE" docker/actions-runner-claude
 
           got="$(docker run --rm --entrypoint claude "$IMAGE" --version | awk '{print $1}')"
           [ "$got" = "$CLAUDE_VERSION" ] || { echo "claude $got != $CLAUDE_VERSION" >&2; exit 1; }
