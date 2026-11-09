@@ -88,6 +88,32 @@ from retained artifacts if available. Otherwise build/verify a compatible replac
 under a new unique compatibility tag and review its digest before selection.
 Never move the old tag, spoof the CLI version or weaken review gates.
 
+Build a replacement with the manual
+[`runner-image-compat.yml`](../../.github/workflows/runner-image-compat.yml)
+workflow on `main` (input: the exact Claude CLI version). It uses the current
+upstream runner base and current gh/AWS CLI/Node/Codex/Kiro, installs exactly that
+Claude version (the build fails otherwise) and pushes only a new
+`cli-<version>-<UTC timestamp>` tag, never `latest`, `sha-*` or an existing tag.
+The run summary records the tag, index digest, Claude version and actions-runner
+version. Selecting that digest in the appset is a separate reviewed change.
+
+### Dated observation: frozen runner binary (2026-11-09 UTC)
+
+The frozen index also freezes the GitHub Actions runner binary, and the ARC
+runner does not self-update. On 2026-11-09 ai-trader-web review run
+[42537157003](https://github.com/Atom-oh/ai-trader-web/actions/runs/42537157003)
+stayed queued: two successive `ai-trader-web-claude-arm` EphemeralRunners reached
+`Failed` / `TooManyPodFailures` (six Pod starts each, each exiting within about a
+minute), while `:latest` fleets on the same cluster ran jobs. Local inspection of
+the pinned index found actions runner `2.336.0`; the latest upstream release was
+`v2.338.2` (2026-10-26). The failed Pods were already gone, so their exit logs were
+not captured; the stale runner is the supported cause, not a recorded log line. A
+local build of this Dockerfile with `CLAUDE_VERSION=2.1.240` produced runner
+`2.338.2` and `2.1.240 (Claude Code)`.
+
+A version-pinned fleet therefore needs a periodic replacement build even when the
+consumer's CLI contract has not changed.
+
 Do not restore moving `latest` while the consumer requires a fixed version.
 Verify the replacement runner and full review before retiring the old reference.
 This procedure changes CI infrastructure; it does not authorize trading runtime,

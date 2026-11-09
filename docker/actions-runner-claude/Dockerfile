@@ -6,7 +6,8 @@ ARG ECR_BASE=ghcr.io/actions/actions-runner:latest
 FROM ${ECR_BASE}
 
 # All tools install at vendor-latest (no version/SHA pin) — weekly builds are meant to track
-# upstream, so pinning would defeat the point.
+# upstream, so pinning would defeat the point. The one exception is the optional
+# CLAUDE_VERSION build arg below, set only by runner-image-compat.yml.
 ARG NODE_MAJOR=24
 ARG TARGETARCH=arm64
 
@@ -48,10 +49,17 @@ USER runner
 WORKDIR /home/runner
 
 # claude-code — used by the chair (synthesize.sh) via `claude -p`.
+# CLAUDE_VERSION is empty for the weekly shared build (vendor-latest). The
+# compatibility build (runner-image-compat.yml) sets an exact version for a consumer
+# fleet that verifies a fixed CLI; the build fails unless that exact version installed.
+ARG CLAUDE_VERSION=
 RUN curl -fsSL https://claude.ai/install.sh -o /tmp/claude-install.sh \
- && bash /tmp/claude-install.sh \
+ && bash /tmp/claude-install.sh ${CLAUDE_VERSION} \
  && rm /tmp/claude-install.sh \
- && claude --version
+ && claude --version \
+ && if [ -n "${CLAUDE_VERSION}" ]; then \
+      test "$(claude --version | awk '{print $1}')" = "${CLAUDE_VERSION}"; \
+    fi
 
 # Codex — native Bedrock config (see config.toml below).
 RUN curl -fsSL https://chatgpt.com/codex/install.sh -o /tmp/codex-install.sh \

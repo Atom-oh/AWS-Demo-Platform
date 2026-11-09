@@ -1,0 +1,77 @@
+name: Build Runner Compatibility Image
+# Builds an actions-runner-claude image with an exact Claude CLI version for a consumer
+# fleet that verifies a fixed CLI (docs/runbooks/ai-trader-review-runner.md). The base
+# runner, gh, AWS CLI, Node, Codex and Kiro are current; only Claude is fixed.
+#
+# Pushes ONLY a new unique `cli-<version>-<UTC timestamp>` tag: never `latest`, never
+# `sha-*`, never an existing tag (the repository's tags are mutable, so this workflow
+# refuses an existing tag itself). Selecting the new digest in a fleet is a separate
+# reviewed change; this workflow does not touch any ArgoCD application.
+
+on:
+  workflow_dispatch:
+    inputs:
+      claude_version:
+        description: "Exact Claude CLI version, e.g. 2.1.240"
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: aws-demo-platform-arm
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      ECR_REGISTRY: 180294183052.dkr.ecr.ap-northeast-2.amazonaws.com
+      REPO: actions-runner-claude
+      CLAUDE_VERSION: ${{ inputs.claude_version }}
+    steps:
+      - name: Validate version input
+        run: |
+          set -euo pipefail
+          [[ "$CLAUDE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "invalid version: $CLAUDE_VERSION" >&2; exit 1; }
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::180294183052:role/demo-platform-gha-ecr-push
+          aws-region: ap-northeast-2
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build, verify & push (native ARM64)
+        run: |
+          set -euo pipefail
+          TAG="cli-${CLAUDE_VERSION}-$(date -u +%Y%m%dt%H%M%Sz)"
+          IMAGE="$ECR_REGISTRY/$REPO:$TAG"
+
+          # Refuse an existing tag. Only ImageNotFound means absent; any other failure stops.
+          # --output text renders a null query result as the literal "None".
+          read -r found code < <(aws ecr batch-get-image --repository-name "$REPO" \
+            --image-ids imageTag="$TAG" --output text \
+            --query '[length(images || `[]`), failures[0].failureCode]')
+          if [ "$found" != "0" ] || [ "$code" != "ImageNotFound" ]; then
+            echo "tag $TAG is not provably absent (images=$found failure=$code)" >&2
+            exit 1
+          fi
+
+          docker build --pull --platform=linux/arm64 \
+            --build-arg CLAUDE_VERSION="$CLAUDE_VERSION" \
+            -t "$IMAGE" docker/actions-runner-claude
+
+          got="$(docker run --rm --entrypoint claude "$IMAGE" --version | awk '{print $1}')"
+          [ "$got" = "$CLAUDE_VERSION" ] || { echo "claude $got != $CLAUDE_VERSION" >&2; exit 1; }
+          # Runner.Listener also logs to stdout; the version is the last line.
+          runner_version="$(docker run --rm --entrypoint /home/runner/bin/Runner.Listener "$IMAGE" --version | tail -n 1)"
+          [[ "$runner_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "unparsed runner version: $runner_version" >&2; exit 1; }
+
+          docker push "$IMAGE"
+          digest="$(aws ecr batch-get-image --repository-name "$REPO" \
+            --image-ids imageTag="$TAG" --query 'images[0].imageId.imageDigest' --output text)"
+          case "$digest" in sha256:*) ;; *) echo "no digest for $TAG: $digest" >&2; exit 1 ;; esac
+
+          {
+            echo "### Compatibility image"
+            echo "- tag: \`$TAG\`"
+            echo "- digest: \`$digest\`"
+            echo "- claude: \`$got\`"
+            echo "- actions runner: \`$runner_version\`"
+          } >> "$GITHUB_STEP_SUMMARY"
