@@ -94,8 +94,11 @@ workflow on `main` (input: the exact Claude CLI version). It uses the current
 upstream runner base and current gh/AWS CLI/Node/Codex/Kiro, installs exactly that
 Claude version (the build fails otherwise) and pushes only a new
 `cli-<version>-<UTC timestamp>` tag, never `latest`, `sha-*` or an existing tag.
-The run summary records the tag, index digest, Claude version and actions-runner
-version. Selecting that digest in the appset is a separate reviewed change.
+The run summary records the tag, the pushed image digest, Claude version and
+actions-runner version. Depending on the runner's Docker image store, that digest
+is an OCI index (like the current pin) or a single-platform manifest; either
+pins content. Inspect which one it is, and its ARM64 child for an index, before
+selecting it in the appset, which is a separate reviewed change.
 
 ### Dated observation: frozen runner binary (2026-11-09 UTC)
 
