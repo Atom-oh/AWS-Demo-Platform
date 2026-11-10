@@ -55,8 +55,8 @@ spec:
                   kubernetes.io/arch: arm64
                 containers:
                   - name: runner
-                    # CLI 2.1.240; retention/upgrade procedure: docs/runbooks/ai-trader-review-runner.md.
-                    image: 180294183052.dkr.ecr.ap-northeast-2.amazonaws.com/actions-runner-claude:cli-2.1.240@sha256:cc315b2a639f1ad215a9907ee92128cadb586bf5390f32a84bcc82db81a7808a
+                    # CLI 2.1.240, actions runner 2.338.2; retention/upgrade procedure: docs/runbooks/ai-trader-review-runner.md.
+                    image: 180294183052.dkr.ecr.ap-northeast-2.amazonaws.com/actions-runner-claude:cli-2.1.240-20261110t062144z@sha256:f23d3702a5fcfe385461abc753d612566182e58ce3e7aadbce19d1da9c9eb765
                     imagePullPolicy: IfNotPresent
                     command: ["/home/runner/run.sh"]
                     env:

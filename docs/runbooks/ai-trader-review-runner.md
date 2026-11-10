@@ -8,9 +8,12 @@ verify ai-trader-web's current workflow before changing the exception.
 
 This repository's
 [`appset-helm-runner-claude-arm-ai-trader-web.yaml`](../../argocd-apps/system/appset-helm-runner-claude-arm-ai-trader-web.yaml)
-selects `actions-runner-claude:cli-2.1.240` with index digest
-`sha256:cc315b2a639f1ad215a9907ee92128cadb586bf5390f32a84bcc82db81a7808a`,
-`imagePullPolicy: IfNotPresent` and `DISABLE_AUTOUPDATER=1`. The digest selects
+selects `actions-runner-claude:cli-2.1.240-20261110t062144z` with index digest
+`sha256:f23d3702a5fcfe385461abc753d612566182e58ce3e7aadbce19d1da9c9eb765`
+(see "Replacement selection" below), `imagePullPolicy: IfNotPresent` and
+`DISABLE_AUTOUPDATER=1`. The previous `cli-2.1.240` index
+`sha256:cc315b2a639f1ad215a9907ee92128cadb586bf5390f32a84bcc82db81a7808a` stays
+retained until the replacement's real review passes. The digest selects
 content; the tag supports retention/audit. Tag read-back alone does not verify
 that the image is pullable or contains the required CLI. Check the actual runner.
 The updater setting applies to Claude; the digest freezes the whole image/toolchain.
@@ -42,12 +45,13 @@ Recheck the digest independently of the tag and inspect policy immediately befor
 consumer synchronization or recovery:
 
 ```bash
-RUNNER_DIGEST=sha256:cc315b2a639f1ad215a9907ee92128cadb586bf5390f32a84bcc82db81a7808a
+RUNNER_DIGEST=sha256:f23d3702a5fcfe385461abc753d612566182e58ce3e7aadbce19d1da9c9eb765
+RUNNER_TAG=cli-2.1.240-20261110t062144z
 aws ecr describe-images --region ap-northeast-2 \
   --repository-name actions-runner-claude --image-ids imageDigest="$RUNNER_DIGEST" \
   --query 'imageDetails[0].{digest:imageDigest,tags:imageTags}'
 aws ecr describe-images --region ap-northeast-2 \
-  --repository-name actions-runner-claude --image-ids imageTag=cli-2.1.240 \
+  --repository-name actions-runner-claude --image-ids imageTag="$RUNNER_TAG" \
   --query 'imageDetails[0].{digest:imageDigest,tags:imageTags}'
 aws ecr batch-get-image --region ap-northeast-2 \
   --repository-name actions-runner-claude --image-ids imageDigest="$RUNNER_DIGEST" \
@@ -116,6 +120,30 @@ local build of this Dockerfile with `CLAUDE_VERSION=2.1.240` produced runner
 
 A version-pinned fleet therefore needs a periodic replacement build even when the
 consumer's CLI contract has not changed.
+
+### Replacement selection (2026-11-10 UTC)
+
+[Build run 42767943850](https://github.com/Atom-oh/AWS-Demo-Platform/actions/runs/42767943850)
+on `main` (`33b116d`) pushed `cli-2.1.240-20261110t062144z`. ECR
+`describe-images` and `batch-get-image` on 2026-11-10 reported:
+
+- OCI index `sha256:f23d3702a5fcfe385461abc753d612566182e58ce3e7aadbce19d1da9c9eb765`,
+  whose only tag is `cli-2.1.240-20261110t062144z`.
+- Linux/ARM64 child manifest
+  `sha256:ec4dc322ef75ebbd86a3805ab95e9672476ad324f590b6e813fed7183a640a33`, plus
+  one attestation manifest.
+- `get-lifecycle-policy`: `LifecyclePolicyNotFoundException`.
+
+Pulling that digest on a workstation and running it reported
+`2.1.240 (Claude Code)`, actions runner `2.338.2`, `arm64 linux`.
+
+The concurrent [run 42767928450](https://github.com/Atom-oh/AWS-Demo-Platform/actions/runs/42767928450)
+pushed `cli-2.1.240-20261110t062136z`
+(`sha256:bff51bfc15b861128fa4b44fd6990b702524fe09c502e76673253caf1972d099`).
+Nothing selects it. It is a removal candidate for an operator; this change does not
+delete it. The previous `cli-2.1.240` index keeps its tag and stays retained. Retire
+it only after the replacement's real ai-trader-web review completes (Verification
+step 3).
 
 Do not restore moving `latest` while the consumer requires a fixed version.
 Verify the replacement runner and full review before retiring the old reference.
