@@ -43,6 +43,16 @@ jobs:
           TAG="cli-${CLAUDE_VERSION}-$(date -u +%Y%m%dt%H%M%Sz)"
           IMAGE="$ECR_REGISTRY/$REPO:$TAG"
 
+          # The runner executing this job has no AWS CLI. ECR calls run from the official
+          # AWS CLI image pinned by index digest (2.39.0), never from the image under test:
+          # that image runs vendor-latest installers and must not receive this role's session.
+          AWS_CLI_IMAGE="public.ecr.aws/aws-cli/aws-cli:2.39.0@sha256:6014c77975a4ae237395924cc821333f20bf87c91964a45dd4ed5f3b13b424f5"
+          aws() {
+            docker run --rm -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY \
+              -e AWS_SESSION_TOKEN -e AWS_REGION -e AWS_DEFAULT_REGION \
+              "$AWS_CLI_IMAGE" "$@"
+          }
+
           # Refuse an existing tag. Only ImageNotFound means absent; any other failure stops.
           # --output text renders a null query result as the literal "None".
           read -r found code < <(aws ecr batch-get-image --repository-name "$REPO" \
