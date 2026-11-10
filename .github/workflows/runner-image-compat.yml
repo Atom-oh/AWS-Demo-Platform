@@ -69,8 +69,11 @@ jobs:
 
           got="$(docker run --rm --entrypoint claude "$IMAGE" --version | awk '{print $1}')"
           [ "$got" = "$CLAUDE_VERSION" ] || { echo "claude $got != $CLAUDE_VERSION" >&2; exit 1; }
-          # Runner.Listener also logs to stdout; the version is the last line.
-          runner_version="$(docker run --rm --entrypoint /home/runner/bin/Runner.Listener "$IMAGE" --version | tail -n 1)"
+          # Runner.Listener interleaves its own log lines with the version on stdout, in no
+          # fixed order; take the one line that is exactly a version. No match leaves it
+          # empty, and the check below fails closed.
+          runner_version="$(docker run --rm --entrypoint /home/runner/bin/Runner.Listener "$IMAGE" --version \
+            | grep -Ex '[0-9]+\.[0-9]+\.[0-9]+' | tail -n 1 || true)"
           [[ "$runner_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "unparsed runner version: $runner_version" >&2; exit 1; }
 
           docker push "$IMAGE"
